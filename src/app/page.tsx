@@ -1,69 +1,111 @@
-import Image from "next/image";
+// 'use client'
 
-export default function Home() {
+import { Icon } from '@/components/ui/Icon'
+import { IconName } from '@/types'
+import Link from 'next/link'
+
+const statsCards: { icon: IconName; label: string; val: string; color: string }[] = [
+  { icon: 'patients', label: 'Pacientes Activos', val: '48', color: 'bg-blue-600' },
+  { icon: 'consultas', label: 'Consultas hoy', val: '12', color: 'bg-doc-amber' },
+  { icon: 'prescripciones', label: 'Prescripciones', val: '31', color: 'bg-emerald-600' },
+  { icon: 'clinicas', label: 'Clínicas', val: '3', color: 'bg-purple-600' },
+]
+
+export default function HomePage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-[#EEF2F7] to-[#dde8f5]">
+      {/* Navigation */}
+      <nav className="flex items-center justify-between px-8 py-4 bg-gradient-to-r from-doc-navy to-doc-navy-light shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-doc-amber shadow-sm">
+            <Icon name="shield" size={16} color="white" />
+          </div>
+          <span className="text-white font-bold text-lg font-outfit">
+            DocRecord <span className="text-doc-amber">Sv</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/login"
+            className="text-blue-200 hover:text-white text-sm font-medium transition-colors px-4 py-2"
+          >
+            Iniciar sesión
+          </Link>
+          <Link
+            href="/register"
+            className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-doc-amber hover:opacity-90 transition-all shadow-sm"
+          >
+            Registrarme
+          </Link>
+        </div>
+      </nav>
+
+      {/* Hero Section */}
+      <div className="flex-1 grid lg:grid-cols-2 items-center max-w-6xl mx-auto w-full px-8 gap-12 py-16">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full mb-6 text-xs font-semibold bg-doc-blue/10 text-doc-blue border border-doc-blue/20">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse" />
+            Sistema clínico ambulatorio · El Salvador
+          </div>
+
+          <h1 className="text-4xl lg:text-5xl font-extrabold text-slate-800 mb-6 leading-tight font-outfit">
+            Gestiona expedientes, consultas y citas{' '}
+            <span className="text-doc-amber">desde un solo lugar.</span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+
+          <p className="text-slate-600 text-lg mb-8 leading-relaxed">
+            Digitaliza y centraliza el historial clínico de tus pacientes. Trazabilidad completa entre médicos,
+            enfermeras y pacientes en clínicas ambulatorias.
           </p>
+
+          <div className="flex flex-wrap items-center gap-4">
+            <Link
+              href="/register"
+              className="px-8 py-3.5 rounded-2xl font-semibold text-white text-base bg-gradient-to-r from-doc-blue to-doc-blue-light shadow-lg shadow-doc-blue/25 hover:opacity-95 hover:-translate-y-0.5 transition-all"
+            >
+              Registrar médico
+            </Link>
+            <Link
+              href="/login"
+              className="px-8 py-3.5 rounded-2xl font-semibold text-slate-700 text-base border-2 border-slate-300 hover:border-slate-400 bg-white/50 backdrop-blur-xs transition-colors"
+            >
+              Ingresar
+            </Link>
+          </div>
+
+          <div className="mt-10 flex items-center gap-8 border-t border-slate-200/80 pt-6">
+            {[
+              ['9+', 'Módulos clínicos'],
+              ['Multi-rol', 'Médico · Enfermera'],
+              ['Geoloc.', 'Mapa de clínicas'],
+            ].map(([val, lbl]) => (
+              <div key={lbl}>
+                <p className="text-xl font-bold text-slate-800 font-outfit">{val}</p>
+                <p className="text-xs text-slate-500">{lbl}</p>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* Hero preview cards */}
+        <div className="relative hidden lg:flex justify-center">
+          <div className="absolute inset-0 rounded-3xl opacity-50 bg-radial from-blue-200/50 to-transparent blur-xl" />
+          <div className="relative grid grid-cols-2 gap-4 max-w-sm w-full">
+            {statsCards.map(({ icon, label, val, color }) => (
+              <div
+                key={label}
+                className="bg-white/90 backdrop-blur-xs rounded-2xl p-5 shadow-lg border border-slate-100/80 hover:scale-[1.02] transition-transform"
+              >
+                <div className={`w-10 h-10 rounded-xl ${color} flex items-center justify-center mb-3 shadow-xs`}>
+                  <Icon name={icon} size={18} color="white" />
+                </div>
+                <p className="text-2xl font-bold text-slate-800 font-outfit">{val}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
         </div>
-      </main>
+      </div>
     </div>
-  );
+  )
 }
