@@ -2,7 +2,7 @@
 // Traduce entre los DTO del backend (`ues.edu.sv.education.model.dto.auth`) y
 // los tipos que usa la interfaz.
 
-import { apiFetch, clearTokens, getRefreshToken, setTokens } from '@/lib/api'
+import { ApiError, apiFetch, clearTokens, getRefreshToken, setTokens } from '@/lib/api'
 import type { Role, User } from '@/types'
 
 /** Espejo de `LoginResponseDto` del backend. */
@@ -62,11 +62,24 @@ export async function login(
   password: string,
   rolPorDefecto: Role = 'medico',
 ): Promise<User> {
-  const datos = await apiFetch<LoginResponseDto>('/auth/login', {
-    method: 'POST',
-    auth: false,
-    body: { email, password },
-  })
+  let datos: LoginResponseDto
+  try {
+    datos = await apiFetch<LoginResponseDto>('/auth/login', {
+      method: 'POST',
+      auth: false,
+      body: { email, password },
+    })
+  } catch (error) {
+    // El backend responde 404 «Registro no encontrado» cuando el correo no
+    // existe y 401 cuando la contraseña no coincide. Mostrar esos textos tal
+    // cual en la pantalla de login confunde al usuario, y distinguir «ese
+    // correo no existe» de «esa clave es incorrecta» revela qué cuentas están
+    // registradas. Se unifican en un solo mensaje.
+    if (error instanceof ApiError && (error.status === 401 || error.status === 404)) {
+      throw new ApiError(error.status, 'Correo o contraseña incorrectos.')
+    }
+    throw error
+  }
 
   setTokens(datos.token, datos.refreshToken)
 
