@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Clinica } from '@/types'
@@ -10,8 +10,16 @@ import { useAppContext } from '@/context/AppContext'
 
 export default function SelectClinicaPage() {
   const router = useRouter()
-  const { user, setActiveClinic } = useAppContext()
+  const { user, cargandoSesion, setActiveClinic } = useAppContext()
   const [hovered, setHovered] = useState<number | null>(null)
+
+  // Esta pantalla es el paso siguiente al login, así que sin sesión no tiene
+  // nada que mostrar.
+  useEffect(() => {
+    if (!cargandoSesion && !user) router.replace('/login')
+  }, [cargandoSesion, user, router])
+
+  if (!user) return null
 
   const select = (c: Clinica) => {
     setActiveClinic(c)

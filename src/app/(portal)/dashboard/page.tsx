@@ -6,7 +6,7 @@ import { chartData, appointments } from '@/data/mockData'
 import { StatCard } from '@/components/ui/StatCard'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
-import { useAppContext } from '@/context/AppContext'
+import { useUsuarioAutenticado } from '@/context/AppContext'
 import {
   AreaChart,
   Area,
@@ -18,7 +18,7 @@ import {
 } from 'recharts'
 
 export default function DashboardPage() {
-  const { user } = useAppContext()
+  const user = useUsuarioAutenticado()
 
   const currentDate = new Date().toLocaleDateString('es-SV', {
     day: 'numeric',

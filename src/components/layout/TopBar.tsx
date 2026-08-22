@@ -4,7 +4,7 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { Icon } from '@/components/ui/Icon'
-import { useAppContext } from '@/context/AppContext'
+import { useAppContext, useUsuarioAutenticado } from '@/context/AppContext'
 
 interface TopBarProps {
   title?: string
@@ -30,7 +30,8 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   const router = useRouter()
   const pathname = usePathname()
-  const { user, activeClinic } = useAppContext()
+  const { activeClinic, cerrarSesion } = useAppContext()
+  const user = useUsuarioAutenticado()
   const [menuOpen, setMenuOpen] = useState(false)
 
   const currentTitle =
@@ -122,7 +123,8 @@ export const TopBar: React.FC<TopBarProps> = ({
                 className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors font-medium cursor-pointer"
                 onClick={() => {
                   setMenuOpen(false)
-                  router.push('/')
+                  cerrarSesion()
+                  router.replace('/login')
                 }}
               >
                 <Icon name="logout" size={16} color="#dc2626" /> Cerrar sesión

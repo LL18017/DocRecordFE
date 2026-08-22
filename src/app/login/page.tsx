@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Role, IconName } from '@/types'
 import { Icon } from '@/components/ui/Icon'
 import { useAppContext } from '@/context/AppContext'
+import { ApiError } from '@/lib/api'
 
 const features: { icon: IconName; text: string }[] = [
   { icon: 'history', text: 'Historial clínico completo' },
@@ -15,26 +16,32 @@ const features: { icon: IconName; text: string }[] = [
 
 export default function LoginPage() {
   const router = useRouter()
-  const { setUser } = useAppContext()
+  const { iniciarSesion } = useAppContext()
   const [role, setRole] = useState<Role>('medico')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState(false)
 
-  const handleLogin = (e: React.SubmitEvent<HTMLFormElement>) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (role === 'medico') {
-      setUser({
-        name: 'Dr. Juan Armando Guerra Guevara',
-        role: 'medico',
-        specialty: 'Medicina General',
-        email: 'juan.guerra@docrecord.sv',
-      })
-    } else {
-      setUser({
-        name: 'Enf. María Elena López Torres',
-        role: 'enfermera',
-        email: 'maria.lopez@docrecord.sv',
-      })
+    setError(null)
+    setEnviando(true)
+
+    try {
+      // El rol seleccionado se envía solo como valor de respaldo: el rol real
+      // lo determina el backend. Ver `mapearRol` en services/auth.ts.
+      await iniciarSesion(email, password, role)
+      router.push('/select-clinica')
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'Ocurrió un error inesperado al iniciar sesión.',
+      )
+    } finally {
+      setEnviando(false)
     }
-    router.push('/select-clinica')
   }
 
   return (
@@ -90,7 +97,10 @@ export default function LoginPage() {
                 <input
                   type="email"
                   required
-                  defaultValue="juan.guerra@docrecord.sv"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  placeholder="usuario@docrecord.sv"
                   className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
                 />
               </div>
@@ -101,17 +111,30 @@ export default function LoginPage() {
                 <input
                   type="password"
                   required
-                  defaultValue="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  placeholder="••••••••"
                   className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
                 />
               </div>
             </div>
 
+            {error && (
+              <p
+                role="alert"
+                className="mb-4 rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
+              >
+                {error}
+              </p>
+            )}
+
             <button
               type="submit"
-              className="w-full py-3.5 rounded-2xl font-semibold text-white text-base bg-gradient-to-r from-doc-blue to-doc-blue-light hover:opacity-95 shadow-md shadow-doc-blue/20 transition-all cursor-pointer"
+              disabled={enviando}
+              className="w-full py-3.5 rounded-2xl font-semibold text-white text-base bg-gradient-to-r from-doc-blue to-doc-blue-light hover:opacity-95 shadow-md shadow-doc-blue/20 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Ingresar al sistema
+              {enviando ? 'Ingresando…' : 'Ingresar al sistema'}
             </button>
 
             <p className="text-center text-sm text-slate-500 mt-5">
