@@ -1,30 +1,18 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/ui/Icon'
 import { IconName } from '@/types'
 import { registrar } from '@/services/auth'
+import { listarEspecialidades, type EspecialidadDto } from '@/services/personas'
 import { ApiError } from '@/lib/api'
-
-const specialties = [
-  'Medicina General',
-  'Pediatría',
-  'Ginecología',
-  'Cardiología',
-  'Dermatología',
-  'Neurología',
-  'Ortopedia',
-]
 
 const features: { icon: IconName; text: string }[] = [
   { icon: 'history', text: 'Historial clínico completo' },
   { icon: 'vitals', text: 'Signos vitales en tiempo real' },
   { icon: 'map', text: 'Geolocalización de clínicas' },
 ]
-
-/** `user_type` en el backend: 1=DOCTOR. Esta pantalla solo registra médicos. */
-const USER_TYPE_MEDICO = 1
 
 export default function RegisterPage() {
   const [nombres, setNombres] = useState('')
@@ -34,25 +22,35 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [registrado, setRegistrado] = useState(false)
+  const [especialidades, setEspecialidades] = useState<EspecialidadDto[]>([])
+  const [especialidadId, setEspecialidadId] = useState<number | null>(null)
+
+  useEffect(() => {
+    listarEspecialidades()
+      .then((lista) => {
+        const activas = lista.filter((e) => e.activa)
+        setEspecialidades(activas)
+        setEspecialidadId((actual) => actual ?? activas[0]?.especialidadId ?? null)
+      })
+      .catch(() => {
+        // El catálogo es un detalle del formulario, no algo que deba impedir
+        // registrarse: si falla, el selector simplemente queda vacío y el
+        // envío se bloquea más abajo por falta de especialidadId.
+      })
+  }, [])
 
   const handleRegister = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
     setError(null)
-    setEnviando(true)
 
+    if (especialidadId === null) {
+      setError('No se pudo cargar el catálogo de especialidades. Intenta de nuevo más tarde.')
+      return
+    }
+
+    setEnviando(true)
     try {
-      // Sin rol MEDICO propio todavía en la tabla `role` (ver mapearRol en
-      // services/auth.ts), así que se registra sin roles adicionales.
-      await registrar({
-        email,
-        // TODO: POST /auth/register todavía no acepta nombres/apellidos por
-        // separado; se concatenan en userName para no romper el endpoint
-        // actual. Capturarlos ya como dos campos deja lista la migración.
-        userName: `${nombres} ${apellidos}`.trim(),
-        password,
-        roles: [],
-        userType: USER_TYPE_MEDICO,
-      })
+      await registrar({ nombres, apellidos, email, password, especialidadId })
       setRegistrado(true)
     } catch (err) {
       setError(
@@ -153,11 +151,19 @@ export default function RegisterPage() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-                    Especialidad
+                    Especialidad *
                   </label>
-                  <select className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white">
-                    {specialties.map((s) => (
-                      <option key={s}>{s}</option>
+                  <select
+                    required
+                    value={especialidadId ?? ''}
+                    onChange={(e) => setEspecialidadId(Number(e.target.value))}
+                    className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                  >
+                    {especialidades.length === 0 && <option value="">Cargando especialidades…</option>}
+                    {especialidades.map((e) => (
+                      <option key={e.especialidadId} value={e.especialidadId}>
+                        {e.nombre}
+                      </option>
                     ))}
                   </select>
                 </div>

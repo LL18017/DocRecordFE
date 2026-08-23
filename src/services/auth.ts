@@ -18,19 +18,19 @@ interface LoginResponseDto {
 interface UserResponseDto {
   userId: number
   email: string
-  userName: string
-  roles: { id: number | null; name: string }[]
-  type: string
+  nombres: string
+  apellidos: string
+  /** El backend asigna el rol (MEDICO) por su cuenta; el cliente no lo envía. */
+  roles: string[]
+  especialidad: { especialidadId: number; nombre: string }
 }
 
 export interface RegistroPayload {
+  nombres: string
+  apellidos: string
   email: string
-  userName: string
   password: string
-  /** IDs de la tabla `role`. Hoy solo existe ADMIN (1). */
-  roles: number[]
-  /** ID de `user_type`: 1=DOCTOR, 2=ENFERMERA, 3=EMPLEADO. */
-  userType: number
+  especialidadId: number
 }
 
 /**
