@@ -42,6 +42,18 @@ type ModalType =
   | 'consulta'
   | null
 
+// Ids fijos, sin `useId()`: esta pantalla se monta una sola vez por ruta y el
+// bloque de datos personales vive dentro de ella, no en un componente que
+// alguien pueda repetir. Los formularios que sí se reutilizan —los de
+// components/forms— llevan su prefijo con `useId()`.
+const idDato = (campo: string) => `datos-personales-${campo}`
+const labelDatoClass = 'block text-xs text-slate-500 uppercase tracking-wide mb-1 font-semibold'
+// Se agrega `focus-visible:ring-*` al `focus:outline-none` que ya estaba:
+// quitar el contorno del navegador sin reponer nada deja a quien navega con
+// teclado sin saber dónde está parado.
+const inputDatoClass =
+  'w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:border-doc-blue focus-visible:ring-2 focus-visible:ring-doc-blue/40'
+
 interface SectionHeaderProps {
   icon: IconName
   label: string
@@ -249,31 +261,33 @@ export default function ExpedienteDetailPage() {
               <div className="px-5 pb-5 border-t border-slate-100">
                 {editingDatos ? (
                   <div className="grid grid-cols-2 gap-3 pt-4">
-                    {[
-                      ['Nombre completo', patient.name],
-                      ['Fecha de nacimiento', patient.born],
-                      ['Teléfono', patient.phone],
-                      ['Identificación', patient.id_num],
-                      ['Tipo sanguíneo', patient.blood],
-                      ['Email', patient.email],
-                    ].map(([k, v]) => (
-                      <div key={k}>
-                        <label className="block text-xs text-slate-500 uppercase tracking-wide mb-1 font-semibold">
-                          {k}
+                    {([
+                      ['nombre', 'Nombre completo', patient.name],
+                      ['nacimiento', 'Fecha de nacimiento', patient.born],
+                      ['telefono', 'Teléfono', patient.phone],
+                      ['dui', 'Identificación', patient.id_num],
+                      ['sangre', 'Tipo sanguíneo', patient.blood],
+                      ['email', 'Email', patient.email],
+                    ] as const).map(([campo, rotulo, valor]) => (
+                      <div key={campo}>
+                        <label htmlFor={idDato(campo)} className={labelDatoClass}>
+                          {rotulo}
                         </label>
                         <input
-                          defaultValue={v}
-                          className="w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-doc-blue bg-white"
+                          id={idDato(campo)}
+                          defaultValue={valor}
+                          className={inputDatoClass}
                         />
                       </div>
                     ))}
                     <div className="col-span-2">
-                      <label className="block text-xs text-slate-500 uppercase tracking-wide mb-1 font-semibold">
+                      <label htmlFor={idDato('direccion')} className={labelDatoClass}>
                         Dirección
                       </label>
                       <input
+                        id={idDato('direccion')}
                         defaultValue={patient.address}
-                        className="w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-doc-blue bg-white"
+                        className={inputDatoClass}
                       />
                     </div>
                     <div className="col-span-2 flex gap-2 mt-2">

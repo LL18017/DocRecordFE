@@ -167,33 +167,39 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
       )}
 
       <div>
-        <label htmlFor={id('paciente')} className={labelClass}>
-          Paciente
-          {!editando && <Obligatorio />}
-        </label>
         {pacienteEditado ? (
           // Al editar el paciente no se elige: se muestra para dar contexto.
-          <p
-            id={id('paciente')}
-            className="rounded-xl border-2 border-slate-100 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-700"
-          >
-            {pacienteEditado}
-          </p>
+          // Aquí no hay control que etiquetar, así que el rótulo es un <span>:
+          // un `<label htmlFor>` apuntando a un <p> es una etiqueta rota —el
+          // navegador no la asocia a nada y el clic no enfoca nada—, y de paso
+          // hacía que `getByLabelText('Paciente')` devolviera un párrafo.
+          <>
+            <span className={labelClass}>Paciente</span>
+            <p className="rounded-xl border-2 border-slate-100 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-700">
+              {pacienteEditado}
+            </p>
+          </>
         ) : (
-          <select
-            id={id('paciente')}
-            required
-            value={pacienteId}
-            onChange={(e) => setPacienteId(e.target.value)}
-            className={inputClass}
-          >
-            {pacientes.length === 0 && <option value="">No hay pacientes registrados</option>}
-            {pacientes.map((p) => (
-              <option key={p.personaId} value={String(p.personaId)}>
-                {p.expediente ? `${p.nombre} (${p.expediente})` : p.nombre}
-              </option>
-            ))}
-          </select>
+          <>
+            <label htmlFor={id('paciente')} className={labelClass}>
+              Paciente
+              <Obligatorio />
+            </label>
+            <select
+              id={id('paciente')}
+              required
+              value={pacienteId}
+              onChange={(e) => setPacienteId(e.target.value)}
+              className={inputClass}
+            >
+              {pacientes.length === 0 && <option value="">No hay pacientes registrados</option>}
+              {pacientes.map((p) => (
+                <option key={p.personaId} value={String(p.personaId)}>
+                  {p.expediente ? `${p.nombre} (${p.expediente})` : p.nombre}
+                </option>
+              ))}
+            </select>
+          </>
         )}
       </div>
 

@@ -131,3 +131,59 @@ describe('expediente · la consulta recién registrada', () => {
     )
   })
 })
+
+describe('expediente · nombre accesible de los datos personales', () => {
+  /**
+   * El bloque «Datos Personales» pinta siete campos editables cuyos `<label>`
+   * no apuntaban a ninguno: un lector de pantalla anunciaba siete «cuadros de
+   * edición» sin decir cuál era el teléfono y cuál el tipo sanguíneo. En un
+   * expediente clínico, capturar el dato en la casilla equivocada no es un
+   * detalle estético.
+   */
+  async function abrirEdicionDeDatos() {
+    render(<ExpedienteDetailPage />)
+    const user = userEvent.setup()
+    await screen.findAllByText('Ana María Ramírez')
+
+    const cabecera = screen.getByText('Datos Personales').closest('div')
+    if (!cabecera) throw new Error('La cabecera de Datos Personales no tiene contenedor.')
+    await user.click(within(cabecera).getByRole('button', { name: 'Editar' }))
+    return user
+  }
+
+  it('localiza todos los campos por su etiqueta visible', async () => {
+    await abrirEdicionDeDatos()
+
+    for (const etiqueta of [
+      /^nombre completo$/i,
+      /^fecha de nacimiento$/i,
+      /^teléfono$/i,
+      /^identificación$/i,
+      /^tipo sanguíneo$/i,
+      /^email$/i,
+      /^dirección$/i,
+    ]) {
+      expect(screen.getByLabelText(etiqueta).tagName).toBe('INPUT')
+    }
+  })
+
+  it('cada etiqueta señala el campo que lleva su dato', async () => {
+    await abrirEdicionDeDatos()
+
+    // La comprobación que de verdad ata las etiquetas a los campos: si un
+    // `htmlFor` apuntara al de al lado, el teléfono saldría bajo «Tipo
+    // sanguíneo».
+    expect(screen.getByLabelText(/^teléfono$/i)).toHaveValue('7000-0000')
+    expect(screen.getByLabelText(/^tipo sanguíneo$/i)).toHaveValue('O+')
+    expect(screen.getByLabelText(/^identificación$/i)).toHaveValue('01234567-8')
+    expect(screen.getByLabelText(/^dirección$/i)).toHaveValue('San Salvador')
+  })
+
+  it('enfoca el campo al hacer clic en su etiqueta', async () => {
+    const user = await abrirEdicionDeDatos()
+
+    await user.click(screen.getByText(/^tipo sanguíneo$/i))
+
+    expect(screen.getByLabelText(/^tipo sanguíneo$/i)).toHaveFocus()
+  })
+})

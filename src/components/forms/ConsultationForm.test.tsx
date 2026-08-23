@@ -274,3 +274,27 @@ describe('ConsultationForm · errores', () => {
     await waitFor(() => expect(onGuardada).toHaveBeenCalledWith(guardada))
   })
 })
+
+describe('ConsultationForm · etiquetas que apuntan a un control de verdad', () => {
+  it('al registrar, «Paciente» nombra al selector', () => {
+    montar()
+
+    // El nombre accesible tiene que resolver a un control: si el `htmlFor`
+    // señalara otra cosa, aquí no habría un <select>.
+    expect(screen.getByLabelText(/^paciente/i).tagName).toBe('SELECT')
+  })
+
+  it('al editar, el paciente se muestra sin fingir que es un campo', () => {
+    montar({ consulta: consulta() })
+
+    // Al editar no hay selector: el paciente solo se muestra. Un
+    // `<label htmlFor>` apuntando a ese <p> es una etiqueta rota —el navegador
+    // no la asocia a nada, el clic no enfoca— y además hacía que buscar el
+    // campo «Paciente» devolviera un párrafo en vez de nada.
+    const etiquetado = screen.queryByLabelText(/^paciente$/i)
+    if (etiquetado !== null) expect(etiquetado.tagName).toMatch(/^(INPUT|SELECT|TEXTAREA)$/)
+
+    expect(document.querySelector('label[for$="-paciente"]')).toBeNull()
+    expect(screen.getByText('Ana María Ramírez')).toBeInTheDocument()
+  })
+})
