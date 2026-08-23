@@ -1,46 +1,56 @@
 'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+// ─── Expediente de un paciente ─────────────────────────────────────────────
+//
+// REGLA DE ESTA PANTALLA: en un expediente clínico, EL HUECO HONESTO SIEMPRE
+// GANA AL DATO INVENTADO. Nada que no venga del backend puede pintarse como si
+// fuera del paciente.
+//
+// De dónde viene ese principio: esta pantalla llevaba escritas EN EL CÓDIGO
+// una alergia a la Penicilina de severidad Alta, dos sulfonamidas, una
+// hipertensión con su Losartán, un padre diabético y unos signos vitales
+// tomados por una enfermera que no existe. Salían idénticos para CUALQUIER
+// paciente, incluido uno creado esa misma mañana al que nadie preguntó nada.
+// Un médico que lee «Alergia a Penicilina» de una paciente a la que nunca se
+// le preguntó puede negarle el antibiótico que necesita; una alergia real que
+// falta puede matarla.
+//
+// Y la maqueta no solo mentía: TAPABA. `consultations` y `vitals` de
+// `@/data/mockData` sembraban el estado inicial, así que las consultas de
+// verdad —registradas desde esta misma pantalla, confirmadas con un 201 y
+// guardadas en la base— desaparecían al recargar y en su lugar volvían las dos
+// inventadas.
+//
+// Qué se carga de verdad y qué queda en hueco:
+//   · Consultas  → GET /consultas?pacienteId={id}      (services/consultas)
+//   · Recetas    → GET /prescripciones?pacienteId={id} (services/prescripciones)
+//   · Alergias, enfermedades crónicas, antecedentes hereditarios, hábitos y
+//     signos vitales → NO EXISTE ENDPOINT. No hay nada que cargar, así que se
+//     muestra el vacío con un aviso que dice por qué está vacío (ver
+//     `AvisoSinRegistro`), nunca datos de relleno.
+
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import {
-  Alergia,
-  Enfermedad,
-  Hereditaria,
-  Habito,
-  Vital,
-  Consultation,
-  IconName,
-  Patient,
-} from '@/types'
-import {
-  vitals as initialVitals,
-  consultations as initialConsultations,
-} from '@/data/mockData'
+import { IconName, Patient } from '@/types'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { ApiError } from '@/lib/api'
 import { obtenerPaciente } from '@/services/pacientes'
 import { pacienteDtoAPatient } from '@/lib/pacienteAdapter'
-
-// Modular Forms
-import { AllergyForm } from '@/components/forms/AllergyForm'
-import { ChronicForm } from '@/components/forms/ChronicForm'
-import { HereditaryForm } from '@/components/forms/HereditaryForm'
-import { HabitForm } from '@/components/forms/HabitForm'
-import { VitalsForm } from '@/components/forms/VitalsForm'
 import { ConsultationForm } from '@/components/forms/ConsultationForm'
-import { formatearFechaHora, nombreDeMedico, textoOpcional } from '@/services/consultas'
-
-type ModalType =
-  | 'alergia'
-  | 'enfermedad'
-  | 'hereditaria'
-  | 'habito'
-  | 'vitales'
-  | 'consulta'
-  | null
+import {
+  formatearFechaHora,
+  listarConsultas,
+  textoOpcional,
+  type ConsultaDto,
+} from '@/services/consultas'
+import {
+  listarPrescripcionesDePaciente,
+  nombreDeMedicoQueReceta,
+  type PrescripcionDto,
+} from '@/services/prescripciones'
 
 // Ids fijos, sin `useId()`: esta pantalla se monta una sola vez por ruta y el
 // bloque de datos personales vive dentro de ella, no en un componente que
@@ -54,46 +64,79 @@ const labelDatoClass = 'block text-xs text-slate-500 uppercase tracking-wide mb-
 const inputDatoClass =
   'w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:border-doc-blue focus-visible:ring-2 focus-visible:ring-doc-blue/40'
 
-interface SectionHeaderProps {
+/** Cómo se pinta cada estado de consulta. El backend solo maneja estos dos. */
+const ETIQUETA_DE_ESTADO = { PENDIENTE: 'Pendiente', FINALIZADA: 'Finalizada' } as const
+const COLOR_DE_ESTADO = { PENDIENTE: 'yellow', FINALIZADA: 'green' } as const
+
+/**
+ * Aviso que acompaña a cada sección sin backend.
+ *
+ * Es la mitad que faltaría si solo se borraran los datos inventados. «No hay
+ * alergias registradas» a secas, en un expediente clínico, se lee como «esta
+ * paciente no tiene alergias» —una afirmación que nadie ha comprobado— y eso
+ * es otra vez un dato inventado, solo que en negativo. El aviso convierte la
+ * frase en lo único que la aplicación sabe de verdad: que aquí todavía no se
+ * guarda nada.
+ */
+const AvisoSinRegistro: React.FC<{ loQueFalta: string }> = ({ loQueFalta }) => (
+  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+    El sistema todavía no guarda {loQueFalta}: este apartado seguirá vacío aunque el paciente sí
+    tenga. No lo lea como «no tiene» —pregúntelo y consulte el expediente en papel antes de
+    decidir un tratamiento—.
+  </p>
+)
+
+interface SeccionSinRegistroProps {
   icon: IconName
-  label: string
-  onAdd: () => void
+  titulo: string
+  /** Estado vacío, redactado para la sección: «No hay alergias registradas.» */
+  vacio: string
+  /** Lo que el sistema aún no guarda, en plural: «alergias». */
+  loQueFalta: string
   expanded: boolean
   onToggle: () => void
-  addLabel: string
 }
 
-const SectionHeader: React.FC<SectionHeaderProps> = ({
+/**
+ * Sección del expediente para la que NO existe endpoint.
+ *
+ * No lleva botón «Agregar». El que había metía una fila en el estado de React
+ * y nada más: el médico veía la alergia en pantalla, cerraba el modal creyendo
+ * que había quedado registrada y al recargar no estaba. Es el mismo criterio
+ * que se aplicó a «Nuevo Usuario» en (portal)/usuarios/page.tsx —un botón que
+ * no llega a la base es una promesa falsa— y aquí pesa más, porque lo que se
+ * pierde en silencio es una alergia.
+ */
+const SeccionSinRegistro: React.FC<SeccionSinRegistroProps> = ({
   icon,
-  label,
-  onAdd,
+  titulo,
+  vacio,
+  loQueFalta,
   expanded,
   onToggle,
-  addLabel,
 }) => (
-  <div className="flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors">
-    <button className="flex items-center gap-3 flex-1 text-left cursor-pointer" onClick={onToggle}>
-      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-doc-surface text-doc-blue">
-        <Icon name={icon} size={16} />
+  <div className="bg-white rounded-2xl shadow-sm border border-slate-100/80 overflow-hidden">
+    <div className="flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors">
+      <button className="flex items-center gap-3 flex-1 text-left cursor-pointer" onClick={onToggle}>
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-doc-surface text-doc-blue">
+          <Icon name={icon} size={16} />
+        </div>
+        <span className="font-semibold text-slate-700 text-sm font-outfit">{titulo}</span>
+      </button>
+      <button
+        onClick={onToggle}
+        aria-label={`Expandir ${titulo}`}
+        className={`text-slate-400 transition-transform cursor-pointer ${expanded ? 'rotate-180' : ''}`}
+      >
+        <Icon name="chevron_down" size={18} />
+      </button>
+    </div>
+    {expanded && (
+      <div className="px-5 pb-5 border-t border-slate-100 pt-4 space-y-3">
+        <p className="text-sm text-slate-500">{vacio}</p>
+        <AvisoSinRegistro loQueFalta={loQueFalta} />
       </div>
-      <span className="font-semibold text-slate-700 text-sm font-outfit">{label}</span>
-    </button>
-    <button
-      onClick={(e) => {
-        e.stopPropagation()
-        onAdd()
-      }}
-      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-doc-surface text-doc-blue hover:bg-slate-200/80 transition-colors cursor-pointer"
-    >
-      <Icon name="add" size={13} /> {addLabel}
-    </button>
-    <button
-      onClick={onToggle}
-      className={`text-slate-400 transition-transform cursor-pointer ${expanded ? 'rotate-180' : ''}`}
-      aria-label="Expandir sección"
-    >
-      <Icon name="chevron_down" size={18} />
-    </button>
+    )}
   </div>
 )
 
@@ -105,6 +148,17 @@ export default function ExpedienteDetailPage() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [noEncontrado, setNoEncontrado] = useState(false)
+
+  // El historial clínico va aparte del paciente: que se caiga `GET /consultas`
+  // no debe esconder los datos personales, que ya llegaron.
+  const [consultas, setConsultas] = useState<ConsultaDto[]>([])
+  const [recetas, setRecetas] = useState<PrescripcionDto[]>([])
+  const [cargandoHistorial, setCargandoHistorial] = useState(true)
+  // Un error por recurso, no uno compartido: si las consultas cargan y las
+  // recetas no, el contador de recetas tiene que decir que no lo sabe, y el de
+  // consultas puede decir la verdad.
+  const [errorConsultas, setErrorConsultas] = useState<string | null>(null)
+  const [errorRecetas, setErrorRecetas] = useState<string | null>(null)
 
   const cargarPaciente = useCallback(async () => {
     setError(null)
@@ -123,41 +177,79 @@ export default function ExpedienteDetailPage() {
     }
   }, [patientId])
 
+  // Las dos peticiones van con `allSettled` y no con `all`: si fallan las
+  // recetas, las consultas ya traídas se siguen mostrando. En un fallo se
+  // vacía la lista correspondiente a propósito —dejar la anterior pintada
+  // mientras el aviso dice que no se pudo cargar es otra forma de mostrar algo
+  // que no se sabe si sigue siendo cierto—.
+  const cargarHistorial = useCallback(async () => {
+    const id = Number(patientId)
+    const [resConsultas, resRecetas] = await Promise.allSettled([
+      listarConsultas(id),
+      listarPrescripcionesDePaciente(id),
+    ])
+
+    if (resConsultas.status === 'fulfilled') {
+      setConsultas(resConsultas.value)
+      setErrorConsultas(null)
+    } else {
+      setConsultas([])
+      setErrorConsultas(describir('No se pudieron cargar las consultas', resConsultas.reason))
+    }
+
+    if (resRecetas.status === 'fulfilled') {
+      setRecetas(resRecetas.value)
+      setErrorRecetas(null)
+    } else {
+      setRecetas([])
+      setErrorRecetas(describir('No se pudieron cargar las recetas', resRecetas.reason))
+    }
+
+    setCargandoHistorial(false)
+  }, [patientId])
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- carga remota al montar; ver pacientes/page.tsx
     void cargarPaciente()
   }, [cargarPaciente])
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga remota al montar; ver pacientes/page.tsx
+    void cargarHistorial()
+  }, [cargarHistorial])
+
+  // Reintentar sí es un manejador de evento, no un efecto: aquí marcar el
+  // estado de carga antes de pedir es correcto y da respuesta inmediata.
+  const reintentarHistorial = () => {
+    setCargandoHistorial(true)
+    setErrorConsultas(null)
+    setErrorRecetas(null)
+    void cargarHistorial()
+  }
+
   const [expanded, setExpanded] = useState<string[]>(['datos'])
-  const [modal, setModal] = useState<ModalType>(null)
+  const [modal, setModal] = useState<'consulta' | null>(null)
   const toggle = (s: string) =>
     setExpanded((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))
-
-  // Dynamic state records
-  const [alergias, setAlergias] = useState<Alergia[]>([
-    { nombre: 'Penicilina', tipo: 'Medicamento', reaccion: 'Urticaria, angioedema', severidad: 'Alta' },
-    { nombre: 'Sulfonamidas', tipo: 'Medicamento', reaccion: 'Erupción cutánea', severidad: 'Moderada' },
-  ])
-  const [enfermedades, setEnfermedades] = useState<Enfermedad[]>([
-    { nombre: 'Hipertensión arterial', desde: '2020', tratamiento: 'Losartán 50mg' },
-  ])
-  const [hereditarias, setHereditarias] = useState<Hereditaria[]>([
-    { condicion: 'Diabetes tipo 2', parentesco: 'Padre', observaciones: 'Diagnosticado a los 55 años' },
-  ])
-  const [habitos, setHabitos] = useState<Habito[]>([
-    { tipo: 'Actividad física', descripcion: '3 veces por semana, 30 min', nivel: 'Moderado' },
-  ])
-  const [patientVitals, setPatientVitals] = useState<Vital[]>(initialVitals)
-  const [patientConsultations, setPatientConsultations] = useState<Consultation[]>(initialConsultations)
   const [editingDatos, setEditingDatos] = useState(false)
 
   const closeModal = () => setModal(null)
 
-  const severityColor: Record<string, 'red' | 'yellow' | 'green'> = {
-    Alta: 'red',
-    Moderada: 'yellow',
-    Baja: 'green',
-  }
+  // Los medicamentos de la columna «Medicamentos» salen de las recetas reales
+  // del paciente, enlazadas por `consultaId`. Antes venían de `c.meds` de la
+  // maqueta: dos antibióticos que nadie recetó, colgados de dos consultas que
+  // nunca ocurrieron.
+  const medicamentosPorConsulta = useMemo(() => {
+    const mapa = new Map<number, string[]>()
+    for (const receta of recetas) {
+      const nombres = mapa.get(receta.consultaId) ?? []
+      nombres.push(...receta.medicamentos.map((m) => m.medicamento))
+      mapa.set(receta.consultaId, nombres)
+    }
+    return mapa
+  }, [recetas])
+
+  const avisoHistorial = [errorConsultas, errorRecetas].filter(Boolean).join(' ')
 
   if (cargando) {
     return (
@@ -227,6 +319,21 @@ export default function ExpedienteDetailPage() {
         </div>
       </div>
 
+      {avisoHistorial && (
+        <div
+          role="alert"
+          className="mb-4 flex items-center justify-between gap-4 rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          <span>{avisoHistorial}</span>
+          <button
+            onClick={reintentarHistorial}
+            className="font-semibold underline underline-offset-2 cursor-pointer whitespace-nowrap"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-3">
           {/* ── Datos Personales ── */}
@@ -249,6 +356,7 @@ export default function ExpedienteDetailPage() {
               </button>
               <button
                 onClick={() => toggle('datos')}
+                aria-label="Expandir Datos Personales"
                 className={`text-slate-400 transition-transform cursor-pointer ${
                   expanded.includes('datos') ? 'rotate-180' : ''
                 }`}
@@ -329,169 +437,54 @@ export default function ExpedienteDetailPage() {
             )}
           </div>
 
-          {/* ── Historial de Alergias ── */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100/80 overflow-hidden">
-            <SectionHeader
-              icon="shield"
-              label="Historial de Alergias"
-              addLabel="Agregar"
-              expanded={expanded.includes('alergias')}
-              onToggle={() => toggle('alergias')}
-              onAdd={() => setModal('alergia')}
-            />
-            {expanded.includes('alergias') && (
-              <div className="px-5 pb-5 border-t border-slate-100 pt-4 space-y-2">
-                {alergias.length === 0 && <p className="text-sm text-slate-400">Sin alergias registradas.</p>}
-                {alergias.map((a, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100 group"
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="font-semibold text-slate-800 text-sm">{a.nombre}</span>
-                        <Badge color={severityColor[a.severidad] || 'gray'}>{a.severidad}</Badge>
-                        <span className="text-xs text-slate-400">{a.tipo}</span>
-                      </div>
-                      <p className="text-xs text-slate-500">Reacción: {a.reaccion}</p>
-                    </div>
-                    <button
-                      onClick={() => setAlergias((prev) => prev.filter((_, j) => j !== i))}
-                      className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center text-red-400 hover:bg-red-100 transition-all cursor-pointer"
-                      title="Eliminar"
-                    >
-                      <Icon name="delete" size={13} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* ── Secciones sin endpoint: se muestra el hueco, no relleno ── */}
+          <SeccionSinRegistro
+            icon="shield"
+            titulo="Historial de Alergias"
+            vacio="No hay alergias registradas."
+            loQueFalta="alergias"
+            expanded={expanded.includes('alergias')}
+            onToggle={() => toggle('alergias')}
+          />
 
-          {/* ── Enfermedades Crónicas ── */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100/80 overflow-hidden">
-            <SectionHeader
-              icon="history"
-              label="Enfermedades Crónicas"
-              addLabel="Agregar"
-              expanded={expanded.includes('enfermedades')}
-              onToggle={() => toggle('enfermedades')}
-              onAdd={() => setModal('enfermedad')}
-            />
-            {expanded.includes('enfermedades') && (
-              <div className="px-5 pb-5 border-t border-slate-100 pt-4 space-y-2">
-                {enfermedades.length === 0 && (
-                  <p className="text-sm text-slate-400">Sin enfermedades registradas.</p>
-                )}
-                {enfermedades.map((e, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100 group"
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="font-semibold text-slate-800 text-sm">{e.nombre}</span>
-                        <span className="text-xs text-slate-400">Desde {e.desde}</span>
-                      </div>
-                      <p className="text-xs text-slate-500">Tratamiento: {e.tratamiento}</p>
-                    </div>
-                    <button
-                      onClick={() => setEnfermedades((prev) => prev.filter((_, j) => j !== i))}
-                      className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center text-red-400 hover:bg-red-100 transition-all cursor-pointer"
-                      title="Eliminar"
-                    >
-                      <Icon name="delete" size={13} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <SeccionSinRegistro
+            icon="history"
+            titulo="Enfermedades Crónicas"
+            vacio="No hay enfermedades crónicas registradas."
+            loQueFalta="enfermedades crónicas"
+            expanded={expanded.includes('enfermedades')}
+            onToggle={() => toggle('enfermedades')}
+          />
 
-          {/* ── Condiciones Hereditarias ── */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100/80 overflow-hidden">
-            <SectionHeader
-              icon="patients"
-              label="Condiciones Hereditarias"
-              addLabel="Agregar"
-              expanded={expanded.includes('hereditarias')}
-              onToggle={() => toggle('hereditarias')}
-              onAdd={() => setModal('hereditaria')}
-            />
-            {expanded.includes('hereditarias') && (
-              <div className="px-5 pb-5 border-t border-slate-100 pt-4 space-y-2">
-                {hereditarias.length === 0 && (
-                  <p className="text-sm text-slate-400">Sin condiciones hereditarias registradas.</p>
-                )}
-                {hereditarias.map((h, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100 group"
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="font-semibold text-slate-800 text-sm">{h.condicion}</span>
-                        <Badge color="blue">{h.parentesco}</Badge>
-                      </div>
-                      <p className="text-xs text-slate-500">{h.observaciones}</p>
-                    </div>
-                    <button
-                      onClick={() => setHereditarias((prev) => prev.filter((_, j) => j !== i))}
-                      className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center text-red-400 hover:bg-red-100 transition-all cursor-pointer"
-                      title="Eliminar"
-                    >
-                      <Icon name="delete" size={13} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <SeccionSinRegistro
+            icon="patients"
+            titulo="Condiciones Hereditarias"
+            vacio="No hay antecedentes hereditarios registrados."
+            loQueFalta="antecedentes hereditarios"
+            expanded={expanded.includes('hereditarias')}
+            onToggle={() => toggle('hereditarias')}
+          />
 
-          {/* ── Hábitos y Estilo de Vida ── */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100/80 overflow-hidden">
-            <SectionHeader
-              icon="vitals"
-              label="Hábitos y Estilo de Vida"
-              addLabel="Agregar"
-              expanded={expanded.includes('habitos')}
-              onToggle={() => toggle('habitos')}
-              onAdd={() => setModal('habito')}
-            />
-            {expanded.includes('habitos') && (
-              <div className="px-5 pb-5 border-t border-slate-100 pt-4 space-y-2">
-                {habitos.length === 0 && <p className="text-sm text-slate-400">Sin hábitos registrados.</p>}
-                {habitos.map((h, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100 group"
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="font-semibold text-slate-800 text-sm">{h.tipo}</span>
-                        <Badge color="green">{h.nivel}</Badge>
-                      </div>
-                      <p className="text-xs text-slate-500">{h.descripcion}</p>
-                    </div>
-                    <button
-                      onClick={() => setHabitos((prev) => prev.filter((_, j) => j !== i))}
-                      className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center text-red-400 hover:bg-red-100 transition-all cursor-pointer"
-                      title="Eliminar"
-                    >
-                      <Icon name="delete" size={13} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <SeccionSinRegistro
+            icon="vitals"
+            titulo="Hábitos y Estilo de Vida"
+            vacio="No hay hábitos registrados."
+            loQueFalta="hábitos ni estilo de vida"
+            expanded={expanded.includes('habitos')}
+            onToggle={() => toggle('habitos')}
+          />
 
-          {/* ── Consultas Médicas ── */}
+          {/* ── Consultas Médicas (GET /consultas?pacienteId=) ── */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100/80 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-doc-blue to-doc-blue-light text-white">
               <h3 className="font-bold text-white font-outfit">Consultas Médicas</h3>
               <div className="flex items-center gap-3">
-                <span className="text-blue-200 text-sm">{patientConsultations.length} consultas</span>
+                {/* El conteo solo se pinta cuando se sabe: «0 consultas»
+                    mientras la petición está en vuelo, o después de que
+                    fallara, afirma algo del paciente que nadie ha comprobado. */}
+                <span className="text-blue-200 text-sm">
+                  {cargandoHistorial || errorConsultas ? '—' : plural(consultas.length, 'consulta')}
+                </span>
                 <button
                   onClick={() => setModal('consulta')}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/20 text-white hover:bg-white/30 transition-colors cursor-pointer"
@@ -500,49 +493,152 @@ export default function ExpedienteDetailPage() {
                 </button>
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/50">
-                    {['Fecha', 'Motivo', 'Diagnóstico', 'Estado', 'Medicamentos'].map((h) => (
-                      <th
-                        key={h}
-                        className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {patientConsultations.map((c, i) => (
-                    <tr key={i} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">{c.date}</td>
-                      <td className="px-4 py-3 text-sm text-slate-800 max-w-[160px] truncate font-medium">
-                        {c.reason}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600 max-w-[160px] truncate">{c.diagnosis}</td>
-                      <td className="px-4 py-3">
-                        <Badge color="green">{c.status}</Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {c.meds.map((m) => (
-                            <Badge key={m} color="blue">
-                              {m}
-                            </Badge>
-                          ))}
-                        </div>
-                      </td>
+            {cargandoHistorial ? (
+              <p className="px-5 py-12 text-center text-sm text-slate-500">Cargando consultas…</p>
+            ) : errorConsultas ? (
+              <p className="px-5 py-12 text-center text-sm text-slate-500">
+                Las consultas de este paciente no se pudieron cargar, así que no se muestran.
+              </p>
+            ) : consultas.length === 0 ? (
+              <p className="px-5 py-12 text-center text-sm text-slate-400 italic">
+                Este paciente todavía no tiene consultas registradas.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50/50">
+                      {['Fecha', 'Motivo', 'Diagnóstico', 'Estado', 'Medicamentos'].map((h) => (
+                        <th
+                          key={h}
+                          className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider"
+                        >
+                          {h}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {consultas.map((c) => {
+                      const medicamentos = medicamentosPorConsulta.get(c.consultaId) ?? []
+                      return (
+                        <tr key={c.consultaId} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
+                            {formatearFechaHora(c.fecha)}
+                          </td>
+                          {/* `motivo` y `diagnostico` PUEDEN venir null (ver
+                              `ConsultaDto`): sin `textoOpcional` la columna
+                              pinta la palabra «null», que el médico lee como
+                              un dato y no como un hueco. */}
+                          <td className="px-4 py-3 text-sm text-slate-800 max-w-[160px] truncate font-medium">
+                            {textoOpcional(c.motivo)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-600 max-w-[160px] truncate">
+                            {textoOpcional(c.diagnostico)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge color={COLOR_DE_ESTADO[c.estado]}>
+                              {ETIQUETA_DE_ESTADO[c.estado]}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            {medicamentos.length === 0 ? (
+                              <span className="text-sm text-slate-400">—</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-1">
+                                {/* La clave cae al índice: el mismo
+                                    medicamento puede repetirse en dos recetas
+                                    de la misma consulta. */}
+                                {medicamentos.map((m, i) => (
+                                  <Badge key={`${m}-${i}`} color="blue">
+                                    {m}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* ── Recetas Emitidas (GET /prescripciones?pacienteId=) ── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100/80 overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-purple-600 to-purple-700 text-white">
+              <h3 className="font-bold text-white font-outfit">Recetas Emitidas</h3>
+              <span className="text-purple-200 text-sm">
+                {cargandoHistorial || errorRecetas ? '—' : plural(recetas.length, 'receta')}
+              </span>
             </div>
+            {cargandoHistorial ? (
+              <p className="px-5 py-12 text-center text-sm text-slate-500">Cargando recetas…</p>
+            ) : errorRecetas ? (
+              <p className="px-5 py-12 text-center text-sm text-slate-500">
+                Las recetas de este paciente no se pudieron cargar, así que no se muestran.
+              </p>
+            ) : recetas.length === 0 ? (
+              <p className="px-5 py-12 text-center text-sm text-slate-400 italic">
+                Este paciente todavía no tiene recetas emitidas.
+              </p>
+            ) : (
+              <div className="px-5 py-4 space-y-4">
+                {recetas.map((rx) => (
+                  <div key={rx.prescripcionId} className="rounded-xl border border-slate-100 p-4">
+                    <p className="font-semibold text-slate-800 text-sm font-outfit">
+                      Receta #{rx.prescripcionId}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {formatearFechaHora(rx.fecha)} · {nombreDeMedicoQueReceta(rx)} · Consulta #
+                      {rx.consultaId}
+                    </p>
+                    <div className="overflow-x-auto mt-3">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="border-b border-slate-100">
+                            {['Medicamento', 'Dosis', 'Frecuencia', 'Duración'].map((h) => (
+                              <th
+                                key={h}
+                                className="py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider pr-6"
+                              >
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {rx.medicamentos.map((m) => (
+                            <tr key={m.id}>
+                              <td className="py-2.5 text-sm font-medium text-slate-800 pr-6">
+                                {m.medicamento}
+                              </td>
+                              {/* dosis, frecuencia y duración son opcionales
+                                  al crear, así que vuelven null. */}
+                              <td className="py-2.5 text-xs font-mono text-slate-600 pr-6">
+                                {textoOpcional(m.dosis)}
+                              </td>
+                              <td className="py-2.5 text-sm text-slate-600 pr-6">
+                                {textoOpcional(m.frecuencia)}
+                              </td>
+                              <td className="py-2.5 text-sm text-slate-600">
+                                {textoOpcional(m.duracion)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* ── Right Patient Summary Sidebar ── */}
+        {/* ── Ficha lateral ── */}
         <div className="space-y-4">
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100/80">
             <div className="flex items-center gap-3 mb-4">
@@ -555,15 +651,18 @@ export default function ExpedienteDetailPage() {
               </div>
             </div>
 
-            <div className="w-full py-2 rounded-xl text-center text-sm font-bold text-white mb-4 bg-emerald-500 shadow-2xs">
-              Activo
-            </div>
+            {/* Se fue la etiqueta verde «Activo»: era un literal fijo, no un
+                estado del paciente. El backend no devuelve nada parecido —igual
+                que la columna «Estado» que se retiró de Usuarios—, así que
+                pintarla era afirmar algo que nadie había comprobado.
 
+                Solo quedan los dos contadores que salen de una petición real.
+                Los de alergias, enfermedades crónicas y hábitos se fueron con
+                sus datos: un «0» grande junto a «Alergias» se lee como «no
+                tiene ninguna», que es exactamente la afirmación peligrosa. */}
             {[
-              ['Alergias', alergias.length, 'text-red-500'],
-              ['Enfermedades crónicas', enfermedades.length, 'text-doc-blue'],
-              ['Hábitos registrados', habitos.length, 'text-emerald-600'],
-              ['Consultas realizadas', patientConsultations.length, 'text-slate-800'],
+              ['Consultas registradas', cargandoHistorial || errorConsultas ? '—' : consultas.length, 'text-slate-800'],
+              ['Recetas emitidas', cargandoHistorial || errorRecetas ? '—' : recetas.length, 'text-doc-blue'],
             ].map(([lbl, val, colClass]) => (
               <div
                 key={String(lbl)}
@@ -575,135 +674,22 @@ export default function ExpedienteDetailPage() {
             ))}
           </div>
 
-          {/* Latest vitals card */}
+          {/* Signos vitales: tampoco hay endpoint. El botón «Actualizar» se
+              retiró por lo mismo que los «Agregar»; lo que había pintado aquí
+              venía de `vitals` de la maqueta, con un «Registrado: 10 ago 2026 ·
+              Enf. María López» idéntico para todo paciente. */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100/80">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="font-bold text-slate-800 text-sm font-outfit">Últimos Signos Vitales</h4>
-              <button
-                onClick={() => setModal('vitales')}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-doc-surface text-doc-blue hover:bg-slate-200/80 transition-colors cursor-pointer"
-              >
-                <Icon name="add" size={12} /> Actualizar
-              </button>
-            </div>
-            {patientVitals[0] && (
-              <div className="space-y-2">
-                {[
-                  ['Peso', patientVitals[0].weight],
-                  ['Talla', patientVitals[0].height],
-                  ['Temperatura', patientVitals[0].temp],
-                  ['Presión', patientVitals[0].bp],
-                  ['Pulso', patientVitals[0].pulse],
-                  ['Saturación O₂', patientVitals[0].sat],
-                ].map(([k, v]) => (
-                  <div key={k} className="flex justify-between items-center py-1.5 border-b border-slate-50 text-xs">
-                    <span className="text-slate-400">{k}</span>
-                    <span className="font-semibold text-slate-700">{v}</span>
-                  </div>
-                ))}
-                <p className="text-[11px] text-slate-400 mt-2">
-                  Registrado: {patientVitals[0].date} · {patientVitals[0].nurse}
-                </p>
-              </div>
-            )}
+            <h4 className="font-bold text-slate-800 text-sm font-outfit mb-3">
+              Últimos Signos Vitales
+            </h4>
+            <p className="text-sm text-slate-500 mb-3">No hay signos vitales registrados.</p>
+            <AvisoSinRegistro loQueFalta="signos vitales" />
           </div>
         </div>
       </div>
 
-      {/* ══ MODALS CON FORMULARIOS MODULARES ══ */}
-
-      {/* Agregar Alergia */}
-      <Modal
-        isOpen={modal === 'alergia'}
-        onClose={closeModal}
-        title="Agregar Alergia"
-        subtitle="Registro de reacciones alérgicas"
-        icon="shield"
-        headerGradient="bg-gradient-to-r from-red-500 to-red-600"
-      >
-        <AllergyForm
-          onSubmit={(a) => {
-            setAlergias((prev) => [...prev, a])
-            closeModal()
-          }}
-          onCancel={closeModal}
-        />
-      </Modal>
-
-      {/* Agregar Enfermedad Crónica */}
-      <Modal
-        isOpen={modal === 'enfermedad'}
-        onClose={closeModal}
-        title="Agregar Enfermedad Crónica"
-        subtitle="Diagnósticos previos y tratamientos continuos"
-        icon="history"
-        headerGradient="bg-gradient-to-r from-doc-blue to-doc-blue-light"
-      >
-        <ChronicForm
-          onSubmit={(e) => {
-            setEnfermedades((prev) => [...prev, e])
-            closeModal()
-          }}
-          onCancel={closeModal}
-        />
-      </Modal>
-
-      {/* Agregar Condición Hereditaria */}
-      <Modal
-        isOpen={modal === 'hereditaria'}
-        onClose={closeModal}
-        title="Agregar Condición Hereditaria"
-        subtitle="Antecedentes médicos familiares"
-        icon="patients"
-        headerGradient="bg-gradient-to-r from-purple-600 to-purple-700"
-      >
-        <HereditaryForm
-          onSubmit={(h) => {
-            setHereditarias((prev) => [...prev, h])
-            closeModal()
-          }}
-          onCancel={closeModal}
-        />
-      </Modal>
-
-      {/* Agregar Hábito */}
-      <Modal
-        isOpen={modal === 'habito'}
-        onClose={closeModal}
-        title="Agregar Hábito de Vida"
-        subtitle="Estilo de vida, nutrición y actividad física"
-        icon="vitals"
-        headerGradient="bg-gradient-to-r from-emerald-500 to-emerald-600"
-      >
-        <HabitForm
-          onSubmit={(hb) => {
-            setHabitos((prev) => [...prev, hb])
-            closeModal()
-          }}
-          onCancel={closeModal}
-        />
-      </Modal>
-
-      {/* Actualizar Signos Vitales */}
-      <Modal
-        isOpen={modal === 'vitales'}
-        onClose={closeModal}
-        title="Actualizar Signos Vitales"
-        subtitle="Toma y registro de constantes vitales"
-        icon="vitals"
-        headerGradient="bg-gradient-to-r from-doc-teal to-teal-700"
-      >
-        <VitalsForm
-          defaultPatientId={patient.id}
-          onSubmit={(v) => {
-            setPatientVitals((prev) => [v as Vital, ...prev])
-            closeModal()
-          }}
-          onCancel={closeModal}
-        />
-      </Modal>
-
-      {/* Nueva Consulta */}
+      {/* Nueva Consulta: el único formulario que queda, porque es el único que
+          llega al backend (POST /consultas). */}
       <Modal
         isOpen={modal === 'consulta'}
         onClose={closeModal}
@@ -713,31 +699,15 @@ export default function ExpedienteDetailPage() {
         headerGradient="bg-gradient-to-r from-doc-amber to-doc-amber-dark"
         maxWidth="lg"
       >
-        {/* El formulario ya guarda contra `POST /consultas`; esta lista sigue
-            siendo de maqueta, así que la consulta confirmada por el servidor se
-            adapta al tipo `Consultation` para que se vea de inmediato. Los
-            medicamentos van vacíos a propósito: ahora se recetan aparte, desde
-            /prescripciones, sobre la consulta ya registrada. */}
+        {/* La consulta que devuelve el servidor se prepone tal cual: la lista
+            ya es de `ConsultaDto`, así que no hay que adaptarla a ningún tipo
+            de maqueta. Los medicamentos aparecerán en su fila en cuanto se le
+            emita una receta desde /prescripciones. */}
         <ConsultationForm
           pacientes={[{ personaId: Number(patient.id), nombre: patient.name }]}
           pacienteIdPorDefecto={Number(patient.id)}
           onGuardada={(c) => {
-            setPatientConsultations((prev) => [
-              {
-                date: formatearFechaHora(c.fecha),
-                // `reason` y `diagnosis` son `string` en el tipo `Consultation`
-                // de la maqueta, pero `motivo` y `diagnostico` PUEDEN venir
-                // null del backend. `textoOpcional` es lo que hace honesto ese
-                // `string`: sin él, la tarjeta del expediente pinta la palabra
-                // «null» donde el médico espera leer por qué vino el paciente.
-                reason: textoOpcional(c.motivo),
-                diagnosis: textoOpcional(c.diagnostico),
-                status: c.estado === 'FINALIZADA' ? 'Finalizada' : 'Pendiente',
-                meds: [],
-                doctor: nombreDeMedico(c),
-              },
-              ...prev,
-            ])
+            setConsultas((prev) => [c, ...prev])
             closeModal()
           }}
           onCancel={closeModal}
@@ -745,4 +715,22 @@ export default function ExpedienteDetailPage() {
       </Modal>
     </div>
   )
+}
+
+/** «1 consulta» / «3 consultas». */
+function plural(cantidad: number, singular: string): string {
+  return `${cantidad} ${cantidad === 1 ? singular : `${singular}s`}`
+}
+
+/**
+ * Antepone QUÉ se estaba cargando al motivo que dio el servidor.
+ *
+ * Mismo criterio que en (portal)/consultas/page.tsx: aquí conviven dos
+ * peticiones y el aviso puede juntar las dos, así que «Error del servidor
+ * (500).» a secas no diría si lo que falta son las consultas o las recetas. Se
+ * AÑADE contexto, no se reemplaza el motivo del backend.
+ */
+function describir(contexto: string, causa: unknown): string {
+  const motivo = causa instanceof Error && causa.message ? causa.message : null
+  return motivo ? `${contexto}: ${motivo}` : `${contexto}.`
 }
