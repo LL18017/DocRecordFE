@@ -271,6 +271,88 @@ describe('apiFetch · traducción de errores', () => {
     expect(error.status).toBe(422)
   })
 
+  it('muestra `message` y no `error` en un error de negocio del backend', async () => {
+    const api = await cargarApi()
+    // Cuerpo real del manejador global de DocRecordBE: `error` es la
+    // categoría, `message` el motivo. Verificado contra POST /pacientes.
+    fetchMock.mockResolvedValueOnce(
+      respuesta(400, {
+        error: 'Error',
+        message: 'Esta persona ya esta registrada como paciente.',
+      }),
+    )
+
+    const error = await errorDe(api.apiFetch('/pacientes', { method: 'POST', body: {} }))
+
+    expect(error.message).toBe('Esta persona ya esta registrada como paciente.')
+    // Si alguien vuelve a preferir `error`, el usuario lee literalmente
+    // «Error» en pantalla y esta prueba falla.
+    expect(error.message).not.toBe('Error')
+  })
+
+  it('muestra `message` y no `error` en un 404 del backend', async () => {
+    const api = await cargarApi()
+    fetchMock.mockResolvedValueOnce(
+      respuesta(404, { error: 'Recurso no encontrado', message: 'Paciente no encontrado' }),
+    )
+
+    const error = await errorDe(api.apiFetch('/pacientes/999'))
+
+    // «Recurso no encontrado» no le dice al usuario QUÉ no se encontró.
+    expect(error.message).toBe('Paciente no encontrado')
+    expect(error.message).not.toBe('Recurso no encontrado')
+  })
+
+  it('usa `error` cuando la respuesta no trae `message`', async () => {
+    const api = await cargarApi()
+    fetchMock.mockResolvedValueOnce(respuesta(409, { error: 'El DUI ya existe', code: 'DUPLICADO' }))
+
+    const error = await errorDe(api.apiFetch('/personas', { method: 'POST', body: {} }))
+
+    expect(error.message).toBe('El DUI ya existe')
+  })
+
+  it('muestra los mensajes de campo de una validación de Spring', async () => {
+    const api = await cargarApi()
+    // Las validaciones llegan como un mapa campo → mensaje, sin `error` ni
+    // `message`. Antes caían al genérico «Los datos enviados no son válidos»
+    // y el usuario no sabía qué campo corregir.
+    fetchMock.mockResolvedValueOnce(respuesta(400, { latitud: 'La latitud es obligatoria' }))
+
+    const error = await errorDe(api.apiFetch('/clinics', { method: 'POST', body: {} }))
+
+    expect(error.message).toContain('La latitud es obligatoria')
+    expect(error.message).not.toContain('Los datos enviados no son válidos')
+  })
+
+  it('junta los mensajes cuando la validación señala varios campos', async () => {
+    const api = await cargarApi()
+    fetchMock.mockResolvedValueOnce(
+      respuesta(400, {
+        latitud: 'La latitud es obligatoria',
+        longitud: 'La longitud es obligatoria',
+      }),
+    )
+
+    const error = await errorDe(api.apiFetch('/clinics', { method: 'POST', body: {} }))
+
+    expect(error.message).toContain('La latitud es obligatoria')
+    expect(error.message).toContain('La longitud es obligatoria')
+  })
+
+  it('no confunde un cuerpo de error genérico con una validación', async () => {
+    const api = await cargarApi()
+    // Forma por defecto de Spring ante un fallo no controlado: son metadatos,
+    // no mensajes para el usuario.
+    fetchMock.mockResolvedValueOnce(
+      respuesta(500, { timestamp: '2026-08-22T10:00:00', status: 500, path: '/pacientes' }),
+    )
+
+    const error = await errorDe(api.apiFetch('/pacientes'))
+
+    expect(error.message).toBe('Error del servidor (500).')
+  })
+
   it('cae a un mensaje legible cuando el cuerpo del error no es JSON', async () => {
     const api = await cargarApi()
     fetchMock.mockResolvedValueOnce(respuesta(403, '<html>Forbidden</html>'))

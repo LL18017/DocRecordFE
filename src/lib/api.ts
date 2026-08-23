@@ -203,21 +203,41 @@ function limpiarSesionPorRenovacionFallida(): void {
 }
 
 /**
- * El backend responde errores con `ErrorResponseDTO { error, code }`, pero un
- * fallo de validación de Spring o un 500 inesperado traen otra forma. Se
- * intentan ambas y, si no, se cae a un mensaje según el código HTTP.
+ * Traduce el cuerpo de una respuesta de error al mensaje que verá el usuario.
+ *
+ * El backend usa dos claves y NO significan lo mismo: `error` trae la
+ * categoría del fallo y `message` el motivo concreto.
+ *
+ *   negocio:     {"error":"Error","message":"Esta persona ya esta registrada…"}
+ *   404:         {"error":"Recurso no encontrado","message":"Paciente no encontrado"}
+ *
+ * Por eso se prefiere `message`: mostrar `error` dejaba en pantalla textos
+ * como «Error» o «Recurso no encontrado», que no le dicen al usuario qué pasó
+ * ni qué hacer. `error` queda de reserva para las respuestas que solo traen
+ * esa clave, y `detail` para el formato `ProblemDetail`.
+ *
+ * Las validaciones de Spring llegan con una tercera forma, un objeto
+ * campo → mensaje sin ninguna de las dos claves:
+ *
+ *   validación:  {"latitud":"La latitud es obligatoria"}
+ *
+ * Ahí el mensaje útil está en los valores, así que se concatenan en vez de
+ * caer al genérico por código HTTP, que solo diría «Los datos enviados no son
+ * válidos» sin nombrar el campo.
+ *
+ * Si no aparece nada de eso (cuerpo vacío, HTML, un 500 inesperado) se usa el
+ * mensaje por defecto según el código HTTP.
  */
 async function extraerMensajeDeError(respuesta: Response): Promise<string> {
   try {
     const texto = await respuesta.text()
     if (texto) {
-      const cuerpo = JSON.parse(texto) as {
-        error?: string
-        message?: string
-        detail?: string
-      }
-      const mensaje = cuerpo.error ?? cuerpo.message ?? cuerpo.detail
+      const cuerpo: unknown = JSON.parse(texto)
+      const mensaje = mensajeDirecto(cuerpo)
       if (mensaje) return mensaje
+
+      const validaciones = mensajesDeValidacion(cuerpo)
+      if (validaciones) return validaciones
     }
   } catch {
     // Cuerpo vacío o no JSON: se usa el mensaje por defecto.
@@ -240,4 +260,56 @@ async function extraerMensajeDeError(respuesta: Response): Promise<string> {
     default:
       return `Error del servidor (${respuesta.status}).`
   }
+}
+
+/** Primer texto no vacío de `message`, `error` o `detail`, en ese orden. */
+function mensajeDirecto(cuerpo: unknown): string | null {
+  if (typeof cuerpo !== 'object' || cuerpo === null) return null
+  const { message, error, detail } = cuerpo as Record<string, unknown>
+  for (const valor of [message, error, detail]) {
+    if (typeof valor === 'string' && valor.trim()) return valor.trim()
+  }
+  return null
+}
+
+/**
+ * Claves que aparecen en los cuerpos de error de Spring pero no son un
+ * mensaje de validación: o ya se leyeron arriba, o son metadatos.
+ */
+const CLAVES_SIN_MENSAJE = new Set([
+  'message',
+  'error',
+  'detail',
+  'code',
+  'status',
+  'timestamp',
+  'path',
+  'trace',
+  'type',
+  'title',
+  'instance',
+])
+
+/**
+ * Junta los mensajes de un cuerpo de validación `{ campo: mensaje }`.
+ *
+ * Se exige que TODOS los campos restantes sean cadenas: así un cuerpo de error
+ * cualquiera (`{"timestamp":"…","status":500,"path":"/pacientes"}`) no se
+ * confunde con una validación y sigue cayendo al mensaje por código HTTP.
+ *
+ * Al concatenar varios se añade el punto final que el backend no pone, para
+ * que dos avisos seguidos no se lean como una sola frase.
+ */
+function mensajesDeValidacion(cuerpo: unknown): string | null {
+  if (typeof cuerpo !== 'object' || cuerpo === null || Array.isArray(cuerpo)) return null
+
+  const mensajes: string[] = []
+  for (const [campo, valor] of Object.entries(cuerpo as Record<string, unknown>)) {
+    if (CLAVES_SIN_MENSAJE.has(campo)) continue
+    if (typeof valor !== 'string' || !valor.trim()) return null
+    mensajes.push(valor.trim())
+  }
+  if (mensajes.length === 0) return null
+
+  return mensajes.map((m) => (/[.!?]$/.test(m) ? m : `${m}.`)).join(' ')
 }
