@@ -140,13 +140,19 @@ describe('pacienteDtoAPatient · sexo y fecha mostrada', () => {
   })
 
   /**
-   * DEFECTO CONOCIDO: `sexo === 'F' ? 'Femenino' : 'Masculino'` mete en la
+   * Regresión corregida: `sexo === 'F' ? 'Femenino' : 'Masculino'` metía en la
    * misma rama a 'M' y a null. El tipo admite null (viene de `PersonaDto`), y
-   * una persona registrada primero como médico no lo tiene. El expediente
-   * termina afirmando "Masculino" sobre un dato que nadie capturó.
+   * una persona registrada primero como médico no lo tiene capturado. El
+   * expediente terminaba afirmando "Masculino" sobre un dato que nadie
+   * registró.
    */
-  it.fails('DEFECTO: no debería inventar "Masculino" cuando sexo es null', () => {
-    expect(pacienteDtoAPatient(dto({ sexo: null })).sex).not.toBe('Masculino')
+  it('no inventa un sexo cuando el backend lo manda null', () => {
+    const sexo = pacienteDtoAPatient(dto({ sexo: null })).sex
+
+    expect(sexo).not.toBe('Masculino')
+    expect(sexo).not.toBe('Femenino')
+    // Mismo guion que telefono, direccion y dui: el dato falta, no se inventa.
+    expect(sexo).toBe('—')
   })
 
   /**

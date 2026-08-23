@@ -69,6 +69,22 @@ function formatearFecha(fechaISO: string): string {
 }
 
 /**
+ * Traduce `sexo` a la etiqueta que muestra el expediente.
+ *
+ * `sexo` es anulable a propósito (viene de `PersonaDto`): una persona
+ * registrada primero como médico o enfermera todavía no lo tiene capturado.
+ * Meter ese null en la rama de 'M' hacía que el expediente afirmara
+ * «Masculino» sobre un dato que nadie registró. El guion es el mismo que el
+ * adaptador ya usa para telefono, direccion y dui: falta el dato, no se
+ * inventa.
+ */
+function formatearSexo(sexo: 'M' | 'F' | null): string {
+  if (sexo === 'F') return 'Femenino'
+  if (sexo === 'M') return 'Masculino'
+  return '—'
+}
+
+/**
  * `email` no existe en `persona`, así que queda vacío. `fechaNacimiento` y
  * `sexo` siempre vienen presentes en un `PacienteDto`: el backend exige
  * ambos para crear el paciente (ver PatientForm).
@@ -79,7 +95,7 @@ export function pacienteDtoAPatient(p: PacienteDto): Patient {
     name: `${p.persona.nombres} ${p.persona.apellidos}`.trim(),
     phone: p.persona.telefono || '—',
     age: p.persona.fechaNacimiento ? calcularEdad(p.persona.fechaNacimiento) : 0,
-    sex: p.persona.sexo === 'F' ? 'Femenino' : 'Masculino',
+    sex: formatearSexo(p.persona.sexo),
     consultations: 0,
     status: 'Activo',
     blood: p.tipoSangre || '—',
