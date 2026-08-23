@@ -14,15 +14,34 @@ interface NavItem {
   roles: Role[]
 }
 
+// Quién ve cada opción. La regla es que el menú NO ofrezca una pantalla que el
+// servidor va a rechazar: ofrecerla convierte un permiso que falta en un error
+// 403 en la cara del usuario, y quien lo recibe no tiene forma de saber que el
+// problema es su rol y no el sistema.
+//
+// Los permisos de abajo son los del backend, no una preferencia de la
+// interfaz: `/user` es `hasRole('ADMIN')`, mientras que `/pacientes`,
+// `/personas` y `/clinics` admiten ADMIN además de MEDICO y ENFERMERA.
+//
+// 'Administrador' aparece también en Dashboard, Pacientes y Clínicas por eso
+// mismo: `mapearRol` colapsa a un solo rol y devuelve 'Administrador' en
+// cuanto la cuenta tiene ADMIN, aunque además sea MEDICO —que es el caso
+// normal, porque ADMIN se otorga sobre una cuenta ya existente—. Sin esas tres
+// entradas, un administrador se quedaba con un menú de una sola opción y sin
+// acceso al trabajo clínico que su cuenta sí puede hacer.
+//
+// Consultas, Enfermería, Prescripciones y Agenda siguen sin 'Administrador':
+// esas pantallas todavía no tienen backend, así que no hay permiso que
+// consultar y no se les inventa uno.
 const navItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', roles: ['medico', 'enfermera'] },
-  { href: '/pacientes', label: 'Pacientes', icon: 'patients', roles: ['medico', 'enfermera'] },
+  { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', roles: ['medico', 'enfermera', 'Administrador'] },
+  { href: '/pacientes', label: 'Pacientes', icon: 'patients', roles: ['medico', 'enfermera', 'Administrador'] },
   { href: '/consultas', label: 'Consultas Médicas', icon: 'consultas', roles: ['medico'] },
   { href: '/enfermeria', label: 'Registro Enfermería', icon: 'enfermeria', roles: ['enfermera'] },
   { href: '/prescripciones', label: 'Prescripciones', icon: 'prescripciones', roles: ['medico'] },
   { href: '/agenda', label: 'Agenda de Citas', icon: 'agenda', roles: ['medico', 'enfermera'] },
-  { href: '/clinicas', label: 'Clínicas', icon: 'clinicas', roles: ['medico', 'enfermera'] },
-  { href: '/usuarios', label: 'Usuarios y Roles', icon: 'usuarios', roles: ['medico'] },
+  { href: '/clinicas', label: 'Clínicas', icon: 'clinicas', roles: ['medico', 'enfermera', 'Administrador'] },
+  { href: '/usuarios', label: 'Usuarios y Roles', icon: 'usuarios', roles: ['Administrador'] },
 ]
 
 interface SidebarProps {
