@@ -113,4 +113,10 @@ describe('LoginPage · el error de credenciales', () => {
     expect(campoClave()).not.toHaveAttribute('aria-invalid')
     expect(campoCorreo()).not.toHaveAttribute('aria-describedby')
   })
+
+  // RUPTURA INTENCIONAL: prueba agregada solo para confirmar que el CI
+  // sabe fallar. Se revierte con un commit nuevo en cuanto se vea en rojo.
+  it('ruptura intencional para probar que el CI falla', () => {
+    expect(true).toBe(false)
+  })
 })
