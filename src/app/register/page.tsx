@@ -27,7 +27,8 @@ const features: { icon: IconName; text: string }[] = [
 const USER_TYPE_MEDICO = 1
 
 export default function RegisterPage() {
-  const [nombre, setNombre] = useState('')
+  const [nombres, setNombres] = useState('')
+  const [apellidos, setApellidos] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -44,7 +45,10 @@ export default function RegisterPage() {
       // services/auth.ts), así que se registra sin roles adicionales.
       await registrar({
         email,
-        userName: nombre,
+        // TODO: POST /auth/register todavía no acepta nombres/apellidos por
+        // separado; se concatenan en userName para no romper el endpoint
+        // actual. Capturarlos ya como dos campos deja lista la migración.
+        userName: `${nombres} ${apellidos}`.trim(),
         password,
         roles: [],
         userType: USER_TYPE_MEDICO,
@@ -94,14 +98,27 @@ export default function RegisterPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-                    Nombre completo *
+                    Nombres *
                   </label>
                   <input
                     required
                     type="text"
-                    value={nombre}
-                    onChange={(e) => setNombre(e.target.value)}
-                    placeholder="Juan Armando Guerra Guevara"
+                    value={nombres}
+                    onChange={(e) => setNombres(e.target.value)}
+                    placeholder="Juan Armando"
+                    className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+                    Apellidos *
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={apellidos}
+                    onChange={(e) => setApellidos(e.target.value)}
+                    placeholder="Guerra Guevara"
                     className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
                   />
                 </div>
