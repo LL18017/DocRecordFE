@@ -121,19 +121,12 @@ describe('pacienteDtoAPatient · cálculo de edad', () => {
   })
 
   /**
-   * DEFECTO CONOCIDO (no corregido a propósito, ver informe).
-   *
-   * `new Date('1996-06-16')` se interpreta como medianoche **UTC**, pero
-   * `calcularEdad` lo compara con `getMonth()/getDate()`, que son **locales**.
-   * En El Salvador (UTC-6) esa fecha se convierte en el 15 de junio local: un
-   * día antes. Resultado: el paciente aparece con un año de más durante el día
-   * previo a su cumpleaños.
-   *
-   * `it.fails` deja la prueba documentada y la suite en verde; en cuanto
-   * alguien arregle `calcularEdad`, esta prueba se pondrá roja y habrá que
-   * cambiarla a `it` — o sea, el defecto no se puede olvidar.
+   * Regresión corregida: `new Date('1996-06-16')` se interpretaba como
+   * medianoche **UTC** y `calcularEdad` la comparaba con `getMonth()`/
+   * `getDate()`, que son **locales**. En El Salvador (UTC-6) la fecha
+   * retrocedía un día y el paciente cumplía años 24 horas antes de tiempo.
    */
-  it.fails('DEFECTO: da 29 el día antes del cumpleaños número 30', () => {
+  it('da 29 el día antes del cumpleaños número 30', () => {
     vi.setSystemTime(new Date(2026, 5, 15, 12, 0, 0))
 
     expect(pacienteDtoAPatient(dto({ fechaNacimiento: nacimiento(30, 1) })).age).toBe(29)
@@ -157,13 +150,57 @@ describe('pacienteDtoAPatient · sexo y fecha mostrada', () => {
   })
 
   /**
-   * DEFECTO CONOCIDO: mismo desfase UTC/local que en la edad. La fecha de
-   * nacimiento se muestra un día antes de la real en toda zona horaria
-   * negativa, El Salvador incluida. Es visible directamente en el expediente.
+   * Regresión corregida: mismo desfase UTC/local que en la edad. La fecha de
+   * nacimiento se mostraba un día antes de la real en toda zona horaria
+   * negativa, El Salvador incluida, y eso se ve directo en el expediente.
    */
-  it.fails('DEFECTO: muestra la fecha de nacimiento tal cual, sin correr un día', () => {
+  it('muestra la fecha de nacimiento tal cual, sin correr un día', () => {
     expect(pacienteDtoAPatient(dto({ fechaNacimiento: '1996-06-15' })).born).toBe(
       '15 de junio de 1996',
     )
+  })
+})
+
+describe('pacienteDtoAPatient · zona horaria (UTC-6)', () => {
+  // El desfase UTC/local solo se manifiesta en zonas con desfase negativo: si
+  // estas pruebas usaran el TZ de la máquina, en un servidor en UTC pasarían
+  // aunque el defecto volviera. Se fija aquí la zona real del sistema para que
+  // la guarda valga igual en cualquier máquina donde corra la suite.
+  const tzOriginal = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+
+  beforeEach(() => {
+    process.env.TZ = 'America/El_Salvador'
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    process.env.TZ = tzOriginal
+  })
+
+  it('no corre la fecha de nacimiento un día hacia atrás', () => {
+    expect(pacienteDtoAPatient(dto({ fechaNacimiento: '1996-06-15' })).born).toBe(
+      '15 de junio de 1996',
+    )
+  })
+
+  it('no adelanta el cumpleaños un día', () => {
+    // 14 de junio: le falta un día para cumplir 30.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 5, 14, 12, 0, 0))
+
+    expect(pacienteDtoAPatient(dto({ fechaNacimiento: '1996-06-15' })).age).toBe(29)
+
+    // 15 de junio: ya los cumplió.
+    vi.setSystemTime(new Date(2026, 5, 15, 12, 0, 0))
+
+    expect(pacienteDtoAPatient(dto({ fechaNacimiento: '1996-06-15' })).age).toBe(30)
+  })
+
+  it('descarta una fecha civil imposible en vez de correrla al mes siguiente', () => {
+    // '2026-02-30' no existe; el constructor de Date la movería al 2 de marzo.
+    const paciente = pacienteDtoAPatient(dto({ fechaNacimiento: '2026-02-30' }))
+
+    expect(paciente.born).not.toMatch(/marzo/)
+    expect(paciente.age).toBe(0)
   })
 })
