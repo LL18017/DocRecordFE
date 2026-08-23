@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Clinica } from '@/types'
 import { Badge } from '@/components/ui/Badge'
@@ -7,6 +8,7 @@ import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { useAppContext } from '@/context/AppContext'
 import { ApiError } from '@/lib/api'
+import { tieneUbicacion } from '@/lib/mapaClinicas'
 import {
   MAX_LARGO_NOMBRE_CLINICA,
   actualizarClinica,
@@ -19,6 +21,21 @@ import {
 } from '@/services/clinicas'
 
 const SIN_UBICACION = 'Sin ubicación registrada'
+
+// Leaflet lee `document` en cuanto se importa, así que el módulo del mapa no
+// puede formar parte del renderizado en servidor: 'use client' marca dónde vive
+// la interactividad, pero el App Router igual prerenderiza estos componentes en
+// Node. `ssr: false` es lo que lo deja fuera de ese paso y lo carga solo en el
+// navegador; la opción solo se admite dentro de un componente de cliente, que es
+// justo lo que es esta página.
+const MapaClinicas = dynamic(() => import('@/components/mapa/MapaClinicas'), {
+  ssr: false,
+  loading: () => (
+    <div className="absolute inset-0 flex items-center justify-center bg-slate-100 text-sm text-slate-500">
+      Cargando mapa…
+    </div>
+  ),
+})
 
 export default function ClinicasPage() {
   const { activeClinic, setActiveClinic } = useAppContext()
@@ -113,10 +130,9 @@ export default function ClinicasPage() {
     }
   }
 
-  const ubicadas = list.filter(
-    (c): c is Clinica & { lat: number; lng: number } => c.lat !== null && c.lng !== null,
-  )
-  const sinUbicacion = list.length - ubicadas.length
+  // El mapa decide por su cuenta cuáles puede dibujar; aquí solo se cuentan
+  // las que se quedan fuera para poder decirlo.
+  const sinUbicacion = list.filter((c) => !tieneUbicacion(c)).length
 
   return (
     <div>
@@ -303,120 +319,32 @@ export default function ClinicasPage() {
 
           {/* `min-h` y no `h`: dentro de un flex, `flex-1` manda sobre la
               altura fija y el mapa se aplastaba a unos pocos píxeles cuando la
-              columna de la izquierda traía una sola clínica. Con la lista de
-              maqueta, que siempre traía tres, no se notaba. */}
-          <div className="relative overflow-hidden min-h-96 w-full flex-1">
-            <div className="absolute inset-0 bg-gradient-to-b from-[#d4e8c8] via-[#e0eed8] to-[#d8e8d0]" />
+              columna de la izquierda traía una sola clínica.
 
-            {/* Street/blocks decorations */}
-            {[
-              { x: '30%', y: '40%', w: 120, h: 60, color: '#c8b870', label: 'Barrio Centro' },
-              { x: '55%', y: '25%', w: 80, h: 40, color: '#c8b870', label: '' },
-              { x: '20%', y: '60%', w: 100, h: 50, color: '#c8b870', label: '' },
-              { x: '65%', y: '55%', w: 90, h: 45, color: '#c8b870', label: 'Zona Comercial' },
-            ].map((block, i) => (
-              <div
-                key={i}
-                className="absolute rounded-md"
-                style={{
-                  left: block.x,
-                  top: block.y,
-                  width: block.w,
-                  height: block.h,
-                  background: block.color,
-                  opacity: 0.6,
-                }}
-              >
-                {block.label && (
-                  <span className="text-[11px] text-amber-900 font-medium absolute inset-0 flex items-center justify-center">
-                    {block.label}
-                  </span>
-                )}
-              </div>
-            ))}
+              `isolate` no es decorativo: Leaflet apila sus capas hasta z-index
+              800 y sus controles en 1000. Sin un contexto de apilamiento
+              propio, las teselas se dibujarían por encima de la barra superior
+              (z-20) y de los modales (z-50). */}
+          <div className="relative isolate overflow-hidden min-h-96 w-full flex-1">
+            <MapaClinicas
+              clinicas={list}
+              seleccionadaId={selected?.id ?? null}
+              activaId={activeClinic?.id ?? null}
+              onSeleccionar={(c) => setSelectedId(c.id)}
+              onTrabajarAqui={(c) => setWorkModal(c)}
+            />
 
-            {/* Roads */}
-            {[
-              { x: '10%', y: '50%', length: '80%', orient: 'h' },
-              { x: '40%', y: '10%', length: '80%', orient: 'v' },
-            ].map((road, i) => (
-              <div
-                key={i}
-                className="absolute bg-amber-200/80 shadow-inner"
-                style={
-                  road.orient === 'h'
-                    ? { left: road.x, top: road.y, width: road.length, height: 8 }
-                    : { left: road.x, top: road.y, width: 8, height: road.length }
-                }
-              />
-            ))}
-
-            {/* Chinches: ahora salen de las coordenadas reales, no del índice de
-                la lista. Solo se dibujan las clínicas que tienen ubicación; a
-                las demás no se les inventa un punto. */}
-            {ubicadas.map((c) => {
-              const { left, top } = proyectar(c.lat, c.lng)
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => {
-                    setSelectedId(c.id)
-                    setWorkModal(c)
-                  }}
-                  className="absolute transition-transform hover:scale-110 cursor-pointer z-10"
-                  style={{ left, top, transform: 'translate(-50%, -100%)' }}
-                >
-                  <div
-                    className={`w-9 h-9 rounded-full border-2 border-white shadow-lg flex items-center justify-center ${
-                      activeClinic?.id === c.id
-                        ? 'bg-emerald-600'
-                        : selected?.id === c.id
-                        ? 'bg-doc-blue'
-                        : 'bg-doc-amber'
-                    }`}
-                  >
-                    <Icon name="clinicas" size={15} color="white" />
-                  </div>
-                  <div
-                    className={`w-2 h-2 rounded-full mx-auto -mt-0.5 ${
-                      activeClinic?.id === c.id
-                        ? 'bg-emerald-600'
-                        : selected?.id === c.id
-                        ? 'bg-doc-blue'
-                        : 'bg-doc-amber'
-                    }`}
-                  />
-                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-lg px-3 py-1.5 whitespace-nowrap text-xs font-medium text-slate-700 border border-slate-100">
-                    {c.name.split(' ').slice(0, 2).join(' ')}
-                    {activeClinic?.id === c.id && <span className="text-emerald-600 font-bold ml-1">✓</span>}
-                  </div>
-                </button>
-              )
-            })}
-
-            {/* Abajo a la izquierda: arriba el aviso se cruzaba con las
-                chinches y sus etiquetas, que es justo lo que acompaña. */}
+            {/* Abajo a la izquierda: a la derecha está la atribución de
+                OpenStreetMap y arriba a la izquierda los controles de zoom.
+                `pointer-events-none` para no capturar el arrastre del mapa, y
+                z-index por encima de los controles de Leaflet. */}
             {sinUbicacion > 0 && (
-              <div className="absolute bottom-2 left-2 bg-white/95 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-700 shadow-2xs max-w-[16rem]">
+              <div className="pointer-events-none absolute bottom-8 left-2 z-[1000] bg-white/95 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-700 shadow-2xs max-w-[16rem]">
                 {sinUbicacion === 1
                   ? '1 clínica no aparece en el mapa porque no tiene ubicación registrada.'
                   : `${sinUbicacion} clínicas no aparecen en el mapa porque no tienen ubicación registrada.`}
               </div>
             )}
-
-            <div className="absolute top-3 right-3 flex flex-col gap-1">
-              {['+', '−'].map((s) => (
-                <button
-                  key={s}
-                  className="w-8 h-8 bg-white rounded-lg shadow-sm border border-slate-200 flex items-center justify-center text-slate-600 font-bold hover:bg-slate-50 text-lg cursor-pointer"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-            <div className="absolute bottom-2 right-2 text-[10px] text-slate-500 bg-white/90 px-2 py-0.5 rounded shadow-2xs font-mono">
-              El Salvador
-            </div>
           </div>
         </div>
       </div>
@@ -545,24 +473,6 @@ export default function ClinicasPage() {
       </Modal>
     </div>
   )
-}
-
-// ─── Mapa de mentira, coordenadas de verdad ─────────────────────────────────
-// El recuadro sigue siendo decorativo, pero al menos las chinches guardan las
-// posiciones relativas reales: el territorio salvadoreño se proyecta sobre el
-// recuadro de forma lineal. Se recorta al 5-95 % para que una clínica fuera de
-// estos límites quede en el borde y visible, en lugar de salirse del marco.
-const LIMITES_SV = { latMin: 13.1, latMax: 14.5, lngMin: -90.2, lngMax: -87.6 }
-
-function proyectar(lat: number, lng: number): { left: string; top: string } {
-  const x = (lng - LIMITES_SV.lngMin) / (LIMITES_SV.lngMax - LIMITES_SV.lngMin)
-  // La latitud crece hacia el norte y el eje vertical hacia abajo: se invierte.
-  const y = (LIMITES_SV.latMax - lat) / (LIMITES_SV.latMax - LIMITES_SV.latMin)
-  return { left: `${acotar(x)}%`, top: `${acotar(y)}%` }
-}
-
-function acotar(proporcion: number): number {
-  return Math.min(95, Math.max(5, proporcion * 100))
 }
 
 // ─── Formulario de alta y edición ───────────────────────────────────────────
