@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { Clinica } from '@/types'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
@@ -481,6 +481,20 @@ export default function ClinicasPage() {
 // backend no conoce) y no sabe editar. Este habla con el API y refleja lo que
 // `ClinicasRequestDto` acepta de verdad: nombre y coordenadas.
 
+/** Los campos que este formulario captura, que son los que el API acepta. */
+type Campo = 'name' | 'lat' | 'lng'
+
+// Clases de los controles. Lo único que se agrega a las que ya había es
+// `focus-visible:ring-*`, que acompaña al `focus:outline-none`: quitar el
+// contorno del navegador sin reponer nada deja a quien navega con teclado sin
+// saber dónde está parado.
+const inputClass =
+  'w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm bg-white focus:outline-none focus:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500/40 transition-colors'
+const labelClass = 'block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide'
+
+/** El asterisco es decoración: lo obligatorio ya lo dice el atributo `required`. */
+const Obligatorio = () => <span aria-hidden="true"> *</span>
+
 interface FormularioClinicaProps {
   /** Presente en edición; ausente en alta. */
   clinica?: Clinica
@@ -502,6 +516,26 @@ const FormularioClinica: React.FC<FormularioClinicaProps> = ({
   })
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * Qué campos señala el error de arriba. Un aviso puesto debajo del
+   * formulario se anuncia una vez y se pierde; enlazado a los campos que lo
+   * provocan (`aria-describedby`) se relee cada vez que alguien los enfoca
+   * para corregirlos, que es justo el momento en que hace falta. El fallo del
+   * servidor no señala a ninguno: no se sabe cuál lo causó.
+   */
+  const [camposDelError, setCamposDelError] = useState<readonly Campo[]>([])
+
+  // Un prefijo por instancia: la pantalla monta este formulario dos veces
+  // —el modal de alta y el de edición— y con ids fijos las etiquetas del
+  // segundo apuntarían a los campos del primero.
+  const uid = useId()
+  const id = (nombre: string) => `${uid}-${nombre}`
+  const idError = id('error')
+
+  const fallar = (mensaje: string, campos: readonly Campo[]) => {
+    setError(mensaje)
+    setCamposDelError(campos)
+  }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -511,38 +545,42 @@ const FormularioClinica: React.FC<FormularioClinicaProps> = ({
     const longitud = parsearCoordenada(form.lng, 180)
 
     if (!name) {
-      setError('El nombre de la clínica es obligatorio.')
+      fallar('El nombre de la clínica es obligatorio.', ['name'])
       return
     }
     if (name.length > MAX_LARGO_NOMBRE_CLINICA) {
-      setError(`El nombre no puede superar los ${MAX_LARGO_NOMBRE_CLINICA} caracteres.`)
+      fallar(`El nombre no puede superar los ${MAX_LARGO_NOMBRE_CLINICA} caracteres.`, ['name'])
       return
     }
     // El backend exige ambas coordenadas aunque la columna admita nulos, así
     // que se avisa aquí en vez de dejar que responda un 400 genérico.
     if (latitud === null || longitud === null) {
-      setError('Latitud y longitud son obligatorias (entre -90 y 90, y entre -180 y 180).')
+      fallar(
+        'Latitud y longitud son obligatorias (entre -90 y 90, y entre -180 y 180).',
+        latitud === null && longitud === null ? ['lat', 'lng'] : latitud === null ? ['lat'] : ['lng'],
+      )
       return
     }
 
     setGuardando(true)
     setError(null)
+    setCamposDelError([])
     try {
       const guardada = clinica
         ? await actualizarClinica(clinica.id, { name, latitud, longitud })
         : await crearClinica({ name, latitud, longitud })
       onGuardada(guardada)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo guardar la clínica.')
+      fallar(err instanceof Error ? err.message : 'No se pudo guardar la clínica.', [])
     } finally {
       setGuardando(false)
     }
   }
 
-  const campos: [string, 'name' | 'lat' | 'lng', string][] = [
-    ['Nombre de la clínica *', 'name', 'Clínica Familiar Escalón'],
-    ['Latitud *', 'lat', '13.7053'],
-    ['Longitud *', 'lng', '-89.2182'],
+  const campos: [string, Campo, string][] = [
+    ['Nombre de la clínica', 'name', 'Clínica Familiar Escalón'],
+    ['Latitud', 'lat', '13.7053'],
+    ['Longitud', 'lng', '-89.2182'],
   ]
 
   return (
@@ -554,21 +592,28 @@ const FormularioClinica: React.FC<FormularioClinicaProps> = ({
         </p>
       )}
 
-      {campos.map(([label, field, ph]) => (
-        <div key={field}>
-          <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-            {label}
-          </label>
-          <input
-            required
-            maxLength={field === 'name' ? MAX_LARGO_NOMBRE_CLINICA : undefined}
-            placeholder={ph}
-            value={form[field]}
-            onChange={(e) => setForm((prev) => ({ ...prev, [field]: e.target.value }))}
-            className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 transition-colors bg-white"
-          />
-        </div>
-      ))}
+      {campos.map(([label, field, ph]) => {
+        const senalado = camposDelError.includes(field)
+        return (
+          <div key={field}>
+            <label htmlFor={id(field)} className={labelClass}>
+              {label}
+              <Obligatorio />
+            </label>
+            <input
+              id={id(field)}
+              required
+              maxLength={field === 'name' ? MAX_LARGO_NOMBRE_CLINICA : undefined}
+              placeholder={ph}
+              value={form[field]}
+              onChange={(e) => setForm((prev) => ({ ...prev, [field]: e.target.value }))}
+              aria-invalid={senalado ? true : undefined}
+              aria-describedby={senalado ? idError : undefined}
+              className={inputClass}
+            />
+          </div>
+        )
+      })}
 
       <p className="text-xs text-slate-400">
         Las coordenadas ubican la clínica en el mapa. El sistema aún no guarda
@@ -576,7 +621,11 @@ const FormularioClinica: React.FC<FormularioClinicaProps> = ({
       </p>
 
       {error && (
-        <p role="alert" className="rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p
+          id={idError}
+          role="alert"
+          className="rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
           {error}
         </p>
       )}
