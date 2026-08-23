@@ -5,16 +5,22 @@
 
 import { ApiError, apiFetch } from '@/lib/api'
 
-/** Espejo de la respuesta de `GET /personas?dui=`. */
+/**
+ * Espejo de la respuesta de `GET /personas?dui=`.
+ *
+ * Solo `personaId`, `dui`, `nombres` y `apellidos` están garantizados: una
+ * persona creada al registrarse como médico, por ejemplo, todavía no tiene
+ * fecha de nacimiento, sexo, teléfono ni dirección.
+ */
 export interface PersonaDto {
   personaId: number
   dui: string
   nombres: string
   apellidos: string
-  fechaNacimiento: string
-  sexo: string
-  telefono: string
-  direccion: string
+  fechaNacimiento: string | null
+  sexo: 'M' | 'F' | null
+  telefono: string | null
+  direccion: string | null
   esMedico: boolean
   esEnfermera: boolean
   esPaciente: boolean
