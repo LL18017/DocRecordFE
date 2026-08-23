@@ -5,7 +5,6 @@ import React, {
   useCallback,
   useContext,
   useMemo,
-  useState,
   useSyncExternalStore,
 } from 'react'
 import { User, Clinica } from '@/types'
@@ -14,6 +13,7 @@ import { alExpirarSesion } from '@/lib/api'
 import type { Role } from '@/types'
 
 const USER_KEY = 'docrecord.user'
+const CLINICA_KEY = 'docrecord.clinica'
 
 // ─── Sesión como estado externo ───────────────────────────────────────────────
 // La sesión vive en sessionStorage, que es estado FUERA de React. Leerlo con un
@@ -50,11 +50,10 @@ function obtenerCanal(): BroadcastChannel | null {
     canal = new BroadcastChannel(CANAL_SESION)
     canal.onmessage = () => {
       // Otra pestaña cerró sesión: esta limpia su propia copia y se entera.
-      try {
-        window.sessionStorage.removeItem(USER_KEY)
-      } catch {
-        // Sin almacenamiento: basta con notificar a los suscriptores.
-      }
+      // Se borra también la clínica activa: es parte de la sesión, y dejarla
+      // puesta le mostraría al siguiente usuario en qué sede trabajaba el
+      // anterior.
+      borrarSesionDelAlmacenamiento()
       oyentes.forEach(alCambiar => alCambiar())
     }
   }
@@ -82,10 +81,12 @@ function difundirCierreDeSesion(): void {
 // es al revés: este módulo depende de services/auth.ts, que depende de
 // lib/api.ts). Por eso api.ts expone un registro en vez de llamar a
 // AppContext directo: cuando el refresh automático del access token también
-// falla, avisa aquí para limpiar la sesión igual que cerrarSesion(), salvo
-// activeClinic, que es estado de React inalcanzable desde fuera de la app.
+// falla, avisa aquí para limpiar la sesión igual que cerrarSesion(). Ahora
+// que la clínica activa también vive en sessionStorage, esta limpieza la
+// alcanza: antes se quedaba en memoria de React y la barra superior seguía
+// anunciando una sede con la sesión ya vencida.
 alExpirarSesion(() => {
-  escribirSesion(null)
+  limpiarSesion()
   difundirCierreDeSesion()
 })
 
@@ -114,6 +115,107 @@ function escribirSesion(usuario: User | null): void {
   notificarCambioDeSesion()
 }
 
+/** Borra del navegador todo lo que dura lo que la sesión. No notifica. */
+function borrarSesionDelAlmacenamiento(): void {
+  try {
+    window.sessionStorage.removeItem(USER_KEY)
+    window.sessionStorage.removeItem(CLINICA_KEY)
+  } catch {
+    // Sin almacenamiento no hay nada que borrar.
+  }
+}
+
+/** Cierra la sesión en esta pestaña: usuario y clínica activa, de una vez. */
+function limpiarSesion(): void {
+  borrarSesionDelAlmacenamiento()
+  notificarCambioDeSesion()
+}
+
+// ─── Clínica activa: el mismo patrón ─────────────────────────────────────────
+// La sede en la que se está operando vive donde la sesión y dura lo mismo. Era
+// estado de React en memoria, así que un F5 —o entrar por una URL directa al
+// expediente de un paciente— la borraba: la barra superior y el sidebar se
+// quedaban sin sede hasta volver a /select-clinica. Estuvo oculto mientras el
+// contexto arrancaba con una clínica de maqueta, que hacía parecer que el
+// refresco «la restauraba».
+//
+// Se guarda junto al correo de quien la eligió. En una misma pestaña se puede
+// cerrar sesión e iniciar con otra cuenta; sin esa marca, el segundo médico
+// heredaría la sede del primero —una clínica que ni siquiera es suya— ya
+// pintada como «Activa». Al leer se compara el dueño y, si no coincide, se
+// ignora lo guardado: equivale a no haber elegido ninguna, que es la verdad.
+//
+// La elección NO se difunde a las demás pestañas, a diferencia del cierre de
+// sesión. sessionStorage es por pestaña y tener dos abiertas en dos sedes es
+// un uso legítimo; cambiarle la sede a una pestaña desde otra le movería el
+// contexto clínico por debajo a alguien que está escribiendo una consulta.
+//
+// Caso que NO se cubre, a propósito: la clínica guardada pudo ser eliminada
+// desde otro dispositivo. No se valida contra el API en cada arranque —sería
+// una petición extra en cada carga por un dato que solo se pinta en la barra
+// superior y el sidebar—; a cambio, /clinicas ya la desactiva en cuanto la
+// borra, y cualquier operación contra una sede inexistente recibe 403/404,
+// que `services/clinicas.ts` traduce a «Esta clínica ya no existe». Lo que sí
+// se comprueba siempre es la FORMA de lo guardado: un JSON corrupto o de un
+// formato anterior se descarta en vez de reventar el render con `undefined`.
+
+interface ClinicaGuardada {
+  /** Correo del médico que eligió la sede; identifica la cuenta dueña. */
+  medico: string
+  clinica: Clinica
+}
+
+/** Instantánea en el cliente: la cadena cruda guardada, o null. */
+function leerClinicaEnCliente(): string | null {
+  try {
+    return window.sessionStorage.getItem(CLINICA_KEY)
+  } catch {
+    return null
+  }
+}
+
+/** Instantánea en el servidor: durante el render en servidor no hay clínica. */
+function leerClinicaEnServidor(): string | null {
+  return null
+}
+
+function escribirClinica(guardada: ClinicaGuardada | null): void {
+  try {
+    if (guardada) window.sessionStorage.setItem(CLINICA_KEY, JSON.stringify(guardada))
+    else window.sessionStorage.removeItem(CLINICA_KEY)
+  } catch {
+    // Igual que con la sesión: sin almacenamiento se opera sin persistir.
+  }
+  notificarCambioDeSesion()
+}
+
+/**
+ * Identidad de la cuenta dentro de la sesión. El backend manda el correo en
+ * `userName`, así que `email` es lo estable; `name` queda de respaldo porque
+ * el tipo `User` declara `email` opcional.
+ */
+function identidadDe(usuario: User | null): string | null {
+  return usuario?.email ?? usuario?.name ?? null
+}
+
+/**
+ * Valida y normaliza lo leído del almacenamiento. Devuelve `null` ante
+ * cualquier cosa que no sea una clínica reconocible; `lat`/`lng` ausentes o
+ * de otro tipo se vuelven `null`, que es el valor que el resto del sistema ya
+ * sabe pintar («Sin ubicación registrada»).
+ */
+function normalizarClinica(valor: unknown): Clinica | null {
+  if (typeof valor !== 'object' || valor === null) return null
+  const { id, name, lat, lng } = valor as Record<string, unknown>
+  if (typeof id !== 'number' || typeof name !== 'string') return null
+  return {
+    id,
+    name,
+    lat: typeof lat === 'number' ? lat : null,
+    lng: typeof lng === 'number' ? lng : null,
+  }
+}
+
 // Devuelve false durante el render del servidor y el primero de hidratación, y
 // true a partir de ahí. Permite distinguir «todavía no sé si hay sesión» de
 // «comprobado: no hay sesión», sin lo cual las guardas de ruta redirigirían a
@@ -138,14 +240,6 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined)
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Arranca en `null` a propósito: la clínica activa solo puede salir de que el
-  // usuario elija una suya en /select-clinica. Sembrarla con la primera clínica
-  // de maqueta mostraba en la barra superior y el sidebar una sede que no
-  // existe y, peor, su `id: 1` coincide con una clínica real de otro médico:
-  // el sistema llegaba a marcar como «Activa» una sede ajena que nadie eligió.
-  // En un expediente clínico eso no es un detalle visual, es dato equivocado.
-  const [activeClinic, setActiveClinic] = useState<Clinica | null>(null)
-
   const sesionSerializada = useSyncExternalStore(
     suscribirseASesion,
     leerSesionEnCliente,
@@ -168,6 +262,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [sesionSerializada])
 
+  const clinicaSerializada = useSyncExternalStore(
+    suscribirseASesion,
+    leerClinicaEnCliente,
+    leerClinicaEnServidor,
+  )
+
+  // Nunca se devuelve una clínica sin sesión ni la de otra cuenta: sin dueño
+  // que coincida, lo guardado se trata como si no existiera. Es lo que evita
+  // que un cambio de usuario en la misma pestaña marque como «Activa» la sede
+  // del anterior.
+  const activeClinic = useMemo<Clinica | null>(() => {
+    if (!clinicaSerializada) return null
+    const identidad = identidadDe(user)
+    if (!identidad) return null
+    try {
+      const guardada = JSON.parse(clinicaSerializada) as Partial<ClinicaGuardada>
+      if (guardada?.medico !== identidad) return null
+      return normalizarClinica(guardada.clinica)
+    } catch {
+      // Clínica corrupta: se trata como ausencia de clínica.
+      return null
+    }
+  }, [clinicaSerializada, user])
+
+  const setActiveClinic = useCallback(
+    (clinica: Clinica | null) => {
+      const identidad = identidadDe(user)
+      // Sin sesión no hay a quién atribuir la sede, así que no se guarda: lo
+      // contrario dejaría una clínica huérfana que nadie podría leer.
+      escribirClinica(clinica && identidad ? { medico: identidad, clinica } : null)
+    },
+    [user],
+  )
+
   const guardarUsuario = useCallback((u: User | null) => {
     escribirSesion(u)
   }, [])
@@ -183,8 +311,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const cerrarSesion = useCallback(() => {
     authService.logout()
-    escribirSesion(null)
-    setActiveClinic(null)
+    // Usuario y clínica activa se van juntos: la sede elegida es parte de la
+    // sesión de trabajo, no una preferencia del navegador.
+    limpiarSesion()
     // Las demás pestañas tienen su propia copia de la sesión y no se enteran
     // solas. En una computadora compartida de clínica, dejar una pestaña con la
     // sesión viva tras cerrarla en otra es un riesgo real.
@@ -201,7 +330,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       activeClinic,
       setActiveClinic,
     }),
-    [user, guardarUsuario, hidratado, iniciarSesion, cerrarSesion, activeClinic],
+    [
+      user,
+      guardarUsuario,
+      hidratado,
+      iniciarSesion,
+      cerrarSesion,
+      activeClinic,
+      setActiveClinic,
+    ],
   )
 
   return <AppContext.Provider value={valor}>{children}</AppContext.Provider>
