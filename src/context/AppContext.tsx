@@ -26,23 +26,56 @@ const USER_KEY = 'docrecord.user'
 // sessionStorage, así que la instantánea de servidor devuelve null y el primer
 // render del cliente coincide con el del servidor.
 
+const CANAL_SESION = 'docrecord.sesion'
+
 type Oyente = () => void
 const oyentes = new Set<Oyente>()
 
+// Aviso entre pestañas.
+//
+// sessionStorage NO se comparte entre pestañas: cada una tiene su propia copia
+// (al abrir una pestaña desde otra, el navegador la duplica). Y el evento
+// `storage` no se dispara para sessionStorage, solo para localStorage. Es decir:
+// escuchar `storage` aquí sería código muerto.
+//
+// Se conserva sessionStorage a propósito, porque su vida útil es la correcta
+// para una computadora compartida de clínica: al cerrar el navegador la sesión
+// desaparece, cosa que localStorage no garantiza. Para avisar a las demás
+// pestañas se usa un canal explícito.
+let canal: BroadcastChannel | null = null
+
+function obtenerCanal(): BroadcastChannel | null {
+  if (typeof BroadcastChannel === 'undefined') return null // navegador sin soporte
+  if (!canal) {
+    canal = new BroadcastChannel(CANAL_SESION)
+    canal.onmessage = () => {
+      // Otra pestaña cerró sesión: esta limpia su propia copia y se entera.
+      try {
+        window.sessionStorage.removeItem(USER_KEY)
+      } catch {
+        // Sin almacenamiento: basta con notificar a los suscriptores.
+      }
+      oyentes.forEach(alCambiar => alCambiar())
+    }
+  }
+  return canal
+}
+
 function suscribirseASesion(alCambiar: Oyente): () => void {
   oyentes.add(alCambiar)
-  // El evento `storage` solo lo disparan OTRAS pestañas. Escucharlo hace que
-  // cerrar sesión en una pestaña cierre la sesión en las demás, que es lo que
-  // corresponde a un sistema de expediente clínico.
-  window.addEventListener('storage', alCambiar)
+  obtenerCanal()
   return () => {
     oyentes.delete(alCambiar)
-    window.removeEventListener('storage', alCambiar)
   }
 }
 
 function notificarCambioDeSesion(): void {
   oyentes.forEach(alCambiar => alCambiar())
+}
+
+/** Pide a las demás pestañas que cierren sesión también. */
+function difundirCierreDeSesion(): void {
+  obtenerCanal()?.postMessage({ tipo: 'cierre' })
 }
 
 /** Instantánea en el cliente: la cadena cruda guardada, o null. */
@@ -135,6 +168,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     authService.logout()
     escribirSesion(null)
     setActiveClinic(null)
+    // Las demás pestañas tienen su propia copia de la sesión y no se enteran
+    // solas. En una computadora compartida de clínica, dejar una pestaña con la
+    // sesión viva tras cerrarla en otra es un riesgo real.
+    difundirCierreDeSesion()
   }, [])
 
   const valor = useMemo<AppContextType>(
