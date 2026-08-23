@@ -1,15 +1,19 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Patient } from '@/types'
-import { patients as initialPatients } from '@/data/mockData'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { PatientForm } from '@/components/forms/PatientForm'
-import type { PacienteDto } from '@/services/pacientes'
+import { ApiError } from '@/lib/api'
+import {
+  eliminarPaciente,
+  listarPacientes,
+  type PacienteDto,
+} from '@/services/pacientes'
 
 function calcularEdad(fechaISO: string): number {
   const nacimiento = new Date(fechaISO)
@@ -54,11 +58,64 @@ function pacienteDtoAPatient(p: PacienteDto): Patient {
 }
 
 export default function PacientesPage() {
-  const [patientsList, setPatientsList] = useState<Patient[]>(initialPatients)
+  // La lista sale de GET /pacientes. Antes se sembraba con los datos de la
+  // maqueta, asi que un paciente recien creado desaparecia al recargar: estaba
+  // en la base, pero la pantalla nunca la consultaba.
+  const [patientsList, setPatientsList] = useState<Patient[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
 
-  const handleDelete = (id: string) => {
-    setPatientsList((prev) => prev.filter((p) => p.id !== id))
+  // Ningún setState ocurre antes del primer await: hacerlo de forma síncrona
+  // dentro del efecto provoca renders en cascada y lo prohíbe la regla
+  // react-hooks/set-state-in-effect. `cargando` ya arranca en true, así que la
+  // carga inicial no necesita anunciarse.
+  const cargarPacientes = useCallback(async () => {
+    try {
+      const pacientes = await listarPacientes()
+      setPatientsList(pacientes.map(pacienteDtoAPatient))
+      setError(null)
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'No se pudo cargar la lista de pacientes.',
+      )
+    } finally {
+      setCargando(false)
+    }
+  }, [])
+
+  // La regla react-hooks/set-state-in-effect rastrea dentro de la función
+  // llamada y marca los setState que ocurren tras el await. Aquí no hay render
+  // en cascada: el estado se escribe cuando la respuesta llega, no durante el
+  // render. Es el caso que la regla no puede modelar —cargar datos remotos al
+  // montar— y que la propia documentación de React admite mientras no haya una
+  // capa de datos del framework. Se desactiva de forma acotada, no global.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    void cargarPacientes()
+  }, [cargarPacientes])
+
+  // Reintentar sí es un manejador de evento, no un efecto: aquí marcar el
+  // estado de carga antes de pedir es correcto y además da respuesta inmediata.
+  const reintentar = () => {
+    setCargando(true)
+    setError(null)
+    void cargarPacientes()
+  }
+
+  const handleDelete = async (id: string) => {
+    // Optimista no: en un expediente clinico conviene que la fila desaparezca
+    // solo cuando el servidor confirmo la baja.
+    try {
+      await eliminarPaciente(Number(id))
+      setPatientsList((prev) => prev.filter((p) => p.id !== id))
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'No se pudo dar de baja al paciente.',
+      )
+    }
   }
 
   const handlePacienteCreado = (paciente: PacienteDto) => {
@@ -151,7 +208,27 @@ export default function PacientesPage() {
         </button>
       </div>
 
-      {/* Reusable DataTable Component */}
+      {error && (
+        <div
+          role="alert"
+          className="mb-4 flex items-center justify-between gap-4 rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          <span>{error}</span>
+          <button
+            onClick={reintentar}
+            className="font-semibold underline underline-offset-2 cursor-pointer whitespace-nowrap"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
+      {cargando ? (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-16 text-center text-sm text-slate-500">
+          Cargando pacientes…
+        </div>
+      ) : (
+      /* Reusable DataTable Component */
       <DataTable
         data={patientsList}
         columns={columns}
@@ -165,6 +242,7 @@ export default function PacientesPage() {
         }
         pageSize={5}
       />
+      )}
 
       {/* Reusable Modal + Patient Form */}
       <Modal

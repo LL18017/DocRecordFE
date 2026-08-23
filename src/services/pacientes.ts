@@ -32,8 +32,10 @@ export interface PersonaParaPaciente {
 
 export interface CrearPacientePayload {
   persona: PersonaParaPaciente
-  expediente: string
   tipoSangre: string
+  // Sin `expediente`: lo genera el backend con un correlativo. Pedirle a quien
+  // registra que invente un número único garantiza colisiones, porque no puede
+  // saber cuál es el siguiente libre.
 }
 
 /**
@@ -57,6 +59,12 @@ export interface PacienteDto {
  * completando. El 422 por falta de fechaNacimiento/sexo ya llega legible
  * desde el backend.
  */
+/** Todo opcional: se envía únicamente lo que cambió. */
+export interface ActualizarPacientePayload {
+  persona?: Partial<Omit<PersonaParaPaciente, 'personaId'>>
+  tipoSangre?: string
+}
+
 export async function crearPaciente(payload: CrearPacientePayload): Promise<PacienteDto> {
   try {
     return await apiFetch<PacienteDto>('/pacientes', { method: 'POST', body: payload })
@@ -80,4 +88,44 @@ export async function crearPaciente(payload: CrearPacientePayload): Promise<Paci
 export async function listarPacientes(buscar?: string): Promise<PacienteDto[]> {
   const query = buscar ? `?buscar=${encodeURIComponent(buscar)}` : ''
   return apiFetch<PacienteDto[]>(`/pacientes${query}`)
+}
+
+/** Obtiene un paciente por el id de su persona. Lanza `ApiError` 404 si no existe. */
+export async function obtenerPaciente(personaId: number): Promise<PacienteDto> {
+  return apiFetch<PacienteDto>(`/pacientes/${personaId}`)
+}
+
+/**
+ * Actualiza un paciente.
+ *
+ * El backend completa sin destruir: un campo ausente significa «no lo estoy
+ * tocando», no «bórralo». Por eso se puede enviar solo lo que cambió.
+ *
+ * El expediente no se envía nunca: lo emite el sistema y no es editable.
+ */
+export async function actualizarPaciente(
+  personaId: number,
+  payload: ActualizarPacientePayload,
+): Promise<PacienteDto> {
+  try {
+    return await apiFetch<PacienteDto>(`/pacientes/${personaId}`, {
+      method: 'PUT',
+      body: payload,
+    })
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      throw new ApiError(409, 'El DUI no coincide con el de la persona registrada.')
+    }
+    throw error
+  }
+}
+
+/**
+ * Da de baja a un paciente.
+ *
+ * Solo deja de ser paciente: la persona se conserva, porque esa misma
+ * identidad puede ser además médico o enfermera del sistema.
+ */
+export async function eliminarPaciente(personaId: number): Promise<void> {
+  await apiFetch<void>(`/pacientes/${personaId}`, { method: 'DELETE' })
 }

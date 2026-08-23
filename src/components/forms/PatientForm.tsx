@@ -51,7 +51,6 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
   const [sexo, setSexo] = useState<'M' | 'F'>('M')
 
   // Se piden siempre, exista o no la persona.
-  const [expediente, setExpediente] = useState('')
   const [tipoSangre, setTipoSangre] = useState('O+')
 
   const [enviando, setEnviando] = useState(false)
@@ -100,7 +99,6 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
 
   const puedeAvanzarDesdePaso1 =
     busquedaHecha &&
-    expediente.trim() !== '' &&
     (personaExistente
       ? !personaExistente.esPaciente && (personaExistente.fechaNacimiento !== null || fechaNacimiento !== '')
       : nombres.trim() !== '' && apellidos.trim() !== '' && fechaNacimiento !== '')
@@ -128,7 +126,6 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
               ...(personaExistente.fechaNacimiento === null ? { fechaNacimiento } : {}),
               ...(personaExistente.sexo === null ? { sexo } : {}),
             },
-            expediente,
             tipoSangre,
           }
         : {
@@ -141,7 +138,6 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
               telefono: telefono.trim() || undefined,
               direccion: direccion.trim() || undefined,
             },
-            expediente,
             tipoSangre,
           }
 
@@ -364,14 +360,13 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
           {busquedaHecha && !(personaExistente && personaExistente.esPaciente) && (
             <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Número de expediente *</label>
-                <input
-                  required
-                  value={expediente}
-                  onChange={(e) => setExpediente(e.target.value)}
-                  placeholder="EXP-0001"
-                  className="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-doc-blue bg-white"
-                />
+                <label className="block text-xs font-semibold text-slate-500 mb-1">Número de expediente</label>
+                {/* Lo asigna el sistema al guardar. Pedirle a quien registra que
+                    invente un número único garantiza colisiones: no puede saber
+                    cuál es el siguiente libre, y la base rechaza el duplicado. */}
+                <div className="w-full border-2 border-dashed border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-400 bg-slate-50">
+                  Se asigna automáticamente
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Tipo Sanguíneo</label>
