@@ -31,6 +31,7 @@ import { HereditaryForm } from '@/components/forms/HereditaryForm'
 import { HabitForm } from '@/components/forms/HabitForm'
 import { VitalsForm } from '@/components/forms/VitalsForm'
 import { ConsultationForm } from '@/components/forms/ConsultationForm'
+import { formatearFechaHora, nombreDeMedico } from '@/services/consultas'
 
 type ModalType =
   | 'alergia'
@@ -698,23 +699,23 @@ export default function ExpedienteDetailPage() {
         headerGradient="bg-gradient-to-r from-doc-amber to-doc-amber-dark"
         maxWidth="lg"
       >
+        {/* El formulario ya guarda contra `POST /consultas`; esta lista sigue
+            siendo de maqueta, así que la consulta confirmada por el servidor se
+            adapta al tipo `Consultation` para que se vea de inmediato. Los
+            medicamentos van vacíos a propósito: ahora se recetan aparte, desde
+            /prescripciones, sobre la consulta ya registrada. */}
         <ConsultationForm
-          patients={[patient]}
-          defaultPatientId={patient.id}
-          onSubmit={(c) => {
-            const today = new Date().toLocaleDateString('es-SV', {
-              day: 'numeric',
-              month: 'short',
-              year: 'numeric',
-            })
+          pacientes={[{ personaId: Number(patient.id), nombre: patient.name }]}
+          pacienteIdPorDefecto={Number(patient.id)}
+          onGuardada={(c) => {
             setPatientConsultations((prev) => [
               {
-                date: today,
-                reason: c.reason,
-                diagnosis: c.diagnosis,
-                status: 'Activa',
-                meds: c.meds,
-                doctor: 'Dr. Juan Guerra',
+                date: formatearFechaHora(c.fecha),
+                reason: c.motivo,
+                diagnosis: c.diagnostico ?? '—',
+                status: c.estado === 'FINALIZADA' ? 'Finalizada' : 'Pendiente',
+                meds: [],
+                doctor: nombreDeMedico(c),
               },
               ...prev,
             ])

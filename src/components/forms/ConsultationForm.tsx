@@ -1,164 +1,241 @@
 'use client'
 
-import React, { useState } from 'react'
-import { Patient } from '@/types'
-import { Icon } from '@/components/ui/Icon'
+import React, { useId, useState } from 'react'
+import { useAppContext } from '@/context/AppContext'
+import {
+  actualizarConsulta,
+  crearConsulta,
+  nombreDePaciente,
+  puedeRegistrarDiagnostico,
+  type ActualizarConsultaPayload,
+  type ConsultaDto,
+  type CrearConsultaPayload,
+} from '@/services/consultas'
+
+/**
+ * Paciente como lo necesita este formulario: el `personaId` que viaja al
+ * backend y lo que se lee en la lista. Se recibe ya resuelto en vez de
+ * pedirlo aquí porque las pantallas que montan el formulario (consultas y el
+ * expediente) ya tienen la lista cargada; volver a pedirla dispararía una
+ * segunda petición por cada apertura del modal.
+ */
+export interface OpcionPaciente {
+  personaId: number
+  nombre: string
+  expediente?: string | null
+}
 
 interface ConsultationFormProps {
-  patients: Patient[]
-  defaultPatientId?: string
-  onSubmit: (data: { reason: string; diagnosis: string; meds: string[]; patientId: string }) => void
+  /** Pacientes elegibles. Se ignora al editar: una consulta no cambia de paciente. */
+  pacientes: OpcionPaciente[]
+  /** Preselección al registrar (p. ej. el expediente abierto). */
+  pacienteIdPorDefecto?: number
+  /** Consulta a editar. Ausente = alta nueva. */
+  consulta?: ConsultaDto
+  /** Se llama cuando el servidor confirmó el alta o la edición. */
+  onGuardada: (consulta: ConsultaDto) => void
   onCancel: () => void
 }
 
+const campoBase =
+  'border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:border-doc-amber focus-visible:ring-2 focus-visible:ring-doc-amber/40'
+const inputClass = `w-full ${campoBase}`
+const textareaClass = `w-full ${campoBase} resize-none h-20`
+const labelClass =
+  'block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide'
+
+/** El asterisco es decoración: lo obligatorio ya lo dice el atributo `required`. */
+const Obligatorio = () => <span aria-hidden="true"> *</span>
+
 export const ConsultationForm: React.FC<ConsultationFormProps> = ({
-  patients,
-  defaultPatientId,
-  onSubmit,
+  pacientes,
+  pacienteIdPorDefecto,
+  consulta,
+  onGuardada,
   onCancel,
 }) => {
-  const [patientId, setPatientId] = useState(defaultPatientId || patients[0]?.id || '')
-  const [reason, setReason] = useState('')
-  const [diagnosis, setDiagnosis] = useState('')
-  const [rxLines, setRxLines] = useState([{ name: '', dose: '', freq: '', duration: '' }])
+  // Un prefijo por instancia: puede haber dos formularios montados a la vez
+  // (alta y edición) y dos `id` iguales harían que la etiqueta del segundo
+  // apunte al campo del primero.
+  const uid = useId()
+  const id = (nombre: string) => `${uid}-${nombre}`
 
-  const handleSubmit = (e: React.SubmitEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (!reason.trim()) return
+  const { user, activeClinic } = useAppContext()
 
-    const meds = rxLines
-      .filter((r) => r.name.trim() !== '')
-      .map((r) => `${r.name}${r.dose ? ' ' + r.dose : ''}${r.freq ? ' ' + r.freq : ''}`)
+  // Regla de negocio: el diagnóstico es exclusivo del médico. Sin sesión
+  // legible se asume que NO se puede: es la suposición que no ofrece un campo
+  // que el servidor vaya a rechazar.
+  const puedeDiagnosticar = user ? puedeRegistrarDiagnostico(user.role) : false
 
-    onSubmit({
-      patientId,
-      reason,
-      diagnosis: diagnosis || 'Evaluación médica general',
-      meds,
-    })
+  const editando = consulta !== undefined
+
+  const [pacienteId, setPacienteId] = useState<string>(() => {
+    if (consulta) return String(consulta.paciente.personaId)
+    if (pacienteIdPorDefecto !== undefined) return String(pacienteIdPorDefecto)
+    return pacientes[0] ? String(pacientes[0].personaId) : ''
+  })
+  const [motivo, setMotivo] = useState(consulta?.motivo ?? '')
+  // `diagnostico` puede venir null (consulta todavía PENDIENTE): el textarea
+  // necesita una cadena, así que el nulo se traduce aquí y no en el JSX.
+  const [diagnostico, setDiagnostico] = useState(consulta?.diagnostico ?? '')
+
+  const [enviando, setEnviando] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  /**
+   * Cuerpo del alta. `fecha` se omite a propósito: la pone el servidor (ver el
+   * docblock de `CrearConsultaPayload`).
+   */
+  const payloadDeAlta = (motivoLimpio: string, diagnosticoLimpio: string): CrearConsultaPayload => ({
+    pacienteId: Number(pacienteId),
+    motivo: motivoLimpio,
+    // La sede es la que está activa en la sesión. Sin sede activa se OMITE el
+    // campo: `clinicaId` es opcional en el contrato y mandar null —o un 0
+    // inventado— sería peor que no mandarlo.
+    ...(activeClinic ? { clinicaId: activeClinic.id } : {}),
+    // Nunca se envía diagnóstico si el rol no puede escribirlo: aunque el
+    // campo no se pinte, el estado podría arrastrar texto de un render
+    // anterior y el backend respondería 403.
+    ...(puedeDiagnosticar && diagnosticoLimpio ? { diagnostico: diagnosticoLimpio } : {}),
+  })
+
+  /**
+   * Al editar se manda SOLO lo que cambió, que es lo que el `PUT` espera
+   * («campo ausente = no lo toco»). `clinicaId` no viaja nunca aquí: la sede
+   * activa de quien edita no tiene por qué ser donde se atendió, y mandarla
+   * movería la consulta de clínica sin que nadie lo pidiera.
+   */
+  const cambiosDe = (
+    original: ConsultaDto,
+    motivoLimpio: string,
+    diagnosticoLimpio: string,
+  ): ActualizarConsultaPayload => {
+    const cambios: ActualizarConsultaPayload = {}
+    if (motivoLimpio !== original.motivo) cambios.motivo = motivoLimpio
+    if (puedeDiagnosticar && diagnosticoLimpio !== (original.diagnostico ?? '')) {
+      cambios.diagnostico = diagnosticoLimpio
+    }
+    return cambios
   }
+
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
+    e.preventDefault()
+
+    const motivoLimpio = motivo.trim()
+    const diagnosticoLimpio = diagnostico.trim()
+    if (!motivoLimpio) return
+    if (!consulta && !pacienteId) return
+
+    setError(null)
+    setEnviando(true)
+    try {
+      const guardada = consulta
+        ? await actualizarConsulta(
+            consulta.consultaId,
+            cambiosDe(consulta, motivoLimpio, diagnosticoLimpio),
+          )
+        : await crearConsulta(payloadDeAlta(motivoLimpio, diagnosticoLimpio))
+      onGuardada(guardada)
+    } catch (err) {
+      // `lib/api.ts` ya redactó el motivo real del backend y los servicios
+      // solo lo mejoran cuando pueden ser más precisos; sustituirlo aquí por
+      // una frase fija taparía justo el dato útil. El genérico queda para lo
+      // que no es un Error con mensaje.
+      setError(err instanceof Error ? err.message : 'Ocurrió un error inesperado al guardar la consulta.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  const pacienteEditado = consulta ? nombreDePaciente(consulta) : null
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-      <div>
-        <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-          Paciente *
-        </label>
-        <select
-          value={patientId}
-          onChange={(e) => setPatientId(e.target.value)}
-          className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-doc-amber bg-white"
+      {error && (
+        <p
+          role="alert"
+          className="rounded-xl border-2 border-red-100 bg-red-50 px-3.5 py-2.5 text-xs text-red-700"
         >
-          {patients.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} ({p.id_num})
-            </option>
-          ))}
-        </select>
-      </div>
+          {error}
+        </p>
+      )}
 
       <div>
-        <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-          Motivo de consulta *
+        <label htmlFor={id('paciente')} className={labelClass}>
+          Paciente
+          {!editando && <Obligatorio />}
         </label>
-        <textarea
-          required
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Describa el motivo principal de la visita médica..."
-          className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-doc-amber resize-none h-20 bg-white"
-        />
-      </div>
-
-      <div>
-        <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-          Diagnóstico (Exclusivo Médico)
-        </label>
-        <textarea
-          value={diagnosis}
-          onChange={(e) => setDiagnosis(e.target.value)}
-          placeholder="Diagnóstico clínico, CIE-10 u observaciones diagnósticas..."
-          className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-doc-amber resize-none h-20 bg-white"
-        />
-      </div>
-
-      {/* Dynamic prescriptions */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-            <span className="w-5 h-5 rounded flex items-center justify-center bg-purple-600">
-              <Icon name="prescripciones" size={11} color="white" />
-            </span>
-            Prescripción de medicamentos
-          </label>
-          <button
-            type="button"
-            onClick={() => setRxLines((prev) => [...prev, { name: '', dose: '', freq: '', duration: '' }])}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors cursor-pointer"
+        {pacienteEditado ? (
+          // Al editar el paciente no se elige: se muestra para dar contexto.
+          <p
+            id={id('paciente')}
+            className="rounded-xl border-2 border-slate-100 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-700"
           >
-            <Icon name="add" size={12} color="#7C3AED" /> Agregar medicamento
-          </button>
-        </div>
-
-        <div className="space-y-2">
-          {rxLines.map((rx, i) => (
-            <div
-              key={i}
-              className="grid grid-cols-4 gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50/70 relative"
-            >
-              <input
-                placeholder="Medicamento"
-                value={rx.name}
-                onChange={(e) =>
-                  setRxLines((prev) =>
-                    prev.map((r, j) => (j === i ? { ...r, name: e.target.value } : r))
-                  )
-                }
-                className="col-span-2 border-2 border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-400 bg-white"
-              />
-              <input
-                placeholder="Dosis (500mg)"
-                value={rx.dose}
-                onChange={(e) =>
-                  setRxLines((prev) =>
-                    prev.map((r, j) => (j === i ? { ...r, dose: e.target.value } : r))
-                  )
-                }
-                className="border-2 border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-400 bg-white"
-              />
-              <input
-                placeholder="Frecuencia (c/8h)"
-                value={rx.freq}
-                onChange={(e) =>
-                  setRxLines((prev) =>
-                    prev.map((r, j) => (j === i ? { ...r, freq: e.target.value } : r))
-                  )
-                }
-                className="border-2 border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-400 bg-white"
-              />
-              <input
-                placeholder="Duración (ej: 7 días)"
-                value={rx.duration}
-                onChange={(e) =>
-                  setRxLines((prev) =>
-                    prev.map((r, j) => (j === i ? { ...r, duration: e.target.value } : r))
-                  )
-                }
-                className="col-span-3 border-2 border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-400 bg-white"
-              />
-              {rxLines.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => setRxLines((prev) => prev.filter((_, j) => j !== i))}
-                  className="flex items-center justify-center border border-red-200 rounded-lg text-red-500 hover:bg-red-50 transition-colors bg-white cursor-pointer"
-                >
-                  <Icon name="delete" size={13} />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
+            {pacienteEditado}
+          </p>
+        ) : (
+          <select
+            id={id('paciente')}
+            required
+            value={pacienteId}
+            onChange={(e) => setPacienteId(e.target.value)}
+            className={inputClass}
+          >
+            {pacientes.length === 0 && <option value="">No hay pacientes registrados</option>}
+            {pacientes.map((p) => (
+              <option key={p.personaId} value={String(p.personaId)}>
+                {p.expediente ? `${p.nombre} (${p.expediente})` : p.nombre}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
+
+      <div>
+        <label htmlFor={id('motivo')} className={labelClass}>
+          Motivo de consulta
+          <Obligatorio />
+        </label>
+        <textarea
+          id={id('motivo')}
+          required
+          value={motivo}
+          onChange={(e) => setMotivo(e.target.value)}
+          placeholder="Describa el motivo principal de la visita médica..."
+          className={textareaClass}
+        />
+      </div>
+
+      {/* El diagnóstico solo existe para quien puede escribirlo. Ofrecérselo a
+          una enfermera sería pedirle que redacte algo que el backend va a
+          rechazar con un 403 al guardar. */}
+      {puedeDiagnosticar ? (
+        <div>
+          <label htmlFor={id('diagnostico')} className={labelClass}>
+            Diagnóstico
+          </label>
+          <textarea
+            id={id('diagnostico')}
+            value={diagnostico}
+            onChange={(e) => setDiagnostico(e.target.value)}
+            placeholder="Diagnóstico clínico, CIE-10 u observaciones diagnósticas..."
+            aria-describedby={id('diagnostico-ayuda')}
+            className={textareaClass}
+          />
+          <p id={id('diagnostico-ayuda')} className="text-xs text-slate-400 mt-1">
+            Puede dejarse en blanco y completarse cuando la consulta se finalice.
+          </p>
+        </div>
+      ) : (
+        <p className="rounded-xl border-2 border-slate-100 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-500">
+          El diagnóstico lo registra el médico responsable; desde este perfil se puede
+          consultar, pero no escribir.
+        </p>
+      )}
+
+      <p className="text-xs text-slate-400">
+        Los medicamentos se recetan desde Prescripciones, sobre la consulta ya registrada.
+      </p>
 
       <div className="flex gap-3 pt-4 border-t border-slate-100">
         <button
@@ -170,9 +247,10 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
         </button>
         <button
           type="submit"
-          className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-doc-amber hover:opacity-90 shadow-sm transition-all cursor-pointer"
+          disabled={enviando}
+          className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-doc-amber hover:opacity-90 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          Guardar Consulta
+          {enviando ? 'Guardando…' : editando ? 'Guardar cambios' : 'Guardar consulta'}
         </button>
       </div>
     </form>
