@@ -2,8 +2,14 @@
 // Alta y búsqueda de pacientes sobre `persona`: `POST /pacientes` siempre
 // manda un objeto `persona`; si trae `personaId`, completa esa persona ya
 // existente con los campos que falten en vez de crear una nueva.
+//
+// Este servicio NO traduce los errores del backend. `lib/api.ts` prefiere el
+// campo `message` sobre `error`, así que el motivo concreto de cada 409 llega
+// ya redactado; las sustituciones que había aquí lo tapaban. La regla para
+// añadir una nueva: solo si el texto local es MÁS preciso que el del backend,
+// y nunca si puede resultar falso en un caso que este módulo no controla.
 
-import { ApiError, apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
 import type { PersonaDto } from './personas'
 
 /**
@@ -51,35 +57,43 @@ export interface PacienteDto {
   persona: Omit<PersonaDto, 'esMedico' | 'esEnfermera' | 'esPaciente'>
 }
 
-/**
- * Da de alta un paciente, o completa y da de alta a una persona ya
- * encontrada por DUI si `payload.persona.personaId` viene incluido.
- *
- * Traduce el 409 al mensaje concreto que corresponde según el caso: esa
- * persona ya es paciente, o el DUI no coincide con la persona que se está
- * completando. El 422 por falta de fechaNacimiento/sexo ya llega legible
- * desde el backend.
- */
 /** Todo opcional: se envía únicamente lo que cambió. */
 export interface ActualizarPacientePayload {
   persona?: Partial<Omit<PersonaParaPaciente, 'personaId'>>
   tipoSangre?: string
 }
 
+/**
+ * Da de alta un paciente, o completa y da de alta a una persona ya
+ * encontrada por DUI si `payload.persona.personaId` viene incluido.
+ *
+ * El 409 se deja pasar a propósito, y por dos razones distintas según el caso.
+ *
+ * Completando una persona existente el backend ya distingue los dos
+ * conflictos posibles, y lo dice mejor de lo que se decía aquí:
+ *
+ *   {"error":"Error","message":"Esta persona ya esta registrada como paciente"}
+ *   {"error":"Error","message":"El DUI recibido no coincide con el de la persona existente"}
+ *
+ * Se sustituían por una sola frase —«Esta persona ya está registrada como
+ * paciente, o el DUI no coincide con su registro»— cuyo «o» juntaba dos
+ * causas que exigen acciones opuestas: en un caso hay que buscar al paciente
+ * ya dado de alta, en el otro hay que corregir el DUI tecleado. Quien la
+ * leía perdía justo el dato que el backend sí le estaba dando.
+ *
+ * Creando una persona nueva el 409 llega genérico —«La operación no puede
+ * realizarse porque los datos entran en conflicto con información
+ * existente»—, pero el texto local que lo reemplazaba, «Esta persona ya está
+ * registrada como paciente», es directamente falso en un caso comprobado:
+ * una persona puede existir por su DUI sin ser paciente (solo médico o
+ * enfermera, o un paciente dado de baja), y el conflicto entonces es el DUI
+ * ya registrado, no una alta duplicada. Vago pero cierto es mejor que preciso
+ * y mentiroso.
+ *
+ * El 422 por falta de fechaNacimiento/sexo ya llega legible desde el backend.
+ */
 export async function crearPaciente(payload: CrearPacientePayload): Promise<PacienteDto> {
-  try {
-    return await apiFetch<PacienteDto>('/pacientes', { method: 'POST', body: payload })
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 409) {
-      throw new ApiError(
-        409,
-        payload.persona.personaId
-          ? 'Esta persona ya está registrada como paciente, o el DUI no coincide con su registro.'
-          : 'Esta persona ya está registrada como paciente.',
-      )
-    }
-    throw error
-  }
+  return apiFetch<PacienteDto>('/pacientes', { method: 'POST', body: payload })
 }
 
 /**
@@ -103,22 +117,23 @@ export async function obtenerPaciente(personaId: number): Promise<PacienteDto> {
  * tocando», no «bórralo». Por eso se puede enviar solo lo que cambió.
  *
  * El expediente no se envía nunca: lo emite el sistema y no es editable.
+ *
+ * Aquí tampoco se traduce el 409. El único conflicto que hoy devuelve
+ * `PUT /pacientes/{id}` llega como «El DUI no coincide con el de la persona
+ * registrada»: palabra por palabra lo que se estaba escribiendo encima, así
+ * que la sustitución no aportaba nada. Lo que sí hacía era aplicar esa frase
+ * a CUALQUIER 409, de modo que el día que el backend devuelva otro conflicto
+ * el usuario leería un motivo que no es el suyo. Un mensaje falso es peor que
+ * uno vago.
  */
 export async function actualizarPaciente(
   personaId: number,
   payload: ActualizarPacientePayload,
 ): Promise<PacienteDto> {
-  try {
-    return await apiFetch<PacienteDto>(`/pacientes/${personaId}`, {
-      method: 'PUT',
-      body: payload,
-    })
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 409) {
-      throw new ApiError(409, 'El DUI no coincide con el de la persona registrada.')
-    }
-    throw error
-  }
+  return apiFetch<PacienteDto>(`/pacientes/${personaId}`, {
+    method: 'PUT',
+    body: payload,
+  })
 }
 
 /**
