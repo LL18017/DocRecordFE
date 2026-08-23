@@ -14,11 +14,12 @@ import { listarUsuarios, type UsuarioDto } from '@/services/usuarios'
 //
 //   · «Nuevo Usuario» añadía una fila al estado de React y nada más. El
 //     usuario no llegaba a la base, así que desaparecía al recargar. Conectarlo
-//     a `POST /user` tampoco lo arregla hoy: ese endpoint crea la cuenta
-//     deshabilitada, sin token de confirmación y con la contraseña guardada
-//     sin cifrar, de modo que nadie puede entrar con ella nunca (ver
-//     `services/usuarios.ts`). Dar de alta personal —enfermería incluida—
-//     necesita una decisión sobre el backend, no un formulario más.
+//     a `POST /user` tampoco lo arregla hoy: el cifrado de la contraseña ya se
+//     corrigió en el backend, pero ese endpoint sigue creando la cuenta
+//     deshabilitada y sin token de confirmación, de modo que nadie puede
+//     entrar con ella nunca (ver `services/usuarios.ts`). Dar de alta personal
+//     —enfermería incluida— necesita una decisión de producto sobre cómo se
+//     habilita esa cuenta, no un formulario más.
 //   · Editar y eliminar no tienen endpoint: `/user` solo expone listar, crear
 //     y añadir un rol. Los botones no llamaban a nada, y el de eliminar
 //     borraba la fila de la pantalla dejando la cuenta viva en la base.

@@ -18,13 +18,21 @@
 // servicio no lo reescribe. Igual que en `services/pacientes.ts`: solo se
 // sustituye un texto del backend cuando el local es MÁS preciso.
 //
-// Endpoint que este módulo NO envuelve, a propósito: `GET /user`. Devuelve la
-// entidad JPA cruda en vez de un DTO, con dos consecuencias comprobadas contra
-// la API en marcha: (1) incluye el hash argon2 de la contraseña de cada
-// usuario, que ninguna pantalla debe recibir; (2) serializa el ciclo
-// user → roles → users → roles… hasta reventar, y responde 200 con un cuerpo
-// truncado —JSON inválido— con el error del servidor pegado al final. Es
-// inservible además de peligroso; el listado se pide siempre por `/user/all`.
+// El listado se pide SIEMPRE por `/user/all`, y `GET /user` no se envuelve:
+// hoy ya no existe. La ruta `/user` sigue mapeada para el POST del alta, así
+// que un GET contra ella responde **405**, no 404 —quien vea ese código
+// buscando el listado no está ante un endpoint caído, está ante un método que
+// nunca fue—.
+//
+// La decisión de no usarlo es anterior a que se borrara, y sigue en pie por un
+// motivo que ya no es el de entonces. Antes se evitaba porque devolvía la
+// entidad JPA cruda: publicaba el hash argon2 de todo el personal y entraba en
+// el ciclo user → roles → users → roles… hasta responder 200 con un JSON
+// truncado e inválido. El backend lo eliminó (DocRecordBE 6faffd3) en vez de
+// convertirlo a DTO, precisamente porque `/user/all` ya hacía lo mismo bien.
+// Hoy el motivo es ese: `/user/all` es el ÚNICO listado que existe, devuelve
+// `UserResponseDto` —sin contraseña— y es el que este módulo debe pedir. Si
+// alguien echa de menos un `GET /user`, lo que busca ya está aquí.
 
 import { apiFetch } from '@/lib/api'
 
@@ -130,24 +138,34 @@ export interface CrearUsuarioPayload {
 /**
  * Crea una cuenta. Exige rol ADMIN.
  *
- * ⚠ La cuenta que crea este endpoint HOY NO SIRVE PARA ENTRAR, y conviene
- * saberlo antes de ofrecer un formulario que la use. Comprobado contra la API
- * y la base en marcha:
+ * ⚠ La cuenta que crea este endpoint SIGUE SIN SERVIR PARA ENTRAR, y conviene
+ * saberlo antes de ofrecer un formulario que la use: nace con
+ * `enabled = false` y sin fila en `verification_token`, así que no hay enlace
+ * de confirmación que abrir y `POST /auth/login` responde siempre «Usuario no
+ * ha confirmado su cuenta aun». No es un descuido pendiente de código: el
+ * backend lo dejó anotado como una decisión de producto sin tomar (ver el
+ * javadoc de `UserService.createUser`) —o se emite el token de verificación y
+ * se manda el correo, como en `/auth/register`, o el alta hecha por un
+ * administrador nace ya habilitada—, y las dos salidas se excluyen. Mientras
+ * no se decida, esta pantalla crea cuentas que alguien tendrá que habilitar a
+ * mano.
  *
- *   · nace con `enabled = false` y sin fila en `verification_token`, así que
- *     no hay enlace de confirmación que abrir: `POST /auth/login` responde
- *     siempre «Usuario no ha confirmado su cuenta aun».
- *   · la contraseña se guarda TAL CUAL, sin cifrar (`UserMapper.toEntity`
- *     copia `request.password()`), a diferencia de `/auth/register`, que la
- *     pasa por argon2.
- *   · la persona se crea solo con nombres y apellidos: sin DUI, sin fecha de
- *     nacimiento y sin sexo.
+ * Lo que YA NO es cierto de este endpoint, y que este comentario afirmaba:
+ * la contraseña ya no se guarda en claro. `UserService.createUser` la pasa por
+ * el mismo `PasswordEncoder` (argon2) que `/auth/register` antes de guardarla
+ * (DocRecordBE ba64a09).
  *
- * Respuestas comprobadas: 200 (no 201) con el `UsuarioDto` y `roles: []`; 409
- * «El correo electrónico ya está registrado» si el correo existe; y 400 con
- * un cuerpo de validación que nombra campos que el cliente nunca envió
- * (`{"nombres":…,"apellidos":…}`), porque el controller no valida el DTO
- * —`@RequestBody` sin `@Valid`— y el fallo salta al guardar la persona.
+ * Lo que sigue igual: la persona se crea solo con nombres y apellidos —sin
+ * DUI, sin fecha de nacimiento y sin sexo—, porque `UserRequestDto` no pide
+ * más.
+ *
+ * Respuestas: 200 (no 201) con el `UsuarioDto` y `roles: []`; 409 «El correo
+ * electrónico ya está registrado» si el correo existe; y 400 de validación
+ * que ahora SÍ nombra el campo que el cliente mandó mal (`email`, `userName`
+ * o `password`). Antes el controller recibía el cuerpo sin `@Valid` y el
+ * fallo llegaba hasta el guardado de la persona, así que el 400 hablaba de
+ * `nombres`/`apellidos`, campos que este módulo nunca envía y que ninguna
+ * pantalla podía marcar.
  */
 export async function crearUsuario(payload: CrearUsuarioPayload): Promise<UsuarioDto> {
   return apiFetch<UsuarioDto>('/user', { method: 'POST', body: payload })
