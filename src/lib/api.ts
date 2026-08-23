@@ -67,11 +67,22 @@ interface ApiOptions extends Omit<RequestInit, 'body'> {
 /**
  * Realiza una petición a la API y devuelve el cuerpo ya deserializado.
  * Lanza `ApiError` en cualquier respuesta que no sea 2xx.
+ *
+ * Si la respuesta es 401 en un endpoint autenticado, intenta renovar el
+ * access token una vez (ver renovarToken) y reintenta la petición original;
+ * si la renovación falla, limpia la sesión y deja que las guardas de ruta
+ * redirijan a /login.
  */
-export async function apiFetch<T>(
+export async function apiFetch<T>(path: string, opciones: ApiOptions = {}): Promise<T> {
+  return ejecutarPeticion<T>(path, opciones, false)
+}
+
+async function ejecutarPeticion<T>(
   path: string,
-  { body, auth = true, headers, ...init }: ApiOptions = {},
+  opciones: ApiOptions,
+  reintentado: boolean,
 ): Promise<T> {
+  const { body, auth = true, headers, ...init } = opciones
   const cabeceras = new Headers(headers)
   cabeceras.set('Accept', 'application/json')
   if (body !== undefined) cabeceras.set('Content-Type', 'application/json')
@@ -93,6 +104,19 @@ export async function apiFetch<T>(
     throw new ApiError(0, 'No se pudo contactar al servidor. ¿Está corriendo el backend?')
   }
 
+  // `auth` en false marca /auth/login, /auth/register y /auth/refresh: un 401
+  // ahí es credenciales inválidas o refresh ya vencido, nunca "hay que
+  // renovar" (intentarlo en el login mostraría un error raro en vez de
+  // "correo o contraseña incorrectos"). `reintentado` evita un bucle si la
+  // petición ya renovada vuelve a dar 401.
+  if (respuesta.status === 401 && auth && !reintentado && getRefreshToken()) {
+    const renovado = await renovarToken()
+    if (renovado) {
+      return ejecutarPeticion<T>(path, opciones, true)
+    }
+    limpiarSesionPorRenovacionFallida()
+  }
+
   if (!respuesta.ok) {
     throw new ApiError(respuesta.status, await extraerMensajeDeError(respuesta))
   }
@@ -109,6 +133,73 @@ export async function apiFetch<T>(
     // Algunos endpoints (p. ej. /auth/confirm) responden texto plano.
     return texto as T
   }
+}
+
+/**
+ * Renovación en curso, compartida por todas las peticiones que reciban 401 a
+ * la vez. Sin esto, tres peticiones simultáneas dispararían tres llamadas a
+ * /auth/refresh; con rotación de refresh token, la segunda y la tercera
+ * recibirían un refresh token que la primera ya dejó inválido.
+ */
+let renovacionEnCurso: Promise<boolean> | null = null
+
+function renovarToken(): Promise<boolean> {
+  if (!renovacionEnCurso) {
+    renovacionEnCurso = ejecutarRenovacion().finally(() => {
+      renovacionEnCurso = null
+    })
+  }
+  return renovacionEnCurso
+}
+
+/**
+ * Llama a `POST /auth/refresh` directo con `fetch`, no con `ejecutarPeticion`:
+ * de lo contrario un 401 aquí volvería a intentar renovar. Se duplica algo de
+ * lógica de `services/auth.ts` (que no puede importarse desde aquí sin crear
+ * un ciclo, porque ese módulo ya importa de este) a cambio de una garantía
+ * simple: esta función nunca dispara otra renovación.
+ */
+async function ejecutarRenovacion(): Promise<boolean> {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return false
+
+  let respuesta: Response
+  try {
+    respuesta = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', Authorization: `Bearer ${refreshToken}` },
+    })
+  } catch {
+    return false
+  }
+  if (!respuesta.ok) return false
+
+  try {
+    const datos = (await respuesta.json()) as { token: string; refreshToken: string }
+    setTokens(datos.token, datos.refreshToken)
+    return true
+  } catch {
+    return false
+  }
+}
+
+type OyenteSesionExpirada = () => void
+let oyenteSesionExpirada: OyenteSesionExpirada | null = null
+
+/**
+ * Registra qué hacer cuando la sesión expira de verdad (el refresh también
+ * falló). Este módulo es más bajo que AppContext en la jerarquía y no debe
+ * importarlo (sería el mismo ciclo que evita `ejecutarRenovacion`); en vez de
+ * eso, AppContext se registra aquí para enterarse y limpiar su estado de
+ * React sin que `lib/api.ts` sepa que React existe.
+ */
+export function alExpirarSesion(oyente: OyenteSesionExpirada): void {
+  oyenteSesionExpirada = oyente
+}
+
+function limpiarSesionPorRenovacionFallida(): void {
+  clearTokens()
+  oyenteSesionExpirada?.()
 }
 
 /**

@@ -2,7 +2,7 @@
 // Traduce entre los DTO del backend (`ues.edu.sv.education.model.dto.auth`) y
 // los tipos que usa la interfaz.
 
-import { ApiError, apiFetch, clearTokens, getRefreshToken, setTokens } from '@/lib/api'
+import { ApiError, apiFetch, clearTokens, setTokens } from '@/lib/api'
 import type { Role, User } from '@/types'
 
 /** Espejo de `LoginResponseDto` del backend. */
@@ -102,26 +102,6 @@ export async function registrar(payload: RegistroPayload): Promise<UserResponseD
     auth: false,
     body: payload,
   })
-}
-
-/**
- * Renueva el access token con `POST /auth/refresh`. El backend espera el
- * refresh token en la cabecera `Authorization`, no en el cuerpo.
- *
- * El access token dura 15 minutos y el refresh 30, así que una sesión larga
- * necesita llamar a esto; todavía no hay renovación automática.
- */
-export async function refrescarSesion(): Promise<void> {
-  const refreshToken = getRefreshToken()
-  if (!refreshToken) throw new Error('No hay refresh token almacenado')
-
-  const datos = await apiFetch<LoginResponseDto>('/auth/refresh', {
-    method: 'POST',
-    auth: false,
-    headers: { Authorization: `Bearer ${refreshToken}` },
-  })
-
-  setTokens(datos.token, datos.refreshToken)
 }
 
 /** Cierra la sesión en el cliente. El backend no expone revocación de tokens. */

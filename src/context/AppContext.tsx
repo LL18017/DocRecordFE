@@ -11,6 +11,7 @@ import React, {
 import { User, Clinica } from '@/types'
 import { clinicas } from '@/data/mockData'
 import * as authService from '@/services/auth'
+import { alExpirarSesion } from '@/lib/api'
 import type { Role } from '@/types'
 
 const USER_KEY = 'docrecord.user'
@@ -77,6 +78,17 @@ function notificarCambioDeSesion(): void {
 function difundirCierreDeSesion(): void {
   obtenerCanal()?.postMessage({ tipo: 'cierre' })
 }
+
+// lib/api.ts está más abajo en la jerarquía y no puede importar de aquí (ya
+// es al revés: este módulo depende de services/auth.ts, que depende de
+// lib/api.ts). Por eso api.ts expone un registro en vez de llamar a
+// AppContext directo: cuando el refresh automático del access token también
+// falla, avisa aquí para limpiar la sesión igual que cerrarSesion(), salvo
+// activeClinic, que es estado de React inalcanzable desde fuera de la app.
+alExpirarSesion(() => {
+  escribirSesion(null)
+  difundirCierreDeSesion()
+})
 
 /** Instantánea en el cliente: la cadena cruda guardada, o null. */
 function leerSesionEnCliente(): string | null {
