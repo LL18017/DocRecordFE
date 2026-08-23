@@ -14,10 +14,14 @@ const features: { icon: IconName; text: string }[] = [
   { icon: 'map', text: 'Geolocalización de clínicas' },
 ]
 
+// TODO: LoginResponseDto no distingue médico de enfermera todavía (la tabla
+// `role` solo tiene ADMIN), así que mapearRol cae a este valor por defecto.
+// Eliminar este respaldo cuando el backend agregue el dato a la respuesta.
+const ROL_POR_DEFECTO: Role = 'medico'
+
 export default function LoginPage() {
   const router = useRouter()
   const { iniciarSesion } = useAppContext()
-  const [role, setRole] = useState<Role>('medico')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -29,9 +33,7 @@ export default function LoginPage() {
     setEnviando(true)
 
     try {
-      // El rol seleccionado se envía solo como valor de respaldo: el rol real
-      // lo determina el backend. Ver `mapearRol` en services/auth.ts.
-      await iniciarSesion(email, password, role)
+      await iniciarSesion(email, password, ROL_POR_DEFECTO)
       router.push('/select-clinica')
     } catch (err) {
       setError(
@@ -61,33 +63,6 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleLogin} className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
-            {/* Role selector */}
-            <div className="mb-6">
-              <label className="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">
-                Rol de acceso
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {([['medico', 'Médico'], ['enfermera', 'Enfermera']] as [Role, string][]).map(([r, label]) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setRole(r)}
-                    className={`py-3 rounded-xl text-sm font-medium border-2 transition-all flex flex-col items-center gap-1.5 cursor-pointer ${role === r
-                      ? 'border-blue-600 text-blue-700 bg-blue-50/70 font-semibold'
-                      : 'border-slate-200 text-slate-500 hover:border-slate-300 bg-slate-50/50'
-                      }`}
-                  >
-                    <Icon
-                      name={r === 'medico' ? 'consultas' : 'enfermeria'}
-                      size={18}
-                      color={role === r ? '#1d4ed8' : '#94a3b8'}
-                    />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Form fields */}
             <div className="space-y-4 mb-6">
               <div>
