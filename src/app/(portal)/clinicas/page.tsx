@@ -1,27 +1,122 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Clinica } from '@/types'
-import { clinicas as initialClinicas } from '@/data/mockData'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
-import { ClinicForm } from '@/components/forms/ClinicForm'
 import { useAppContext } from '@/context/AppContext'
+import { ApiError } from '@/lib/api'
+import {
+  MAX_LARGO_NOMBRE_CLINICA,
+  actualizarClinica,
+  clinicaDtoAClinica,
+  crearClinica,
+  eliminarClinica,
+  formatearCoordenadas,
+  listarMisClinicas,
+  type ClinicaDto,
+} from '@/services/clinicas'
+
+const SIN_UBICACION = 'Sin ubicación registrada'
 
 export default function ClinicasPage() {
   const { activeClinic, setActiveClinic } = useAppContext()
-  const [list, setList] = useState<Clinica[]>(initialClinicas)
-  const [selected, setSelected] = useState<Clinica>(initialClinicas[0])
+  // La lista sale de GET /clinics/mias. Antes se sembraba con los datos de la
+  // maqueta: la pantalla se veía llena aunque el backend estuviera caído y una
+  // clínica recién creada desaparecía al recargar.
+  const [list, setList] = useState<Clinica[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
   const [showNew, setShowNew] = useState(false)
+  const [editando, setEditando] = useState<Clinica | null>(null)
   const [workModal, setWorkModal] = useState<Clinica | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<Clinica | null>(null)
+  const [eliminando, setEliminando] = useState(false)
 
-  const handleCreateClinic = (clinic: Clinica) => {
-    setList((prev) => [...prev, clinic])
-    setSelected(clinic)
+  // Sin setState antes del primer await: hacerlo de forma síncrona dentro del
+  // efecto provoca renders en cascada y lo prohíbe react-hooks/set-state-in-effect.
+  // `cargando` ya arranca en true, así que la carga inicial no se anuncia.
+  const cargarClinicas = useCallback(async () => {
+    try {
+      const clinicas = await listarMisClinicas()
+      setList(clinicas.map(clinicaDtoAClinica))
+      setError(null)
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'No se pudo cargar la lista de clínicas.',
+      )
+    } finally {
+      setCargando(false)
+    }
+  }, [])
+
+  // Mismo caso que en la pantalla de pacientes: la regla sigue la función
+  // llamada y marca los setState posteriores al await, pero aquí no hay render
+  // en cascada —el estado se escribe cuando llega la respuesta, no durante el
+  // render—. Se desactiva de forma acotada, no global.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ver comentario arriba
+    void cargarClinicas()
+  }, [cargarClinicas])
+
+  const reintentar = () => {
+    setCargando(true)
+    setError(null)
+    void cargarClinicas()
+  }
+
+  // La selección se guarda por id y no como objeto: así la ficha de la derecha
+  // sigue a la fila aunque esta se recargue o se edite, y no se queda mostrando
+  // una copia vieja.
+  const selected = useMemo(
+    () => list.find((c) => c.id === selectedId) ?? list[0] ?? null,
+    [list, selectedId],
+  )
+
+  const handleClinicaCreada = (dto: ClinicaDto) => {
+    const clinica = clinicaDtoAClinica(dto)
+    setList((prev) => [...prev, clinica])
+    setSelectedId(clinica.id)
     setShowNew(false)
   }
+
+  const handleClinicaEditada = (dto: ClinicaDto) => {
+    const clinica = clinicaDtoAClinica(dto)
+    setList((prev) => prev.map((c) => (c.id === clinica.id ? clinica : c)))
+    // Si se editó la clínica en la que se está trabajando, el contexto guarda
+    // una copia propia: sin esto la barra superior seguiría con el nombre viejo.
+    if (activeClinic?.id === clinica.id) setActiveClinic(clinica)
+    setEditando(null)
+  }
+
+  const handleEliminar = async (clinica: Clinica) => {
+    // Nada de optimismo: la fila desaparece solo cuando el servidor confirma
+    // la baja. Un 403 —la clínica es de otro médico— dejaría si no una lista
+    // que miente hasta el próximo refresco.
+    setEliminando(true)
+    setError(null)
+    try {
+      await eliminarClinica(clinica.id)
+      setList((prev) => prev.filter((c) => c.id !== clinica.id))
+      if (selectedId === clinica.id) setSelectedId(null)
+      // La sede activa acaba de dejar de existir: seguir "operando" en ella
+      // dejaría la sesión apuntando a una clínica borrada.
+      if (activeClinic?.id === clinica.id) setActiveClinic(null)
+      setDeleteConfirm(null)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo eliminar la clínica.')
+      setDeleteConfirm(null)
+    } finally {
+      setEliminando(false)
+    }
+  }
+
+  const ubicadas = list.filter(
+    (c): c is Clinica & { lat: number; lng: number } => c.lat !== null && c.lng !== null,
+  )
+  const sinUbicacion = list.length - ubicadas.length
 
   return (
     <div>
@@ -44,6 +139,44 @@ export default function ClinicasPage() {
         </button>
       </div>
 
+      {error && (
+        <div
+          role="alert"
+          className="mb-4 flex items-center justify-between gap-4 rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          <span>{error}</span>
+          <button
+            onClick={reintentar}
+            className="font-semibold underline underline-offset-2 cursor-pointer whitespace-nowrap"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
+      {cargando ? (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-16 text-center text-sm text-slate-500">
+          Cargando clínicas…
+        </div>
+      ) : list.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-16 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-doc-surface flex items-center justify-center mx-auto mb-4 text-slate-400">
+            <Icon name="clinicas" size={26} />
+          </div>
+          <p className="font-semibold text-slate-700 font-outfit">
+            Todavía no tienes clínicas registradas
+          </p>
+          <p className="text-sm text-slate-500 mt-1">
+            Registra tu primera sede para poder atender pacientes en ella.
+          </p>
+          <button
+            onClick={() => setShowNew(true)}
+            className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold bg-emerald-600 hover:opacity-90 shadow-sm transition-all cursor-pointer"
+          >
+            <Icon name="add" size={16} color="white" /> Agregar Clínica
+          </button>
+        </div>
+      ) : (
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Left clinic list */}
         <div className="space-y-3">
@@ -52,7 +185,8 @@ export default function ClinicasPage() {
           </h3>
           {list.map((c) => {
             const isActive = activeClinic?.id === c.id
-            const isSelected = selected.id === c.id
+            const isSelected = selected?.id === c.id
+            const coordenadas = formatearCoordenadas(c.lat, c.lng)
             return (
               <div
                 key={c.id}
@@ -65,7 +199,7 @@ export default function ClinicasPage() {
                 <button
                   type="button"
                   className="w-full text-left p-4 cursor-pointer"
-                  onClick={() => setSelected(c)}
+                  onClick={() => setSelectedId(c.id)}
                 >
                   <div className="flex items-center gap-3">
                     <div
@@ -83,14 +217,17 @@ export default function ClinicasPage() {
                         <p className="font-semibold text-slate-800 text-sm truncate font-outfit">{c.name}</p>
                         {isActive && <Badge color="green">Activa</Badge>}
                       </div>
-                      <p className="text-xs text-slate-400 truncate">{c.address}</p>
+                      {/* El backend solo guarda coordenadas; no hay dirección ni
+                          teléfono que mostrar, y una clínica puede no tener ni
+                          coordenadas. Se dice, en vez de dejar el hueco. */}
+                      <p
+                        className={`text-xs truncate ${
+                          coordenadas ? 'text-slate-400 font-mono' : 'text-amber-600'
+                        }`}
+                      >
+                        {coordenadas ?? SIN_UBICACION}
+                      </p>
                     </div>
-                  </div>
-                  <div className="mt-3 flex items-center gap-3 text-xs text-slate-500">
-                    <span>{c.phone}</span>
-                    <span className="ml-auto">
-                      <Badge color="blue">{c.patients} pacientes</Badge>
-                    </span>
                   </div>
                 </button>
 
@@ -112,6 +249,13 @@ export default function ClinicasPage() {
                     )}
                   </button>
                   <button
+                    onClick={() => setEditando(c)}
+                    className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
+                    title="Editar clínica"
+                  >
+                    <Icon name="edit" size={14} />
+                  </button>
+                  <button
                     onClick={() => setDeleteConfirm(c)}
                     className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors cursor-pointer"
                     title="Eliminar clínica"
@@ -126,31 +270,42 @@ export default function ClinicasPage() {
 
         {/* Right Map View */}
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100/80 overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-slate-800 font-outfit">{selected.name}</h3>
-                {activeClinic?.id === selected.id && <Badge color="green">Clínica activa</Badge>}
+          {selected && (
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-slate-800 font-outfit">{selected.name}</h3>
+                  {activeClinic?.id === selected.id && <Badge color="green">Clínica activa</Badge>}
+                </div>
+                <p
+                  className={`text-xs mt-0.5 ${
+                    formatearCoordenadas(selected.lat, selected.lng)
+                      ? 'text-slate-400 font-mono'
+                      : 'text-amber-600'
+                  }`}
+                >
+                  {formatearCoordenadas(selected.lat, selected.lng) ?? SIN_UBICACION}
+                </p>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">{selected.address}</p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setWorkModal(selected)}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-white text-xs font-semibold transition-all shadow-xs cursor-pointer ${
+                    activeClinic?.id === selected.id ? 'bg-emerald-600' : 'bg-doc-blue hover:opacity-90'
+                  }`}
+                >
+                  <Icon name="clinicas" size={13} color="white" />
+                  {activeClinic?.id === selected.id ? 'Activa' : 'Trabajar aquí'}
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="font-mono text-xs text-slate-400">
-                {selected.lat.toFixed(4)}, {selected.lng.toFixed(4)}
-              </span>
-              <button
-                onClick={() => setWorkModal(selected)}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-white text-xs font-semibold transition-all shadow-xs cursor-pointer ${
-                  activeClinic?.id === selected.id ? 'bg-emerald-600' : 'bg-doc-blue hover:opacity-90'
-                }`}
-              >
-                <Icon name="clinicas" size={13} color="white" />
-                {activeClinic?.id === selected.id ? 'Activa' : 'Trabajar aquí'}
-              </button>
-            </div>
-          </div>
+          )}
 
-          <div className="relative overflow-hidden h-96 w-full flex-1">
+          {/* `min-h` y no `h`: dentro de un flex, `flex-1` manda sobre la
+              altura fija y el mapa se aplastaba a unos pocos píxeles cuando la
+              columna de la izquierda traía una sola clínica. Con la lista de
+              maqueta, que siempre traía tres, no se notaba. */}
+          <div className="relative overflow-hidden min-h-96 w-full flex-1">
             <div className="absolute inset-0 bg-gradient-to-b from-[#d4e8c8] via-[#e0eed8] to-[#d8e8d0]" />
 
             {/* Street/blocks decorations */}
@@ -196,47 +351,58 @@ export default function ClinicasPage() {
               />
             ))}
 
-            {/* Clinic pins */}
-            {list.map((c, i) => (
-              <button
-                key={c.id}
-                onClick={() => {
-                  setSelected(c)
-                  setWorkModal(c)
-                }}
-                className="absolute transition-transform hover:scale-110 cursor-pointer z-10"
-                style={{
-                  left: `${30 + i * 20}%`,
-                  top: `${35 + i * 15}%`,
-                  transform: 'translate(-50%, -100%)',
-                }}
-              >
-                <div
-                  className={`w-9 h-9 rounded-full border-2 border-white shadow-lg flex items-center justify-center ${
-                    activeClinic?.id === c.id
-                      ? 'bg-emerald-600'
-                      : selected.id === c.id
-                      ? 'bg-doc-blue'
-                      : 'bg-doc-amber'
-                  }`}
+            {/* Chinches: ahora salen de las coordenadas reales, no del índice de
+                la lista. Solo se dibujan las clínicas que tienen ubicación; a
+                las demás no se les inventa un punto. */}
+            {ubicadas.map((c) => {
+              const { left, top } = proyectar(c.lat, c.lng)
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    setSelectedId(c.id)
+                    setWorkModal(c)
+                  }}
+                  className="absolute transition-transform hover:scale-110 cursor-pointer z-10"
+                  style={{ left, top, transform: 'translate(-50%, -100%)' }}
                 >
-                  <Icon name="clinicas" size={15} color="white" />
-                </div>
-                <div
-                  className={`w-2 h-2 rounded-full mx-auto -mt-0.5 ${
-                    activeClinic?.id === c.id
-                      ? 'bg-emerald-600'
-                      : selected.id === c.id
-                      ? 'bg-doc-blue'
-                      : 'bg-doc-amber'
-                  }`}
-                />
-                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-lg px-3 py-1.5 whitespace-nowrap text-xs font-medium text-slate-700 border border-slate-100">
-                  {c.name.split(' ').slice(0, 2).join(' ')}
-                  {activeClinic?.id === c.id && <span className="text-emerald-600 font-bold ml-1">✓</span>}
-                </div>
-              </button>
-            ))}
+                  <div
+                    className={`w-9 h-9 rounded-full border-2 border-white shadow-lg flex items-center justify-center ${
+                      activeClinic?.id === c.id
+                        ? 'bg-emerald-600'
+                        : selected?.id === c.id
+                        ? 'bg-doc-blue'
+                        : 'bg-doc-amber'
+                    }`}
+                  >
+                    <Icon name="clinicas" size={15} color="white" />
+                  </div>
+                  <div
+                    className={`w-2 h-2 rounded-full mx-auto -mt-0.5 ${
+                      activeClinic?.id === c.id
+                        ? 'bg-emerald-600'
+                        : selected?.id === c.id
+                        ? 'bg-doc-blue'
+                        : 'bg-doc-amber'
+                    }`}
+                  />
+                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-lg px-3 py-1.5 whitespace-nowrap text-xs font-medium text-slate-700 border border-slate-100">
+                    {c.name.split(' ').slice(0, 2).join(' ')}
+                    {activeClinic?.id === c.id && <span className="text-emerald-600 font-bold ml-1">✓</span>}
+                  </div>
+                </button>
+              )
+            })}
+
+            {/* Abajo a la izquierda: arriba el aviso se cruzaba con las
+                chinches y sus etiquetas, que es justo lo que acompaña. */}
+            {sinUbicacion > 0 && (
+              <div className="absolute bottom-2 left-2 bg-white/95 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-700 shadow-2xs max-w-[16rem]">
+                {sinUbicacion === 1
+                  ? '1 clínica no aparece en el mapa porque no tiene ubicación registrada.'
+                  : `${sinUbicacion} clínicas no aparecen en el mapa porque no tienen ubicación registrada.`}
+              </div>
+            )}
 
             <div className="absolute top-3 right-3 flex flex-col gap-1">
               {['+', '−'].map((s) => (
@@ -249,11 +415,12 @@ export default function ClinicasPage() {
               ))}
             </div>
             <div className="absolute bottom-2 right-2 text-[10px] text-slate-500 bg-white/90 px-2 py-0.5 rounded shadow-2xs font-mono">
-              OpenStreetMap · El Salvador
+              El Salvador
             </div>
           </div>
         </div>
       </div>
+      )}
 
       {/* Modal: Trabajar en esta clínica */}
       <Modal
@@ -267,11 +434,15 @@ export default function ClinicasPage() {
         {workModal && (
           <div className="text-center py-2">
             <h4 className="text-lg font-bold mb-1 text-doc-blue font-outfit">{workModal.name}</h4>
-            <p className="text-slate-400 text-sm mb-2">{workModal.address}</p>
-            <div className="flex items-center justify-center gap-4 text-xs text-slate-400 mb-6 font-mono">
-              <span>{workModal.phone}</span>
-              <span>
-                {workModal.lat.toFixed(4)}, {workModal.lng.toFixed(4)}
+            <div className="flex items-center justify-center gap-4 text-xs mb-6 font-mono">
+              <span
+                className={
+                  formatearCoordenadas(workModal.lat, workModal.lng)
+                    ? 'text-slate-400'
+                    : 'text-amber-600 font-sans'
+                }
+              >
+                {formatearCoordenadas(workModal.lat, workModal.lng) ?? SIN_UBICACION}
               </span>
             </div>
 
@@ -326,21 +497,17 @@ export default function ClinicasPage() {
             <div className="flex gap-3">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 hover:border-slate-300 transition-colors cursor-pointer"
+                disabled={eliminando}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 hover:border-slate-300 transition-colors cursor-pointer disabled:opacity-60"
               >
                 Cancelar
               </button>
               <button
-                onClick={() => {
-                  setList((prev) => prev.filter((c) => c.id !== deleteConfirm.id))
-                  if (selected.id === deleteConfirm.id) {
-                    setSelected(list.find((c) => c.id !== deleteConfirm.id) || list[0])
-                  }
-                  setDeleteConfirm(null)
-                }}
-                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-500 hover:bg-red-600 shadow-sm transition-all cursor-pointer"
+                onClick={() => void handleEliminar(deleteConfirm)}
+                disabled={eliminando}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-500 hover:bg-red-600 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Eliminar
+                {eliminando ? 'Eliminando…' : 'Eliminar'}
               </button>
             </div>
           </div>
@@ -356,11 +523,184 @@ export default function ClinicasPage() {
         icon="clinicas"
         headerGradient="bg-gradient-to-r from-emerald-600 to-teal-700"
       >
-        <ClinicForm
-          onSubmit={handleCreateClinic}
-          onCancel={() => setShowNew(false)}
-        />
+        <FormularioClinica onGuardada={handleClinicaCreada} onCancel={() => setShowNew(false)} />
+      </Modal>
+
+      {/* Modal: Editar Clínica */}
+      <Modal
+        isOpen={editando !== null}
+        onClose={() => setEditando(null)}
+        title="Editar Clínica"
+        subtitle="Actualizar datos de la sede"
+        icon="edit"
+        headerGradient="bg-gradient-to-r from-emerald-600 to-teal-700"
+      >
+        {editando && (
+          <FormularioClinica
+            clinica={editando}
+            onGuardada={handleClinicaEditada}
+            onCancel={() => setEditando(null)}
+          />
+        )}
       </Modal>
     </div>
   )
+}
+
+// ─── Mapa de mentira, coordenadas de verdad ─────────────────────────────────
+// El recuadro sigue siendo decorativo, pero al menos las chinches guardan las
+// posiciones relativas reales: el territorio salvadoreño se proyecta sobre el
+// recuadro de forma lineal. Se recorta al 5-95 % para que una clínica fuera de
+// estos límites quede en el borde y visible, en lugar de salirse del marco.
+const LIMITES_SV = { latMin: 13.1, latMax: 14.5, lngMin: -90.2, lngMax: -87.6 }
+
+function proyectar(lat: number, lng: number): { left: string; top: string } {
+  const x = (lng - LIMITES_SV.lngMin) / (LIMITES_SV.lngMax - LIMITES_SV.lngMin)
+  // La latitud crece hacia el norte y el eje vertical hacia abajo: se invierte.
+  const y = (LIMITES_SV.latMax - lat) / (LIMITES_SV.latMax - LIMITES_SV.latMin)
+  return { left: `${acotar(x)}%`, top: `${acotar(y)}%` }
+}
+
+function acotar(proporcion: number): number {
+  return Math.min(95, Math.max(5, proporcion * 100))
+}
+
+// ─── Formulario de alta y edición ───────────────────────────────────────────
+// Vive aquí y no en components/forms/ClinicForm.tsx porque aquel construye una
+// Clinica en memoria (con dirección, teléfono y número de pacientes que el
+// backend no conoce) y no sabe editar. Este habla con el API y refleja lo que
+// `ClinicasRequestDto` acepta de verdad: nombre y coordenadas.
+
+interface FormularioClinicaProps {
+  /** Presente en edición; ausente en alta. */
+  clinica?: Clinica
+  onGuardada: (clinica: ClinicaDto) => void
+  onCancel: () => void
+}
+
+const FormularioClinica: React.FC<FormularioClinicaProps> = ({
+  clinica,
+  onGuardada,
+  onCancel,
+}) => {
+  const [form, setForm] = useState({
+    name: clinica?.name ?? '',
+    // Las coordenadas se guardan como texto mientras se escriben: un input
+    // numérico controlado por un number no deja teclear "-" ni "13." a medias.
+    lat: clinica?.lat !== null && clinica?.lat !== undefined ? String(clinica.lat) : '',
+    lng: clinica?.lng !== null && clinica?.lng !== undefined ? String(clinica.lng) : '',
+  })
+  const [guardando, setGuardando] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+
+    const name = form.name.trim()
+    const latitud = parsearCoordenada(form.lat, 90)
+    const longitud = parsearCoordenada(form.lng, 180)
+
+    if (!name) {
+      setError('El nombre de la clínica es obligatorio.')
+      return
+    }
+    if (name.length > MAX_LARGO_NOMBRE_CLINICA) {
+      setError(`El nombre no puede superar los ${MAX_LARGO_NOMBRE_CLINICA} caracteres.`)
+      return
+    }
+    // El backend exige ambas coordenadas aunque la columna admita nulos, así
+    // que se avisa aquí en vez de dejar que responda un 400 genérico.
+    if (latitud === null || longitud === null) {
+      setError('Latitud y longitud son obligatorias (entre -90 y 90, y entre -180 y 180).')
+      return
+    }
+
+    setGuardando(true)
+    setError(null)
+    try {
+      const guardada = clinica
+        ? await actualizarClinica(clinica.id, { name, latitud, longitud })
+        : await crearClinica({ name, latitud, longitud })
+      onGuardada(guardada)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo guardar la clínica.')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  const campos: [string, 'name' | 'lat' | 'lng', string][] = [
+    ['Nombre de la clínica *', 'name', 'Clínica Familiar Escalón'],
+    ['Latitud *', 'lat', '13.7053'],
+    ['Longitud *', 'lng', '-89.2182'],
+  ]
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {clinica && formatearCoordenadas(clinica.lat, clinica.lng) === null && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+          Esta clínica no tiene ubicación registrada. Para guardar cambios hay que
+          indicar latitud y longitud.
+        </p>
+      )}
+
+      {campos.map(([label, field, ph]) => (
+        <div key={field}>
+          <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+            {label}
+          </label>
+          <input
+            required
+            maxLength={field === 'name' ? MAX_LARGO_NOMBRE_CLINICA : undefined}
+            placeholder={ph}
+            value={form[field]}
+            onChange={(e) => setForm((prev) => ({ ...prev, [field]: e.target.value }))}
+            className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 transition-colors bg-white"
+          />
+        </div>
+      ))}
+
+      <p className="text-xs text-slate-400">
+        Las coordenadas ubican la clínica en el mapa. El sistema aún no guarda
+        dirección ni teléfono.
+      </p>
+
+      {error && (
+        <p role="alert" className="rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </p>
+      )}
+
+      <div className="flex gap-3 pt-4 border-t border-slate-100">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={guardando}
+          className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 hover:border-slate-300 transition-colors cursor-pointer disabled:opacity-60"
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          disabled={guardando}
+          className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {guardando ? 'Guardando…' : 'Guardar Clínica'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+/**
+ * Convierte el texto del input en coordenada, o `null` si no sirve. Se
+ * comprueba el vacío aparte porque `Number('')` es 0, que además es una
+ * coordenada perfectamente válida en medio del golfo de Guinea.
+ */
+function parsearCoordenada(texto: string, maximo: number): number | null {
+  const limpio = texto.trim()
+  if (!limpio) return null
+  const valor = Number(limpio)
+  if (!Number.isFinite(valor) || Math.abs(valor) > maximo) return null
+  return valor
 }

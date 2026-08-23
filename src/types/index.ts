@@ -24,14 +24,28 @@ export interface User {
   status?: string
 }
 
+/**
+ * Clínica tal como la usan las pantallas. Refleja `ClinicasResponseDto` del
+ * backend, que solo devuelve id, nombre y coordenadas.
+ *
+ * `lat` y `lng` son anulables porque esas columnas admiten NULL en la base:
+ * hay clínicas registradas sin ubicación. Quien las pinte debe decidir qué
+ * mostrar en ese caso; el tipo obliga a hacerlo en vez de dejar que reviente
+ * un `.toFixed()` sobre null en tiempo de ejecución.
+ *
+ * `address`, `phone` y `patients` venían de los datos de maqueta y el backend
+ * no los devuelve. Quedan opcionales, no eliminados, para no romper lo que
+ * todavía los escribe; en cuanto el API los ofrezca (o se retire el
+ * formulario que los inventa) deben desaparecer de aquí.
+ */
 export interface Clinica {
   id: number
   name: string
-  address: string
-  lat: number
-  lng: number
-  phone: string
-  patients: number
+  lat: number | null
+  lng: number | null
+  address?: string
+  phone?: string
+  patients?: number
 }
 
 export interface Patient {
