@@ -1,10 +1,11 @@
 'use client'
 
-import React from 'react'
+import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Icon } from '@/components/ui/Icon'
-import { IconName } from '@/types'
+import { IconName, User, Role, UserType, UserRegister } from '@/types'
+import { authService } from '@/services/auth.service'
 
 const specialties = [
   'Medicina General',
@@ -21,12 +22,26 @@ const features: { icon: IconName; text: string }[] = [
   { icon: 'vitals', text: 'Signos vitales en tiempo real' },
   { icon: 'map', text: 'Geolocalización de clínicas' },
 ]
+
 export default function RegisterPage() {
   const router = useRouter()
 
-  const handleRegister = (e: React.SubmitEvent<HTMLFormElement>) => {
+  const [user, setUser] = useState<UserRegister>({
+    email: '',
+    roles: [1],
+    userName: '',
+    password: '',
+    userType: 1
+  })
+
+  async function handleRegister(e: React.SubmitEvent<HTMLFormElement>) {
+    debugger
     e.preventDefault()
-    router.push('/login')
+    const res = await authService.register(user)
+    console.log(res)
+    if (res.success) {
+      router.push('/login')
+    }
   }
 
   return (
@@ -45,33 +60,39 @@ export default function RegisterPage() {
             <h3 className="text-xl font-bold text-slate-800 mb-6 font-outfit">Datos del médico</h3>
             <div className="space-y-4">
               {[
-                { label: 'Nombre completo', placeholder: 'Juan Armando Guerra Guevara', type: 'text' },
-                { label: 'Correo electrónico', placeholder: 'ejemplo@correo.com', type: 'email' },
-                { label: 'Contraseña', placeholder: '••••••••', type: 'password' },
-              ].map(({ label, placeholder, type }) => (
+                // { property: 'name', label: 'Nombre completo', placeholder: 'Juan Armando Guerra Guevara', type: 'text' },
+                { property: 'userName', label: 'Usuario', placeholder: 'guest', type: 'text' },
+                { property: 'email', label: 'Correo electrónico', placeholder: 'ejemplo@correo.com', type: 'email' },
+                { property: 'password', label: 'Contraseña', placeholder: '••••••••', type: 'password' },
+              ].map(({ property, label, placeholder, type }) => (
                 <div key={label}>
                   <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
                     {label} *
                   </label>
                   <input
                     required
+                    name={property}
                     type={type}
                     placeholder={placeholder}
+                    onChange={(e) => { setUser({ ...user, [property]: e.target.value }) }}
                     className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
                   />
                 </div>
               ))}
 
-              <div>
+              {/* <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
                   Especialidad
                 </label>
-                <select className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white">
+                <select className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none
+                   focus:border-doc-blue transition-colors bg-white"
+                  onChange={(e) => { setUser({ ...user, specialty: e.target.value }) }}
+                >
                   {specialties.map((s) => (
                     <option key={s}>{s}</option>
                   ))}
                 </select>
-              </div>
+              </div> */}
 
               <label className="flex items-start gap-2 cursor-pointer pt-1">
                 <input type="checkbox" className="mt-0.5 rounded text-doc-blue" defaultChecked />

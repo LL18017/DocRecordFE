@@ -13,15 +13,47 @@ export type Page =
   | 'agenda'
   | 'usuarios'
 
-export type Role = 'medico' | 'enfermera' | 'Administrador'
+export interface Role {
+  roleId: number
+  name: string
+}
+
+export interface UserType {
+  userTypeID: number
+  name: string
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  access: string;
+  refresh: string;
+  usuario: {
+    id: number;
+    username: string;
+    nombre: string;
+  };
+}
 
 export interface User {
-  id?: number
+  userID?: number
   name: string
-  email?: string
-  role: Role
+  email: string
+  roles: Role[]
   specialty?: string
-  status?: string
+  password: string
+  enabled: true
+  userType: UserType
+}
+export interface UserRegister {
+  email: string
+  roles: number[]
+  userName: string
+  password: string
+  userType: number
 }
 
 export interface Clinica {

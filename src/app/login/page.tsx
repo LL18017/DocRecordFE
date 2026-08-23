@@ -1,11 +1,11 @@
 'use client'
 
-import React, { useState } from 'react'
+import { Icon } from '@/components/ui/Icon'
+import { authService } from '@/services/auth.service'
+import { IconName, LoginRequest, Role } from '@/types'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Role, IconName } from '@/types'
-import { Icon } from '@/components/ui/Icon'
-import { useAppContext } from '@/context/AppContext'
+import React, { useState } from 'react'
 
 const features: { icon: IconName; text: string }[] = [
   { icon: 'history', text: 'Historial clínico completo' },
@@ -15,26 +15,21 @@ const features: { icon: IconName; text: string }[] = [
 
 export default function LoginPage() {
   const router = useRouter()
-  const { setUser } = useAppContext()
-  const [role, setRole] = useState<Role>('medico')
+  const [role, setRole] = useState<Role>({
+    roleId: 2,
+    name: 'Enfermera',
+  })
+  const [user, setUser] = useState<LoginRequest>({
+    email: '',
+    password: '',
+  })
 
-  const handleLogin = (e: React.SubmitEvent<HTMLFormElement>) => {
+  async function handleLogin (e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (role === 'medico') {
-      setUser({
-        name: 'Dr. Juan Armando Guerra Guevara',
-        role: 'medico',
-        specialty: 'Medicina General',
-        email: 'juan.guerra@docrecord.sv',
-      })
-    } else {
-      setUser({
-        name: 'Enf. María Elena López Torres',
-        role: 'enfermera',
-        email: 'maria.lopez@docrecord.sv',
-      })
-    }
-    router.push('/select-clinica')
+    
+    const res = await authService.login(user)
+    if(res.token)
+      router.push('/select-clinica')
   }
 
   return (
@@ -60,12 +55,13 @@ export default function LoginPage() {
                 Rol de acceso
               </label>
               <div className="grid grid-cols-2 gap-2">
-                {([['medico', 'Médico'], ['enfermera', 'Enfermera']] as [Role, string][]).map(([r, label]) => (
+                {([['medico', 'Médico'], ['enfermera', 'Enfermera']]).map(([r, label]) => (
                   <button
                     key={r}
                     type="button"
-                    onClick={() => setRole(r)}
-                    className={`py-3 rounded-xl text-sm font-medium border-2 transition-all flex flex-col items-center gap-1.5 cursor-pointer ${role === r
+                    onClick={() => setRole({roleId: (r === 'medico') ? 1 : 2, name: label})}
+                    className={`py-3 rounded-xl text-sm font-medium border-2 transition-all flex flex-col items-center gap-1.5 cursor-pointer 
+                      ${role.name === label
                       ? 'border-blue-600 text-blue-700 bg-blue-50/70 font-semibold'
                       : 'border-slate-200 text-slate-500 hover:border-slate-300 bg-slate-50/50'
                       }`}
@@ -73,7 +69,7 @@ export default function LoginPage() {
                     <Icon
                       name={r === 'medico' ? 'consultas' : 'enfermeria'}
                       size={18}
-                      color={role === r ? '#1d4ed8' : '#94a3b8'}
+                      color={role.name === label ? '#1d4ed8' : '#94a3b8'}
                     />
                     {label}
                   </button>
@@ -90,7 +86,8 @@ export default function LoginPage() {
                 <input
                   type="email"
                   required
-                  defaultValue="juan.guerra@docrecord.sv"
+                  placeholder="juan.guerra@docrecord.sv"
+                  onChange={(e) => { setUser({ ...user, email: e.target.value }) }}
                   className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
                 />
               </div>
@@ -101,15 +98,18 @@ export default function LoginPage() {
                 <input
                   type="password"
                   required
-                  defaultValue="••••••••"
-                  className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                  placeholder="••••••••"
+                  onChange={(e) => { setUser({ ...user, password: e.target.value }) }}
+                  className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none 
+                    focus:border-doc-blue transition-colors bg-white"
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              className="w-full py-3.5 rounded-2xl font-semibold text-white text-base bg-gradient-to-r from-doc-blue to-doc-blue-light hover:opacity-95 shadow-md shadow-doc-blue/20 transition-all cursor-pointer"
+              className="w-full py-3.5 rounded-2xl font-semibold text-white text-base bg-linear-to-r 
+                from-doc-blue to-doc-blue-light hover:opacity-95 shadow-md shadow-doc-blue/20 transition-all cursor-pointer"
             >
               Ingresar al sistema
             </button>
