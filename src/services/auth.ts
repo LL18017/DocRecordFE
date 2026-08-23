@@ -22,7 +22,7 @@ interface UserResponseDto {
   apellidos: string
   /** El backend asigna el rol (MEDICO) por su cuenta; el cliente no lo envía. */
   roles: string[]
-  especialidad: { especialidadId: number; nombre: string }
+  especialidad: { especialidadId: number; nombre: string; activa: boolean }
 }
 
 export interface RegistroPayload {
