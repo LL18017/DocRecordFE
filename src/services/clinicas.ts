@@ -127,14 +127,24 @@ export function formatearCoordenadas(
 }
 
 /**
- * Traduce los códigos del backend a algo accionable.
+ * Traduce al usuario los códigos del backend que llegan sin una explicación
+ * utilizable, y SOLO esos.
  *
- * Hace falta porque el manejador global de errores responde
- * `{ "error": "Error", "message": "..." }` y `extraerMensajeDeError` de
- * `lib/api.ts` prefiere `error` sobre `message`: sin esto, borrar la clínica
- * de otro médico mostraría literalmente «Error». Las validaciones (400)
- * llegan aún peor, como un mapa `{ campo: mensaje }` que no tiene ni `error`
- * ni `message`.
+ * `lib/api.ts` ya hace el trabajo grueso: prefiere `message` sobre `error`,
+ * así que un fallo de negocio llega con su motivo y no con la categoría
+ * («Error», «Recurso no encontrado»), y además sabe leer el mapa
+ * `{ campo: mensaje }` de las validaciones de Spring y concatenar sus textos
+ * («La latitud es obligatoria.»). Lo que queda por traducir aquí es lo que el
+ * backend explica mal: el 403 responde «El usuario no tiene permiso para
+ * modificar esta clínica» incluso cuando lo que se intentó fue eliminarla, y
+ * no dice quién sí puede; el 404 llega como «Recurso no encontrado», sin el
+ * «puede que alguien la haya eliminado» que le dice al usuario qué pasó; y el
+ * 409 de borrado trae la restricción de integridad en crudo, que a un médico
+ * no le dice nada.
+ *
+ * La regla para agregar un caso nuevo: sustituir el mensaje del backend solo
+ * cuando el que se escriba aquí sea MÁS preciso. Cambiar un texto concreto
+ * por uno genérico le quita al usuario justo el dato que necesitaba.
  */
 function traducirError(error: unknown, accion: 'crear' | 'editar' | 'eliminar'): Error {
   if (!(error instanceof ApiError)) {
@@ -142,11 +152,12 @@ function traducirError(error: unknown, accion: 'crear' | 'editar' | 'eliminar'):
   }
 
   switch (error.status) {
-    case 400:
-      return new ApiError(
-        400,
-        `El nombre es obligatorio (máximo ${MAX_LARGO_NOMBRE_CLINICA} caracteres) y la ubicación necesita latitud y longitud.`,
-      )
+    // El 400 se deja pasar a propósito: la validación de Spring nombra el
+    // campo que falla y `lib/api.ts` ya lo entrega redactado. Antes se
+    // reemplazaba por una frase fija sobre nombre y coordenadas que tapaba
+    // ese detalle y, encima, afirmaba de más: se mostraba entera aunque lo
+    // único mal fuera el largo del nombre. En el peor caso —un 400 sin cuerpo
+    // aprovechable— queda el genérico de api.ts: vago, pero no falso.
     case 403:
       return new ApiError(
         403,
@@ -155,10 +166,16 @@ function traducirError(error: unknown, accion: 'crear' | 'editar' | 'eliminar'):
     case 404:
       return new ApiError(404, 'Esta clínica ya no existe; puede que alguien la haya eliminado.')
     case 409:
-      return new ApiError(
-        409,
-        'No se puede eliminar la clínica porque tiene información asociada.',
-      )
+      // Este texto solo es cierto al eliminar. Si crear o editar devolvieran
+      // 409 alguna vez (un nombre duplicado, por ejemplo), hablaría de
+      // eliminar algo que nadie está eliminando; ahí es mejor el mensaje del
+      // backend, que al menos describirá lo que de verdad pasó.
+      return accion === 'eliminar'
+        ? new ApiError(
+            409,
+            'No se puede eliminar la clínica porque tiene información asociada.',
+          )
+        : error
     default:
       return error
   }
