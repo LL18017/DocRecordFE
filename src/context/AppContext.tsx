@@ -9,7 +9,6 @@ import React, {
   useSyncExternalStore,
 } from 'react'
 import { User, Clinica } from '@/types'
-import { clinicas } from '@/data/mockData'
 import * as authService from '@/services/auth'
 import { alExpirarSesion } from '@/lib/api'
 import type { Role } from '@/types'
@@ -139,7 +138,13 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined)
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeClinic, setActiveClinic] = useState<Clinica | null>(clinicas[0])
+  // Arranca en `null` a propósito: la clínica activa solo puede salir de que el
+  // usuario elija una suya en /select-clinica. Sembrarla con la primera clínica
+  // de maqueta mostraba en la barra superior y el sidebar una sede que no
+  // existe y, peor, su `id: 1` coincide con una clínica real de otro médico:
+  // el sistema llegaba a marcar como «Activa» una sede ajena que nadie eligió.
+  // En un expediente clínico eso no es un detalle visual, es dato equivocado.
+  const [activeClinic, setActiveClinic] = useState<Clinica | null>(null)
 
   const sesionSerializada = useSyncExternalStore(
     suscribirseASesion,
