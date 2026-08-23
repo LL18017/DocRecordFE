@@ -9,7 +9,7 @@
 // medicamentos, con los opcionales OMITIDOS cuando están en blanco—.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ApiError } from '@/lib/api'
 import type { ConsultaDto } from '@/services/consultas'
@@ -204,6 +204,28 @@ describe('PrescriptionForm · la consulta de la que cuelga la receta', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/elige la consulta/i)
     expect(crearPrescripcion).not.toHaveBeenCalled()
+  })
+
+  it('no escribe «null» en el selector cuando la consulta llegó sin motivo', async () => {
+    // `motivo` PUEDE SER NULL, y una plantilla de cadena no perdona:
+    // `${c.motivo}` ponía literalmente la palabra «null» entre las opciones
+    // de un formulario de recetas. Se comprueba sobre el desplegable de
+    // consultas y no sobre la pantalla entera para que la prueba no dependa
+    // de que ninguna otra parte diga «null» por su cuenta.
+    listarConsultas.mockResolvedValue([consulta({ consultaId: 20, motivo: null })])
+    montar()
+    await waitFor(() => expect(listarConsultas).toHaveBeenCalled())
+
+    const selector = await screen.findByLabelText(/^consulta/i)
+    const etiquetas = within(selector)
+      .getAllByRole('option')
+      .map((o) => o.textContent ?? '')
+
+    expect(etiquetas).toHaveLength(1)
+    expect(etiquetas[0]).not.toMatch(/null/i)
+    // Y el hueco se ve: la fecha sola no distingue «sin motivo» de «aquí se
+    // perdió el texto», que es lo que dejaba una etiqueta cortada en el «·».
+    expect(etiquetas[0]).toContain('—')
   })
 
   it('muestra el error de carga de consultas con el motivo del backend', async () => {

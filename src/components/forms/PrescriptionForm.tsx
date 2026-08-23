@@ -5,6 +5,7 @@ import { Icon } from '@/components/ui/Icon'
 import {
   formatearFechaHora,
   listarConsultas,
+  textoOpcional,
   type ConsultaDto,
 } from '@/services/consultas'
 import {
@@ -54,9 +55,17 @@ const labelClass =
 /** El asterisco es decoración: lo obligatorio ya lo dice el atributo `required`. */
 const Obligatorio = () => <span aria-hidden="true"> *</span>
 
-/** Cómo se lee una consulta en la lista desplegable. */
+/**
+ * Cómo se lee una consulta en la lista desplegable.
+ *
+ * `motivo` PUEDE SER NULL, y una plantilla de cadena no perdona: interpolarlo
+ * a secas ponía literalmente «23 ago 2026, 02:30 p.m. · null» entre las
+ * opciones de un formulario de recetas. `textoOpcional` deja el mismo guion
+ * que el resto de la aplicación usa para lo que falta; la fecha y la hora
+ * bastan para distinguir una consulta de otra.
+ */
 function etiquetaDeConsulta(c: ConsultaDto): string {
-  return `${formatearFechaHora(c.fecha)} · ${c.motivo}`
+  return `${formatearFechaHora(c.fecha)} · ${textoOpcional(c.motivo)}`
 }
 
 export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({

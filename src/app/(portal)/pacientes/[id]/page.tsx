@@ -31,7 +31,7 @@ import { HereditaryForm } from '@/components/forms/HereditaryForm'
 import { HabitForm } from '@/components/forms/HabitForm'
 import { VitalsForm } from '@/components/forms/VitalsForm'
 import { ConsultationForm } from '@/components/forms/ConsultationForm'
-import { formatearFechaHora, nombreDeMedico } from '@/services/consultas'
+import { formatearFechaHora, nombreDeMedico, textoOpcional } from '@/services/consultas'
 
 type ModalType =
   | 'alergia'
@@ -711,8 +711,13 @@ export default function ExpedienteDetailPage() {
             setPatientConsultations((prev) => [
               {
                 date: formatearFechaHora(c.fecha),
-                reason: c.motivo,
-                diagnosis: c.diagnostico ?? '—',
+                // `reason` y `diagnosis` son `string` en el tipo `Consultation`
+                // de la maqueta, pero `motivo` y `diagnostico` PUEDEN venir
+                // null del backend. `textoOpcional` es lo que hace honesto ese
+                // `string`: sin él, la tarjeta del expediente pinta la palabra
+                // «null» donde el médico espera leer por qué vino el paciente.
+                reason: textoOpcional(c.motivo),
+                diagnosis: textoOpcional(c.diagnostico),
                 status: c.estado === 'FINALIZADA' ? 'Finalizada' : 'Pendiente',
                 meds: [],
                 doctor: nombreDeMedico(c),

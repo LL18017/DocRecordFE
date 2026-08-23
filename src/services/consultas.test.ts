@@ -23,6 +23,7 @@ import {
   nombreDePaciente,
   obtenerConsulta,
   puedeRegistrarDiagnostico,
+  textoOpcional,
   type ConsultaDto,
 } from './consultas'
 
@@ -133,6 +134,26 @@ describe('consultas · campos que pueden venir nulos', () => {
   it('arma los nombres completos de paciente y médico', () => {
     expect(nombreDePaciente(consulta())).toBe('Ana María Ramírez')
     expect(nombreDeMedico(consulta())).toBe('Juan Guerra')
+  })
+
+  it('pinta un guion —y nunca «null»— en el texto de un campo opcional', () => {
+    // `textoOpcional` es la única respuesta de este proyecto a «este campo
+    // puede faltar»: motivo, diagnóstico, dosis, frecuencia y duración pasan
+    // todos por aquí. Los espacios cuentan como ausencia: el backend no
+    // distingue `''` de `'   '` y una tabla alineada sí.
+    expect(textoOpcional(null)).toBe('—')
+    expect(textoOpcional('')).toBe('—')
+    expect(textoOpcional('   ')).toBe('—')
+    expect(textoOpcional('Dolor de garganta')).toBe('Dolor de garganta')
+  })
+
+  it('prescripciones reexporta ESTA función, no una copia suya', async () => {
+    // La ayuda vivía en services/prescripciones.ts y se mudó aquí al aparecer
+    // `motivo`. Si alguien vuelve a escribir una segunda implementación allá,
+    // las dos empiezan iguales y acaban decidiendo distinto —una con `trim`,
+    // otra sin él— y el guion deja de ser el mismo guion en toda la app.
+    const prescripciones = await import('./prescripciones')
+    expect(prescripciones.textoOpcional).toBe(textoOpcional)
   })
 })
 

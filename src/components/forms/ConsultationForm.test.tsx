@@ -234,6 +234,21 @@ describe('ConsultationForm · edición', () => {
 
     expect(campoDiagnostico()).toHaveValue('')
   })
+
+  it('abre con el campo VACÍO, no con «null», si la consulta no traía motivo', async () => {
+    // `motivo` también puede venir null (la columna no lo exige). Sin el
+    // `?? ''`, el textarea arrancaría con la palabra «null» dentro y quien
+    // editara la consulta la guardaría como motivo de verdad.
+    const user = montar({ consulta: consulta({ motivo: null }) })
+
+    expect(campoMotivo()).toHaveValue('')
+
+    await user.type(campoMotivo(), 'Control de seguimiento')
+    await user.click(botonGuardar())
+
+    await waitFor(() => expect(actualizarConsulta).toHaveBeenCalled())
+    expect(actualizarConsulta.mock.calls[0][1]).toEqual({ motivo: 'Control de seguimiento' })
+  })
 })
 
 describe('ConsultationForm · errores', () => {

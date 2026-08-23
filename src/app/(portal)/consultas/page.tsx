@@ -14,6 +14,7 @@ import {
   listarConsultas,
   nombreDeClinica,
   nombreDePaciente,
+  textoOpcional,
   type ConsultaDto,
 } from '@/services/consultas'
 
@@ -128,8 +129,20 @@ export default function ConsultasPage() {
       },
       {
         header: 'Motivo',
-        accessorKey: 'motivo',
-        className: 'max-w-[180px] truncate text-slate-600',
+        // `motivo` PUEDE SER NULL: la columna de la base no lo exige y
+        // `ConsultaRequestDto` tampoco (ver el docblock de `ConsultaDto`).
+        // Con `accessorKey` la celda quedaba en blanco —`String(null ?? '')`—
+        // y una celda vacía en un expediente clínico no distingue «no se
+        // registró un motivo» de «se perdió el dato al cargar la tabla».
+        // `textoOpcional` pinta el mismo guion que ya usa la columna de
+        // diagnóstico, y en gris para que se lea como un hueco y no como el
+        // texto que escribió el médico.
+        cell: (c) => (
+          <span className={c.motivo?.trim() ? 'text-slate-600' : 'text-slate-400'}>
+            {textoOpcional(c.motivo)}
+          </span>
+        ),
+        className: 'max-w-[180px] truncate',
       },
       {
         header: 'Diagnóstico',
@@ -232,9 +245,15 @@ export default function ConsultasPage() {
           keyExtractor={(c) => c.consultaId}
           searchable
           searchPlaceholder="Buscar por paciente, motivo o diagnóstico..."
+          // Una consulta sin motivo (ni diagnóstico) simplemente NO coincide:
+          // no hay texto donde buscar. Lo que no puede hacer es reventar, que
+          // es lo que pasaba con `c.motivo.toLowerCase()` en cuanto el backend
+          // devolvía el null que su contrato permite: la pantalla entera se
+          // caía al teclear la primera letra, igual que ya ocurrió en la
+          // búsqueda de pacientes con `dui`.
           searchFilter={(c, q) =>
             nombreDePaciente(c).toLowerCase().includes(q) ||
-            c.motivo.toLowerCase().includes(q) ||
+            (c.motivo?.toLowerCase().includes(q) ?? false) ||
             (c.diagnostico?.toLowerCase().includes(q) ?? false)
           }
           emptyMessage="Todavía no hay consultas registradas."

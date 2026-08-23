@@ -60,7 +60,21 @@ export interface ConsultaDto {
   consultaId: number
   /** Instante ISO (fecha *y hora* de la atención), no una fecha civil. */
   fecha: string
-  motivo: string
+  /**
+   * PUEDE SER NULL, aunque el formulario de esta aplicación siempre lo pida.
+   *
+   * No es una suposición defensiva: la columna es `motivo TEXT` sin NOT NULL
+   * (V6__consultas_y_prescripciones.sql:41) y `ConsultaRequestDto.motivo` no
+   * lleva `@NotBlank`, así que cualquier cliente —o una carga a mano en la
+   * base— puede dejar una consulta sin motivo y `GET /consultas` la devuelve
+   * con `"motivo": null`. Declararlo `string` compilaba en verde y reventaba
+   * al buscar en la lista (`c.motivo.toLowerCase()`), exactamente el mismo
+   * fallo que ya costó `PersonaDto.dui` y `PacienteDto.tipoSangre`.
+   *
+   * Quien lo pinte usa `textoOpcional`; quien lo busque debe tratarlo como
+   * «no coincide», nunca dejar que reviente.
+   */
+  motivo: string | null
   diagnostico: string | null
   estado: EstadoConsulta
   paciente: ConsultaPacienteDto
@@ -201,6 +215,28 @@ export function nombreDeMedico(consulta: ConsultaDto): string {
  */
 export function nombreDeClinica(consulta: ConsultaDto): string | null {
   return consulta.clinica?.name ?? null
+}
+
+/**
+ * Texto de un campo opcional que llega `null` del backend.
+ *
+ * Vive aquí —y no en services/prescripciones.ts, donde nació para `dosis`,
+ * `frecuencia` y `duracion`— porque `motivo` necesita exactamente la misma
+ * decisión y prescripciones ya depende de este módulo: al revés se cerraría
+ * un ciclo de importaciones. `services/prescripciones.ts` lo reexporta, así
+ * que quien ya lo importaba de allí sigue igual.
+ *
+ * El guion es el mismo que usan el expediente y la columna de diagnóstico
+ * para lo que falta, y es lo que evita pintar «null» a un usuario: la cadena
+ * «null» en una receta que alguien lleva a la farmacia, o en la lista de
+ * consultas de un expediente clínico, se lee como un dato, no como un hueco.
+ *
+ * Se compara con `trim()` para que una cadena de espacios cuente como
+ * ausencia: al backend le da igual guardar `''` y al usuario le da igual leer
+ * un hueco o un espacio, pero la columna alineada de la tabla no.
+ */
+export function textoOpcional(valor: string | null): string {
+  return valor?.trim() ? valor : '—'
 }
 
 /**

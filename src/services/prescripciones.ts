@@ -180,14 +180,16 @@ export function formatearFechaEmision(prescripcion: PrescripcionDto): string {
 }
 
 /**
- * Texto de una celda opcional de la receta. `dosis`, `frecuencia` y
- * `duracion` llegan `null` cuando el médico no las especificó; el guion es el
- * mismo que ya usa el expediente para los datos que faltan, y es lo que evita
- * pintar «null» en una receta que alguien va a llevar a la farmacia.
+ * Texto de una celda opcional de la receta (`dosis`, `frecuencia`,
+ * `duracion`, que llegan `null` cuando el médico no las especificó).
+ *
+ * La implementación se mudó a services/consultas.ts cuando `motivo` resultó
+ * ser igual de anulable: dos copias de la misma regla acaban decidiendo
+ * distinto. Se reexporta desde aquí para que las pantallas de recetas —donde
+ * la ayuda nació— la sigan importando de su módulo natural, y para no dejar
+ * un `import` de consultas en medio de una receta.
  */
-export function textoOpcional(valor: string | null): string {
-  return valor?.trim() ? valor : '—'
-}
+export { textoOpcional } from './consultas'
 
 /**
  * Traduce solo lo que el backend no explica por sí solo; mismo criterio que

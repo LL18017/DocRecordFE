@@ -9,6 +9,10 @@
 //  2. La fila desaparece SOLO cuando el servidor confirmó la baja. Un borrado
 //     optimista en un expediente clínico deja al médico creyendo que borró
 //     algo que sigue ahí.
+//  3. `motivo` PUEDE SER NULL —la columna no lo exige y `ConsultaRequestDto`
+//     tampoco—, y aquí se buscaba con `c.motivo.toLowerCase()`. Teclear una
+//     letra en la caja de búsqueda con una sola consulta sin motivo en la
+//     lista tumbaba la pantalla entera, calcado del fallo de `dui`.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -90,6 +94,79 @@ describe('consultas · lo que puede venir nulo', () => {
     const fila = await filaDe('Ana María Ramírez')
     expect(within(fila).getByText('—')).toBeInTheDocument()
     expect(within(fila).getByText('PENDIENTE')).toBeInTheDocument()
+  })
+
+  it('muestra una consulta sin motivo con un guion, ni «null» ni un hueco', async () => {
+    // La fila trae diagnóstico y clínica, así que el ÚNICO guion posible es el
+    // del motivo: si la celda se quedara en blanco —que es lo que hacía
+    // `accessorKey`, con `String(null ?? '')`— aquí no habría ninguno.
+    listarConsultas.mockResolvedValue([consulta({ motivo: null })])
+
+    montar()
+
+    const fila = await filaDe('Ana María Ramírez')
+    expect(within(fila).getByText('—')).toBeInTheDocument()
+    expect(within(fila).queryByText(/null/i)).toBeNull()
+  })
+})
+
+describe('consultas · buscar con una consulta sin motivo en la lista', () => {
+  const SIN_MOTIVO = consulta({
+    consultaId: 7,
+    motivo: null,
+    diagnostico: null,
+    estado: 'PENDIENTE',
+    paciente: {
+      personaId: 42,
+      expediente: 'EXP-0042',
+      nombres: 'Ana María',
+      apellidos: 'Ramírez',
+    },
+  })
+  const CON_MOTIVO = consulta({
+    consultaId: 8,
+    motivo: 'Dolor de garganta',
+    paciente: {
+      personaId: 51,
+      expediente: 'EXP-0051',
+      nombres: 'Carlos',
+      apellidos: 'Mejía',
+    },
+  })
+
+  it('no revienta al teclear, y la consulta sin motivo no coincide', async () => {
+    listarConsultas.mockResolvedValue([SIN_MOTIVO, CON_MOTIVO])
+    const user = montar()
+    await screen.findByText('Ana María Ramírez')
+
+    await user.type(screen.getByPlaceholderText(/buscar por paciente/i), 'dolor')
+
+    // Que la pantalla siga en pie ya es media prueba: con
+    // `c.motivo.toLowerCase()` el filtro lanza en el primer carácter y no
+    // queda tabla que consultar.
+    expect(await screen.findByText('Carlos Mejía')).toBeInTheDocument()
+    // Y no coincide: sin motivo no hay texto donde buscar. Un filtro que
+    // devolviera `true` ante el nulo dejaría la fila puesta y el médico
+    // creería que esa consulta sí habla de dolor.
+    await waitFor(() => expect(screen.queryByText('Ana María Ramírez')).toBeNull())
+  })
+
+  it('sigue encontrando por paciente y por diagnóstico con el nulo presente', async () => {
+    // El nulo no puede acabar apagando el resto de la búsqueda: el riesgo de
+    // «arreglarlo» con un `return false` de más es dejar la caja inservible.
+    listarConsultas.mockResolvedValue([SIN_MOTIVO, CON_MOTIVO])
+    const user = montar()
+    await screen.findByText('Ana María Ramírez')
+
+    const caja = screen.getByPlaceholderText(/buscar por paciente/i)
+    await user.type(caja, 'ramírez')
+    expect(await screen.findByText('Ana María Ramírez')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Carlos Mejía')).toBeNull())
+
+    await user.clear(caja)
+    await user.type(caja, 'faringitis')
+    expect(await screen.findByText('Carlos Mejía')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Ana María Ramírez')).toBeNull())
   })
 })
 

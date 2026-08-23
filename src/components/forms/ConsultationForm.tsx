@@ -74,6 +74,8 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
     if (pacienteIdPorDefecto !== undefined) return String(pacienteIdPorDefecto)
     return pacientes[0] ? String(pacientes[0].personaId) : ''
   })
+  // `motivo` puede venir null igual que `diagnostico` (la columna no lo exige
+  // y el DTO de alta tampoco): el textarea necesita una cadena.
   const [motivo, setMotivo] = useState(consulta?.motivo ?? '')
   // `diagnostico` puede venir null (consulta todavía PENDIENTE): el textarea
   // necesita una cadena, así que el nulo se traduce aquí y no en el JSX.
@@ -111,7 +113,11 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
     diagnosticoLimpio: string,
   ): ActualizarConsultaPayload => {
     const cambios: ActualizarConsultaPayload = {}
-    if (motivoLimpio !== original.motivo) cambios.motivo = motivoLimpio
+    // Se compara contra `?? ''` —igual que el diagnóstico de la línea de
+    // abajo— porque `original.motivo` puede ser null: comparar una cadena
+    // contra null da «distinto» siempre, así que reabrir y guardar una
+    // consulta sin motivo mandaba un `motivo` que nadie había tocado.
+    if (motivoLimpio !== (original.motivo ?? '')) cambios.motivo = motivoLimpio
     if (puedeDiagnosticar && diagnosticoLimpio !== (original.diagnostico ?? '')) {
       cambios.diagnostico = diagnosticoLimpio
     }
