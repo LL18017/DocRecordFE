@@ -19,6 +19,23 @@ const features: { icon: IconName; text: string }[] = [
 // Eliminar este respaldo cuando el backend agregue el dato a la respuesta.
 const ROL_POR_DEFECTO: Role = 'medico'
 
+// Ids fijos, sin `useId()`: esta es una ruta con un solo formulario y no hay
+// forma de que se monte dos veces a la vez, así que no hay ids que puedan
+// chocar. Donde sí hace falta es en los formularios de components/forms, que
+// son componentes reutilizables.
+const ID_EMAIL = 'login-email'
+const ID_PASSWORD = 'login-password'
+const ID_ERROR = 'login-error'
+
+// Clases de los campos. Lo único que se agrega a las que ya había es
+// `focus-visible:ring-*`, que acompaña al `focus:outline-none`: quitar el
+// contorno del navegador sin reponer nada deja a quien navega con teclado sin
+// saber dónde está parado.
+const inputClass =
+  'w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm bg-white focus:outline-none focus:border-doc-blue focus-visible:ring-2 focus-visible:ring-doc-blue/40 transition-colors'
+const labelClass =
+  'block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider'
+
 export default function LoginPage() {
   const router = useRouter()
   const { iniciarSesion } = useAppContext()
@@ -66,37 +83,47 @@ export default function LoginPage() {
             {/* Form fields */}
             <div className="space-y-4 mb-6">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">
+                <label htmlFor={ID_EMAIL} className={labelClass}>
                   Correo electrónico
                 </label>
                 <input
+                  id={ID_EMAIL}
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   autoComplete="email"
                   placeholder="usuario@docrecord.sv"
-                  className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                  // El rechazo del servidor es sobre la pareja correo/clave: no
+                  // dice cuál de los dos falló, así que se enlaza a ambos. Suelto
+                  // se anunciaría una vez; enlazado se relee al volver al campo.
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? ID_ERROR : undefined}
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">
+                <label htmlFor={ID_PASSWORD} className={labelClass}>
                   Contraseña
                 </label>
                 <input
+                  id={ID_PASSWORD}
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
                   placeholder="••••••••"
-                  className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? ID_ERROR : undefined}
+                  className={inputClass}
                 />
               </div>
             </div>
 
             {error && (
               <p
+                id={ID_ERROR}
                 role="alert"
                 className="mb-4 rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
               >

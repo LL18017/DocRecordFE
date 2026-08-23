@@ -14,6 +14,30 @@ const features: { icon: IconName; text: string }[] = [
   { icon: 'map', text: 'Geolocalización de clínicas' },
 ]
 
+// Ids fijos, sin `useId()`: esta es una ruta con un solo formulario y no hay
+// forma de que se monte dos veces a la vez, así que no hay ids que puedan
+// chocar. Donde sí hace falta es en los formularios de components/forms, que
+// son componentes reutilizables.
+const ID = {
+  nombres: 'registro-nombres',
+  apellidos: 'registro-apellidos',
+  email: 'registro-email',
+  password: 'registro-password',
+  especialidad: 'registro-especialidad',
+} as const
+
+// Clases de los campos. Lo único que se agrega a las que ya había es
+// `focus-visible:ring-*`, que acompaña al `focus:outline-none`: quitar el
+// contorno del navegador sin reponer nada deja a quien navega con teclado sin
+// saber dónde está parado.
+const inputClass =
+  'w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm bg-white focus:outline-none focus:border-doc-blue focus-visible:ring-2 focus-visible:ring-doc-blue/40 transition-colors'
+const labelClass =
+  'block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide'
+
+/** El asterisco es decoración: lo obligatorio ya lo dice el atributo `required`. */
+const Obligatorio = () => <span aria-hidden="true"> *</span>
+
 export default function RegisterPage() {
   const [nombres, setNombres] = useState('')
   const [apellidos, setApellidos] = useState('')
@@ -159,69 +183,74 @@ export default function RegisterPage() {
               <h3 className="text-xl font-bold text-slate-800 mb-6 font-outfit">Datos del médico</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-                    Nombres *
+                  <label htmlFor={ID.nombres} className={labelClass}>
+                    Nombres<Obligatorio />
                   </label>
                   <input
+                    id={ID.nombres}
                     required
                     type="text"
                     value={nombres}
                     onChange={(e) => setNombres(e.target.value)}
                     placeholder="Juan Armando"
-                    className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                    className={inputClass}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-                    Apellidos *
+                  <label htmlFor={ID.apellidos} className={labelClass}>
+                    Apellidos<Obligatorio />
                   </label>
                   <input
+                    id={ID.apellidos}
                     required
                     type="text"
                     value={apellidos}
                     onChange={(e) => setApellidos(e.target.value)}
                     placeholder="Guerra Guevara"
-                    className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                    className={inputClass}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-                    Correo electrónico *
+                  <label htmlFor={ID.email} className={labelClass}>
+                    Correo electrónico<Obligatorio />
                   </label>
                   <input
+                    id={ID.email}
                     required
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="ejemplo@correo.com"
                     autoComplete="email"
-                    className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                    className={inputClass}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-                    Contraseña *
+                  <label htmlFor={ID.password} className={labelClass}>
+                    Contraseña<Obligatorio />
                   </label>
                   <input
+                    id={ID.password}
                     required
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     autoComplete="new-password"
-                    className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                    className={inputClass}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-                    Especialidad *
+                  <label htmlFor={ID.especialidad} className={labelClass}>
+                    Especialidad<Obligatorio />
                   </label>
                   <select
+                    id={ID.especialidad}
                     required
                     value={especialidadId ?? ''}
                     onChange={(e) => setEspecialidadId(Number(e.target.value))}
-                    className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                    className={inputClass}
                   >
                     {especialidades.length === 0 && <option value="">Cargando especialidades…</option>}
                     {especialidades.map((e) => (

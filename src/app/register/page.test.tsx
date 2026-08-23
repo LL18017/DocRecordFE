@@ -7,8 +7,10 @@
 // `correoDeVerificacionEnviado`, y estas pruebas existen para que ese campo no
 // se pueda volver a ignorar en silencio.
 //
-// Los campos se buscan por su placeholder porque este formulario, a diferencia
-// de PatientForm, todavía no asocia sus `<label>` con sus `<input>`.
+// Los campos se buscan por su etiqueta accesible (`getByLabelText`), que es
+// como los encuentra una persona —viendo la pantalla o escuchándola— y lo que
+// mantiene en pie la asociación `<label htmlFor>` ↔ `<input id>`: si alguien
+// la rompe, estas pruebas no encuentran los campos y caen solas.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -51,16 +53,22 @@ beforeEach(() => {
   ])
 })
 
+const campoNombres = () => screen.getByLabelText(/^nombres/i)
+const campoApellidos = () => screen.getByLabelText(/^apellidos/i)
+const campoEmail = () => screen.getByLabelText(/^correo electrónico/i)
+const campoPassword = () => screen.getByLabelText(/^contraseña/i)
+const campoEspecialidad = () => screen.getByLabelText(/^especialidad/i)
+
 /** Llena el formulario con datos válidos y lo envía. */
 async function registrarse(user: ReturnType<typeof userEvent.setup>) {
   // Sin el catálogo cargado no hay `especialidadId` y el envío se bloquea
   // antes de llamar al servicio.
   await screen.findByRole('option', { name: 'Medicina General' })
 
-  await user.type(screen.getByPlaceholderText('Juan Armando'), 'Ana María')
-  await user.type(screen.getByPlaceholderText('Guerra Guevara'), 'Ramírez López')
-  await user.type(screen.getByPlaceholderText('ejemplo@correo.com'), 'ana@ues.edu.sv')
-  await user.type(screen.getByPlaceholderText('••••••••'), 'Docrecord2026!')
+  await user.type(campoNombres(), 'Ana María')
+  await user.type(campoApellidos(), 'Ramírez López')
+  await user.type(campoEmail(), 'ana@ues.edu.sv')
+  await user.type(campoPassword(), 'Docrecord2026!')
   await user.click(screen.getByRole('button', { name: /crear cuenta/i }))
   await waitFor(() => expect(registrar).toHaveBeenCalled())
 }
@@ -174,5 +182,64 @@ describe('RegisterPage · el correo de confirmación NO salió', () => {
 
     expect(await screen.findByRole('alert')).toBeVisible()
     expect(promesaDeCorreo()).toBeNull()
+  })
+})
+
+describe('RegisterPage · nombre accesible de los campos', () => {
+  it('localiza todos los campos por su etiqueta visible', async () => {
+    montar()
+    await screen.findByRole('option', { name: 'Medicina General' })
+
+    // Sin `htmlFor`/`id` un lector de pantalla anuncia cinco «cuadros de
+    // edición» sin decir cuál es el correo y cuál la contraseña. Quien no ve
+    // la pantalla no puede darse de alta.
+    expect(campoNombres().tagName).toBe('INPUT')
+    expect(campoApellidos().tagName).toBe('INPUT')
+    expect(campoEmail()).toHaveAttribute('type', 'email')
+    expect(campoPassword()).toHaveAttribute('type', 'password')
+    expect(campoEspecialidad().tagName).toBe('SELECT')
+  })
+
+  it('enfoca el campo al hacer clic en su etiqueta', async () => {
+    const user = montar()
+    await screen.findByRole('option', { name: 'Medicina General' })
+
+    await user.click(screen.getByText(/^apellidos/i))
+
+    expect(campoApellidos()).toHaveFocus()
+  })
+
+  it('anuncia lo obligatorio de forma programática, no solo con el asterisco', async () => {
+    montar()
+    await screen.findByRole('option', { name: 'Medicina General' })
+
+    // El `*` es pintura que el lector de pantalla no transmite; quien lo dice
+    // es `required`.
+    for (const campo of [
+      campoNombres(),
+      campoApellidos(),
+      campoEmail(),
+      campoPassword(),
+      campoEspecialidad(),
+    ]) {
+      expect(campo).toBeRequired()
+    }
+  })
+
+  it('el campo que se escribe es el que viaja al backend', async () => {
+    registrar.mockResolvedValue(cuenta())
+    const user = montar()
+
+    await registrarse(user)
+
+    // La etiqueta puede existir y apuntar al control equivocado: esto ata cada
+    // nombre visible al dato que de verdad se envía.
+    expect(registrar.mock.calls[0][0]).toEqual({
+      nombres: 'Ana María',
+      apellidos: 'Ramírez López',
+      email: 'ana@ues.edu.sv',
+      password: 'Docrecord2026!',
+      especialidadId: 1,
+    })
   })
 })
