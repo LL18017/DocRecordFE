@@ -136,7 +136,10 @@ async function extraerMensajeDeError(respuesta: Response): Promise<string> {
     case 400:
       return 'Los datos enviados no son válidos.'
     case 401:
-      return 'Correo o contraseña incorrectos.'
+      // `login()` en services/auth.ts reemplaza esto por su propio mensaje
+      // ("Correo o contraseña incorrectas"); este es el genérico para el
+      // resto de endpoints, donde un 401 significa sesión inválida o vencida.
+      return 'Tu sesión no es válida o expiró. Inicia sesión de nuevo.'
     case 403:
       return 'No tiene permisos para realizar esta acción.'
     case 404:
