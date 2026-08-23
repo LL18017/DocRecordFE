@@ -14,8 +14,14 @@ interface LoginResponseDto {
   roles: { id: number | null; name: string }[]
 }
 
-/** Espejo de `UserResponseDto` del backend. */
-interface UserResponseDto {
+/**
+ * Espejo de `RegistroMedicoResponseDto` del backend.
+ *
+ * (No confundir con el `UserResponseDto` del backend, que es otro DTO —el de
+ * la gestión de usuarios— con `userName` y `RoleDto[]`. Este endpoint nunca
+ * devolvió eso.)
+ */
+export interface RegistroMedicoResponseDto {
   userId: number
   email: string
   nombres: string
@@ -23,6 +29,16 @@ interface UserResponseDto {
   /** El backend asigna el rol (MEDICO) por su cuenta; el cliente no lo envía. */
   roles: string[]
   especialidad: { especialidadId: number; nombre: string; activa: boolean }
+  /**
+   * `false` cuando la cuenta se creó pero el correo de confirmación NO salió.
+   *
+   * El envío ya no tumba el alta: si Gmail falla, el backend registra el fallo
+   * y responde 201 igual, con este campo en `false`. Es lo único que distingue
+   * «revisa tu bandeja» de «no te va a llegar nada», así que la interfaz tiene
+   * que leerlo; darlo por sentado deja a alguien esperando un correo que nunca
+   * existió, con una cuenta que no puede activar.
+   */
+  correoDeVerificacionEnviado: boolean
 }
 
 export interface RegistroPayload {
@@ -100,9 +116,14 @@ export async function login(
  *
  * El usuario queda **deshabilitado** hasta que abra el enlace de confirmación
  * que el backend envía por correo; intentar iniciar sesión antes falla.
+ *
+ * Que el alta responda 201 no garantiza que ese correo se haya enviado: eso lo
+ * dice `correoDeVerificacionEnviado` en la respuesta.
  */
-export async function registrar(payload: RegistroPayload): Promise<UserResponseDto> {
-  return apiFetch<UserResponseDto>('/auth/register', {
+export async function registrar(
+  payload: RegistroPayload,
+): Promise<RegistroMedicoResponseDto> {
+  return apiFetch<RegistroMedicoResponseDto>('/auth/register', {
     method: 'POST',
     auth: false,
     body: payload,

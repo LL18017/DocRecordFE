@@ -21,7 +21,8 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
-  const [registrado, setRegistrado] = useState(false)
+  /** `null` mientras el formulario sigue en pantalla. */
+  const [resultado, setResultado] = useState<{ correoEnviado: boolean } | null>(null)
   const [especialidades, setEspecialidades] = useState<EspecialidadDto[]>([])
   const [especialidadId, setEspecialidadId] = useState<number | null>(null)
 
@@ -39,8 +40,14 @@ export default function RegisterPage() {
       })
   }, [])
 
-  const handleRegister = async (e: React.SubmitEvent<HTMLFormElement>) => {
-    e.preventDefault()
+  /**
+   * Manda el alta al backend. Se usa tanto al enviar el formulario como al
+   * reintentar desde el aviso de «el correo no salió»: repetir el registro con
+   * el mismo correo sobrescribe la cuenta sin confirmar y genera un enlace
+   * nuevo, así que el propio formulario ES el mecanismo de reenvío. No hace
+   * falta ningún endpoint aparte.
+   */
+  const enviarRegistro = async () => {
     setError(null)
 
     if (especialidadId === null) {
@@ -50,8 +57,12 @@ export default function RegisterPage() {
 
     setEnviando(true)
     try {
-      await registrar({ nombres, apellidos, email, password, especialidadId })
-      setRegistrado(true)
+      const cuenta = await registrar({ nombres, apellidos, email, password, especialidadId })
+      // Se exige un `true` explícito. Si el campo faltara —un backend viejo,
+      // un proxy que recorta la respuesta— lo honesto es el aviso: prometer un
+      // correo que quizá no salió deja a alguien esperando indefinidamente,
+      // mientras que avisar de más solo cuesta un reintento.
+      setResultado({ correoEnviado: cuenta.correoDeVerificacionEnviado === true })
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -61,6 +72,11 @@ export default function RegisterPage() {
     } finally {
       setEnviando(false)
     }
+  }
+
+  const handleRegister = async (e: React.SubmitEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    await enviarRegistro()
   }
 
   return (
@@ -75,7 +91,7 @@ export default function RegisterPage() {
             <Icon name="back" size={16} /> Volver
           </Link>
 
-          {registrado ? (
+          {resultado?.correoEnviado ? (
             <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
               <h3 className="text-xl font-bold text-slate-800 mb-3 font-outfit">Cuenta creada</h3>
               <p className="text-sm text-slate-600 leading-relaxed mb-6">
@@ -89,6 +105,54 @@ export default function RegisterPage() {
               >
                 Ir a iniciar sesión
               </Link>
+            </div>
+          ) : resultado ? (
+            /* La cuenta existe, pero el correo no salió. Ámbar y no rojo, como
+               en /confirmar: no es un error de quien se registra ni algo que se
+               haya perdido, es un contratiempo con solución inmediata. El
+               `role="alert"` lo anuncia a un lector de pantalla —y también los
+               cambios que ocurran dentro, como el error de un reintento
+               fallido—, igual que los avisos del resto de formularios. */
+            <div
+              role="alert"
+              className="bg-white rounded-3xl p-8 shadow-xl border-2 border-amber-200"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 flex items-center justify-center mb-5">
+                <Icon name="history" size={24} color="#B45309" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800 mb-3 font-outfit">
+                Tu cuenta se creó, pero el correo no salió
+              </h3>
+              <p className="text-sm text-slate-600 leading-relaxed mb-3">
+                La cuenta de{' '}
+                <span className="font-semibold text-slate-800">{email}</span> quedó registrada. Lo
+                que falló fue el envío del mensaje de confirmación: no te va a llegar nada a la
+                bandeja, así que no lo esperes.
+              </p>
+              <p className="text-sm text-slate-600 leading-relaxed mb-6">
+                Se arregla desde aquí: al repetir el registro con este mismo correo se genera un
+                enlace de confirmación nuevo. Tus datos siguen cargados.
+              </p>
+
+              <button
+                type="button"
+                onClick={enviarRegistro}
+                disabled={enviando}
+                className="w-full py-3.5 rounded-2xl font-semibold text-white text-base bg-gradient-to-r from-doc-blue to-doc-blue-light hover:opacity-95 shadow-md shadow-doc-blue/20 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {enviando ? 'Reintentando el envío…' : 'Reintentar el envío del correo'}
+              </button>
+
+              {error && (
+                <p className="mt-4 rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
+                </p>
+              )}
+
+              <p className="text-xs text-slate-500 leading-relaxed mt-5">
+                Si vuelve a fallar, inténtalo más tarde: tu cuenta no se pierde ni se duplica por
+                reintentar.
+              </p>
             </div>
           ) : (
             <form onSubmit={handleRegister} className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
