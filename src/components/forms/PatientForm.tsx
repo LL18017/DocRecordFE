@@ -102,7 +102,7 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
     busquedaHecha &&
     expediente.trim() !== '' &&
     (personaExistente
-      ? !personaExistente.esPaciente
+      ? !personaExistente.esPaciente && (personaExistente.fechaNacimiento !== null || fechaNacimiento !== '')
       : nombres.trim() !== '' && apellidos.trim() !== '' && fechaNacimiento !== '')
 
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
@@ -119,7 +119,18 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
     setEnviando(true)
     try {
       const payload: CrearPacientePayload = personaExistente
-        ? { personaId: personaExistente.personaId, expediente, tipoSangre }
+        ? {
+            persona: {
+              personaId: personaExistente.personaId,
+              // Solo se manda lo que a esta persona le faltaba; completar
+              // nunca borra lo que ya tenía. El DUI no se reenvía: no se
+              // puede editar al reutilizar una persona ya encontrada.
+              ...(personaExistente.fechaNacimiento === null ? { fechaNacimiento } : {}),
+              ...(personaExistente.sexo === null ? { sexo } : {}),
+            },
+            expediente,
+            tipoSangre,
+          }
         : {
             persona: {
               dui: dui.trim(),
@@ -209,8 +220,6 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
               <div className="grid grid-cols-2 gap-3 text-sm bg-slate-50 rounded-xl border border-slate-100 p-3">
                 {[
                   ['Teléfono', personaExistente.telefono || '—'],
-                  ['Sexo', formatearSexo(personaExistente.sexo)],
-                  ['Fecha de nacimiento', personaExistente.fechaNacimiento || '—'],
                   ['Dirección', personaExistente.direccion || '—'],
                 ].map(([k, v]) => (
                   <div key={k}>
@@ -220,13 +229,56 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
                 ))}
               </div>
 
-              {!personaExistente.esPaciente &&
-                (personaExistente.fechaNacimiento === null || personaExistente.sexo === null) && (
-                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-2.5">
-                    A esta persona le falta fecha de nacimiento o sexo, datos que el backend exige
-                    para crear un paciente. Si el alta falla, se necesitará completarlos primero.
-                  </p>
-                )}
+              {!personaExistente.esPaciente && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">
+                      Fecha de nacimiento{personaExistente.fechaNacimiento === null && ' *'}
+                    </label>
+                    {personaExistente.fechaNacimiento !== null ? (
+                      <p className="text-sm font-medium text-slate-700 px-3.5 py-2.5">
+                        {personaExistente.fechaNacimiento}
+                      </p>
+                    ) : (
+                      <input
+                        required
+                        type="date"
+                        value={fechaNacimiento}
+                        onChange={(e) => setFechaNacimiento(e.target.value)}
+                        className="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-doc-blue bg-white"
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">
+                      Sexo{personaExistente.sexo === null && ' *'}
+                    </label>
+                    {personaExistente.sexo !== null ? (
+                      <p className="text-sm font-medium text-slate-700 px-3.5 py-2.5">
+                        {formatearSexo(personaExistente.sexo)}
+                      </p>
+                    ) : (
+                      <div className="flex gap-4 pt-2.5">
+                        {([['M', 'Masculino'], ['F', 'Femenino']] as const).map(([valor, label]) => (
+                          <label
+                            key={valor}
+                            className="flex items-center gap-2 cursor-pointer text-sm text-slate-700"
+                          >
+                            <input
+                              type="radio"
+                              name="sexo-existente"
+                              checked={sexo === valor}
+                              onChange={() => setSexo(valor)}
+                              className="text-doc-blue"
+                            />
+                            {label}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           )}
 
