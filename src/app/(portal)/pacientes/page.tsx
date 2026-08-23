@@ -8,10 +8,12 @@ import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { PatientForm } from '@/components/forms/PatientForm'
+import { EditPatientForm } from '@/components/forms/EditPatientForm'
 import { ApiError } from '@/lib/api'
 import {
   eliminarPaciente,
   listarPacientes,
+  obtenerPaciente,
   type PacienteDto,
 } from '@/services/pacientes'
 
@@ -65,6 +67,8 @@ export default function PacientesPage() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
+  const [editando, setEditando] = useState<PacienteDto | null>(null)
+  const [cargandoEdicion, setCargandoEdicion] = useState(false)
 
   // Ningún setState ocurre antes del primer await: hacerlo de forma síncrona
   // dentro del efecto provoca renders en cascada y lo prohíbe la regla
@@ -123,6 +127,31 @@ export default function PacientesPage() {
     setShowModal(false)
   }
 
+  // Se pide el paciente fresco al API en vez de reusar la fila de la tabla
+  // (que ya viene adaptada al tipo Patient y perdió campos como sexo/dui
+  // crudos): así el formulario de edición parte siempre de datos vigentes.
+  const handleAbrirEdicion = async (personaId: string) => {
+    setCargandoEdicion(true)
+    setError(null)
+    try {
+      const paciente = await obtenerPaciente(Number(personaId))
+      setEditando(paciente)
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'No se pudo cargar el paciente para editar.',
+      )
+    } finally {
+      setCargandoEdicion(false)
+    }
+  }
+
+  const handlePacienteActualizado = (paciente: PacienteDto) => {
+    setPatientsList((prev) =>
+      prev.map((p) => (p.id === String(paciente.personaId) ? pacienteDtoAPatient(paciente) : p)),
+    )
+    setEditando(null)
+  }
+
   const columns: Column<Patient>[] = [
     {
       header: 'Nombre',
@@ -176,6 +205,14 @@ export default function PacientesPage() {
           >
             <Icon name="eye" size={14} />
           </Link>
+          <button
+            onClick={() => handleAbrirEdicion(p.id)}
+            disabled={cargandoEdicion}
+            className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            title="Editar paciente"
+          >
+            <Icon name="edit" size={14} />
+          </button>
           <button
             onClick={() => handleDelete(p.id)}
             className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors cursor-pointer"
@@ -257,6 +294,24 @@ export default function PacientesPage() {
           onCreated={handlePacienteCreado}
           onCancel={() => setShowModal(false)}
         />
+      </Modal>
+
+      {/* Editar paciente existente */}
+      <Modal
+        isOpen={editando !== null}
+        onClose={() => setEditando(null)}
+        title="Editar Paciente"
+        subtitle="Actualizar datos clínicos"
+        icon="edit"
+        maxWidth="xl"
+      >
+        {editando && (
+          <EditPatientForm
+            paciente={editando}
+            onUpdated={handlePacienteActualizado}
+            onCancel={() => setEditando(null)}
+          />
+        )}
       </Modal>
     </div>
   )
