@@ -29,7 +29,9 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
   const [direccion, setDireccion] = useState(original.direccion ?? '')
   const [fechaNacimiento, setFechaNacimiento] = useState(original.fechaNacimiento ?? '')
   const [sexo, setSexo] = useState<'M' | 'F'>(original.sexo ?? 'M')
-  const [tipoSangre, setTipoSangre] = useState(paciente.tipoSangre)
+  // '' representa "sin registrar" (tipoSangre puede venir null del backend);
+  // nunca se manda como cambio real, solo una selección de verdad cuenta.
+  const [tipoSangre, setTipoSangre] = useState(paciente.tipoSangre ?? '')
 
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -48,7 +50,7 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
 
     const payload: ActualizarPacientePayload = {}
     if (Object.keys(persona).length > 0) payload.persona = persona
-    if (tipoSangre !== paciente.tipoSangre) payload.tipoSangre = tipoSangre
+    if (tipoSangre && tipoSangre !== (paciente.tipoSangre ?? '')) payload.tipoSangre = tipoSangre
     return payload
   }, [nombres, apellidos, telefono, direccion, fechaNacimiento, sexo, tipoSangre, original, paciente.tipoSangre])
 
@@ -77,7 +79,7 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-semibold text-slate-500 mb-1">Identificación (DUI)</label>
-          <div className={readOnlyClass}>{original.dui}</div>
+          <div className={readOnlyClass}>{original.dui || 'Sin DUI (menor de edad)'}</div>
         </div>
         <div>
           <label className="block text-xs font-semibold text-slate-500 mb-1">Número de expediente</label>
@@ -159,6 +161,7 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
             onChange={(e) => setTipoSangre(e.target.value)}
             className={inputClass}
           >
+            <option value="">Sin registrar</option>
             {['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'].map((b) => (
               <option key={b} value={b}>{b}</option>
             ))}

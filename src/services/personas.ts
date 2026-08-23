@@ -14,7 +14,8 @@ import { ApiError, apiFetch } from '@/lib/api'
  */
 export interface PersonaDto {
   personaId: number
-  dui: string
+  /** Puede ser null: los menores de edad no tienen DUI. */
+  dui: string | null
   nombres: string
   apellidos: string
   fechaNacimiento: string | null

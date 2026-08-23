@@ -39,10 +39,11 @@ export function pacienteDtoAPatient(p: PacienteDto): Patient {
     sex: p.persona.sexo === 'F' ? 'Femenino' : 'Masculino',
     consultations: 0,
     status: 'Activo',
-    blood: p.tipoSangre,
+    blood: p.tipoSangre || '—',
     email: '',
     address: p.persona.direccion || '—',
     born: p.persona.fechaNacimiento ? formatearFecha(p.persona.fechaNacimiento) : '—',
-    id_num: p.persona.dui,
+    // dui puede ser null: los menores de edad no tienen DUI.
+    id_num: p.persona.dui || '—',
   }
 }

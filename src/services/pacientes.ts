@@ -45,7 +45,8 @@ export interface CrearPacientePayload {
 export interface PacienteDto {
   personaId: number
   expediente: string
-  tipoSangre: string
+  /** La columna admite NULL en el backend; el DTO no lo exige. */
+  tipoSangre: string | null
   creadoEn: string
   persona: Omit<PersonaDto, 'esMedico' | 'esEnfermera' | 'esPaciente'>
 }
