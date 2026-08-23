@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React, { useId, useMemo, useState } from 'react'
 import { ApiError } from '@/lib/api'
 import {
   actualizarPaciente,
@@ -15,12 +15,25 @@ interface EditPatientFormProps {
   onCancel: () => void
 }
 
+// `focus-visible:ring-*` acompaña al `focus:outline-none`: quitar el contorno
+// del navegador sin reponer nada deja a quien navega con teclado sin saber
+// dónde está parado.
 const inputClass =
-  'w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-doc-blue bg-white'
+  'w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-doc-blue focus-visible:ring-2 focus-visible:ring-doc-blue/40 bg-white'
 const readOnlyClass =
   'w-full border-2 border-dashed border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-400 bg-slate-50'
+const labelClass = 'block text-xs font-semibold text-slate-500 mb-1'
+
+/** El asterisco es decoración: lo obligatorio ya lo dice el atributo `required`. */
+const Obligatorio = () => <span aria-hidden="true"> *</span>
 
 export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUpdated, onCancel }) => {
+  // Un prefijo por instancia: dos formularios montados a la vez (o este junto
+  // al de alta) no deben compartir ids, o la etiqueta del segundo apuntaría al
+  // campo del primero.
+  const uid = useId()
+  const id = (nombre: string) => `${uid}-${nombre}`
+
   const original = paciente.persona
 
   const [nombres, setNombres] = useState(original.nombres)
@@ -78,27 +91,33 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Identificación (DUI)</label>
+          <span className={labelClass}>Identificación (DUI)</span>
           <div className={readOnlyClass}>{original.dui || 'Sin DUI (menor de edad)'}</div>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Número de expediente</label>
+          <span className={labelClass}>Número de expediente</span>
           <div className={readOnlyClass}>{paciente.expediente}</div>
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Nombres *</label>
+          <label htmlFor={id('nombres')} className={labelClass}>
+            Nombres<Obligatorio />
+          </label>
           <input
             required
+            id={id('nombres')}
             value={nombres}
             onChange={(e) => setNombres(e.target.value)}
             className={inputClass}
           />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Apellidos *</label>
+          <label htmlFor={id('apellidos')} className={labelClass}>
+            Apellidos<Obligatorio />
+          </label>
           <input
             required
+            id={id('apellidos')}
             value={apellidos}
             onChange={(e) => setApellidos(e.target.value)}
             className={inputClass}
@@ -106,8 +125,11 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Teléfono</label>
+          <label htmlFor={id('telefono')} className={labelClass}>
+            Teléfono
+          </label>
           <input
+            id={id('telefono')}
             value={telefono}
             onChange={(e) => setTelefono(e.target.value)}
             placeholder="7000-0000"
@@ -115,10 +137,13 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
           />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Fecha de nacimiento *</label>
+          <label htmlFor={id('fecha-nacimiento')} className={labelClass}>
+            Fecha de nacimiento<Obligatorio />
+          </label>
           <input
             required
             type="date"
+            id={id('fecha-nacimiento')}
             value={fechaNacimiento}
             onChange={(e) => setFechaNacimiento(e.target.value)}
             className={inputClass}
@@ -126,8 +151,11 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
         </div>
 
         <div className="col-span-2">
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Dirección de residencia</label>
+          <label htmlFor={id('direccion')} className={labelClass}>
+            Dirección de residencia
+          </label>
           <input
+            id={id('direccion')}
             value={direccion}
             onChange={(e) => setDireccion(e.target.value)}
             placeholder="San Salvador, El Salvador"
@@ -136,15 +164,18 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
         </div>
 
         <div>
-          <label className="text-xs font-semibold text-slate-500 mb-1.5 block uppercase tracking-wider">
+          <span
+            id={id('sexo-label')}
+            className="text-xs font-semibold text-slate-500 mb-1.5 block uppercase tracking-wider"
+          >
             Sexo
-          </label>
-          <div className="flex gap-4 pt-1.5">
+          </span>
+          <div role="radiogroup" aria-labelledby={id('sexo-label')} className="flex gap-4 pt-1.5">
             {([['M', 'Masculino'], ['F', 'Femenino']] as const).map(([valor, label]) => (
               <label key={valor} className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
                 <input
                   type="radio"
-                  name="sexo-editar"
+                  name={id('sexo')}
                   checked={sexo === valor}
                   onChange={() => setSexo(valor)}
                   className="text-doc-blue"
@@ -155,8 +186,11 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
           </div>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Tipo Sanguíneo</label>
+          <label htmlFor={id('tipo-sangre')} className={labelClass}>
+            Tipo Sanguíneo
+          </label>
           <select
+            id={id('tipo-sangre')}
             value={tipoSangre}
             onChange={(e) => setTipoSangre(e.target.value)}
             className={inputClass}
