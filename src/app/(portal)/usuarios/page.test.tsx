@@ -120,6 +120,50 @@ describe('con rol Administrador', () => {
     expect(screen.getByText(/sin rol asignado/i)).toBeVisible()
   })
 
+  it('no se cae por un rol sin nombre, y lo señala en vez de esconderlo', async () => {
+    // `RoleDto` llega con los dos campos anulables y ninguno es teórico:
+    // `id` sale de `RolesEnum.getIdByName`, que devuelve null para cualquier
+    // nombre fuera del enum, y `name` es `role.name VARCHAR(255)` sin NOT
+    // NULL. Con el tipo mintiendo, `nombre.toUpperCase()` tumbaba la pantalla
+    // entera de Usuarios y Roles por una sola fila mal cargada del catálogo.
+    listarUsuarios.mockResolvedValue([
+      {
+        userId: 900,
+        email: 'catalogo.roto@docrecord.sv',
+        userName: 'Cuenta Con Rol Roto',
+        roles: [{ id: null, name: null }],
+      },
+    ])
+
+    montar()
+
+    expect(await screen.findByText('Cuenta Con Rol Roto')).toBeVisible()
+    // Tiene un rol asignado: decir «Sin rol asignado» sería falso, y dejar la
+    // celda en blanco esconde justo lo que hay que ir a arreglar.
+    expect(screen.getByText(/rol sin nombre/i)).toBeVisible()
+    expect(screen.queryByText(/sin rol asignado/i)).toBeNull()
+  })
+
+  it('busca sin reventar con un rol sin nombre en la lista', async () => {
+    listarUsuarios.mockResolvedValue([
+      {
+        userId: 900,
+        email: 'catalogo.roto@docrecord.sv',
+        userName: 'Cuenta Con Rol Roto',
+        roles: [{ id: null, name: null }],
+      },
+      DEL_API[0],
+    ])
+    const user = montar()
+    await screen.findByText('Cuenta Con Rol Roto')
+
+    // La caja de búsqueda mira también los roles: es donde el nulo revienta.
+    await user.type(screen.getByPlaceholderText(/buscar por nombre/i), 'administrador')
+
+    expect(await screen.findByText('Naun Enrique Flores Menjivar')).toBeVisible()
+    expect(screen.queryByText('Cuenta Con Rol Roto')).toBeNull()
+  })
+
   it('dice que no hay usuarios cuando el API devuelve una lista vacía', async () => {
     listarUsuarios.mockResolvedValue([])
 

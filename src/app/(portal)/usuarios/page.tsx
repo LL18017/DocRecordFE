@@ -43,18 +43,34 @@ const ETIQUETAS_DE_ROL: Record<string, string> = {
 }
 
 /**
+ * Lo que se muestra cuando la fila de `role` no tiene nombre.
+ *
+ * `role.name` admite NULL en la base, así que el rol puede llegar sin nombre.
+ * No se pinta el guion de los datos opcionales: aquí no falta un dato de
+ * relleno, hay un rol ASIGNADO que nadie puede leer, y quien administra
+ * permisos tiene que notarlo para ir a arreglarlo.
+ */
+const ROL_SIN_NOMBRE = 'Rol sin nombre'
+
+/**
  * `GET /user/all` devuelve los roles sin prefijo ('MEDICO') mientras que el
  * login los manda con él ('ROLE_MEDICO'). Se normaliza igual que en
  * `mapearRol`: primero a mayúsculas y después quitar el prefijo, para no
  * depender del case. Un rol que no esté en la tabla se muestra tal cual en vez
  * de desaparecer.
+ *
+ * `nombre` es anulable porque la columna lo es (ver `RolDto`): sin esta
+ * guarda, `nombre.toUpperCase()` tumba la pantalla entera de Usuarios y Roles
+ * por una sola fila mal cargada del catálogo.
  */
-function etiquetaDeRol(nombre: string): string {
+function etiquetaDeRol(nombre: string | null): string {
+  if (!nombre) return ROL_SIN_NOMBRE
   const clave = nombre.toUpperCase().replace(/^ROLE_/, '')
   return ETIQUETAS_DE_ROL[clave] ?? nombre
 }
 
-function colorDeRol(nombre: string): string {
+function colorDeRol(nombre: string | null): string {
+  if (!nombre) return 'gray'
   const clave = nombre.toUpperCase().replace(/^ROLE_/, '')
   if (clave === 'ADMIN') return 'purple'
   if (clave === 'ENFERMERA') return 'green'
@@ -188,8 +204,11 @@ export default function UsuariosPage() {
           <span className="text-xs text-slate-400 italic">Sin rol asignado</span>
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            {u.roles.map((rol) => (
-              <Badge key={rol.id ?? rol.name} color={colorDeRol(rol.name)}>
+            {/* `id` y `name` pueden venir los dos null (ver `RolDto`), así que
+                la clave cae al índice antes que a `null`, que React trata como
+                «sin clave» y avisa por consola. */}
+            {u.roles.map((rol, i) => (
+              <Badge key={rol.id ?? rol.name ?? i} color={colorDeRol(rol.name)}>
                 {etiquetaDeRol(rol.name)}
               </Badge>
             ))}

@@ -36,10 +36,29 @@
 
 import { apiFetch } from '@/lib/api'
 
-/** Espejo de `RoleDto` del backend. */
+/**
+ * Espejo de `RoleDto` del backend. Los DOS campos son anulables, y ninguno de
+ * los dos nulos es teórico:
+ *
+ * · `id` no sale de la base sino de `RolesEnum.getIdByName(role.getName())`,
+ *   que devuelve `null` —lo dice su propio `return null; // o lanzar
+ *   excepción`— para cualquier nombre que no sea ADMIN, MEDICO, ENFERMERA o
+ *   PACIENTE. La tabla `role` es texto libre sin migración que la siembre, así
+ *   que basta una fila 'RECEPCION' para que el id llegue null. La pantalla ya
+ *   escribía `rol.id ?? rol.name` como clave de React: la guarda estaba, el
+ *   tipo decía que sobraba.
+ *
+ * · `name` es la columna `role.name VARCHAR(255)` de V1__esquema_inicial.sql,
+ *   sin NOT NULL. Con un nombre null el backend no revienta —`getIdByName`
+ *   compara desde el enum y `"ROLE_"+null` concatena— así que el null llega
+ *   entero al cliente, donde `nombre.toUpperCase()` sí revienta.
+ *
+ * Es el mismo patrón de `PersonaDto.dui` y `ConsultaDto.motivo`: un tipo que
+ * promete lo que el backend no garantiza compila en verde con el fallo dentro.
+ */
 export interface RolDto {
-  id: number
-  name: string
+  id: number | null
+  name: string | null
 }
 
 /**
