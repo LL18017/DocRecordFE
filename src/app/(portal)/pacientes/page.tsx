@@ -92,8 +92,8 @@ export default function PacientesPage() {
   // render. Es el caso que la regla no puede modelar —cargar datos remotos al
   // montar— y que la propia documentación de React admite mientras no haya una
   // capa de datos del framework. Se desactiva de forma acotada, no global.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ver comentario arriba
     void cargarPacientes()
   }, [cargarPacientes])
 
