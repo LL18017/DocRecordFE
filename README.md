@@ -1,3 +1,5 @@
+[![CI](https://github.com/LL18017/DocRecordFE/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/LL18017/DocRecordFE/actions/workflows/ci.yml)
+
 This is a [Next.js](https://nextjs.org) project
 
 ## Getting Started
