@@ -1,0 +1,67 @@
+# Integración continua del frontend: compilar, tipar, lint y pruebas.
+# No hace despliegue ni construye imágenes: eso queda para una fase futura.
+name: CI
+
+on:
+  push:
+    branches:
+      - dev-naun
+      - dev
+  pull_request:
+    branches:
+      - dev
+
+# Permisos mínimos: el workflow solo necesita leer el código.
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    name: Verificar (TZ=${{ matrix.tz }})
+    runs-on: ubuntu-latest
+    strategy:
+      # No cancelar la otra corrida si una falla: interesa ver si el fallo
+      # depende del huso horario o es real en ambos casos.
+      fail-fast: false
+      matrix:
+        tz:
+          # America/El_Salvador replica el comportamiento de producción (el
+          # equipo ya tuvo un fallo real por una prueba que asumía UTC sin
+          # darse cuenta). UTC se corre aparte para atacar ese tipo de fallo
+          # de raiz en vez de solo esconderlo fijando siempre el mismo huso.
+          - America/El_Salvador
+          - UTC
+    env:
+      TZ: ${{ matrix.tz }}
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v4
+
+      # pnpm debe instalarse antes de setup-node para que este pueda usar
+      # `pnpm store path` al configurar la cache.
+      - name: Instalar pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # Version exacta tomada de "packageManager" en package.json.
+          version: 11.21.0
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Pruebas unitarias (Vitest)
+        run: pnpm test --run
+
+      - name: Verificacion de tipos (TypeScript)
+        run: pnpm exec tsc --noEmit
+
+      - name: Analisis estatico (ESLint)
+        run: pnpm exec eslint .
+
+      - name: Build de produccion (Next.js)
+        run: pnpm build
