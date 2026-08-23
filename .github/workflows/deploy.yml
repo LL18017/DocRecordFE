@@ -1,0 +1,84 @@
+# Despliegue del frontend. Se dispara a mano (nunca en cada push): construir
+# y publicar una imagen todavia no es algo que deba pasar en cada commit.
+#
+# Estado actual: INERTE A PROPOSITO. No existe todavia el VPS/servicio de
+# hosting ni las credenciales para llegar a el, asi que este workflow valida
+# que la configuracion exista y se detiene ahi. El paso de despliegue real
+# queda como placeholder comentado hasta que esa infraestructura exista.
+name: Despliegue
+
+on:
+  workflow_dispatch:
+
+# Permisos minimos: este workflow todavia no publica nada (ni imagen ni
+# artefactos), solo valida configuracion.
+permissions:
+  contents: read
+
+jobs:
+  desplegar:
+    name: Desplegar a produccion
+    runs-on: ubuntu-latest
+    # GitHub Environment "production": el usuario debe crearlo en
+    # Settings > Environments y configurarle proteccion/aprobacion manual.
+    # Este workflow solo lo referencia por nombre; no lo crea.
+    environment: production
+    steps:
+      # Paso inicial, antes de cualquier otra cosa: falla aqui, con un
+      # mensaje humano, en vez de fallar a mitad de un `ssh` o `docker build`
+      # con un error criptico por una variable vacia.
+      - name: Validar que exista la configuracion de despliegue
+        run: |
+          faltan=0
+
+          # --- Secrets reales (credenciales), van en secrets.* ---
+          if [ -z "${{ secrets.SSH_HOST }}" ]; then
+            echo "Falta crear el secret SSH_HOST en el entorno 'production' (Settings > Environments > production > Environment secrets). Debe ser el host o IP del VPS de destino."
+            faltan=1
+          fi
+          if [ -z "${{ secrets.SSH_USER }}" ]; then
+            echo "Falta crear el secret SSH_USER en el entorno 'production' (Settings > Environments > production > Environment secrets). Debe ser el usuario SSH con permiso para desplegar en el VPS."
+            faltan=1
+          fi
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "Falta crear el secret SSH_PRIVATE_KEY en el entorno 'production' (Settings > Environments > production > Environment secrets). Debe ser la llave privada SSH (formato PEM) para autenticar contra el VPS."
+            faltan=1
+          fi
+
+          # --- Variables publicas (no sensibles), van en vars.* ---
+          if [ -z "${{ vars.NEXT_PUBLIC_API_URL }}" ]; then
+            echo "Falta crear la variable NEXT_PUBLIC_API_URL en el entorno 'production' (Settings > Environments > production > Environment variables). Debe ser la URL publica de la API de DocRecordBE en produccion (se usa como --build-arg NEXT_PUBLIC_API_URL en el build de la imagen; NEXT_PUBLIC_* se hornea en el bundle en build-time, por eso hace falta aqui)."
+            faltan=1
+          fi
+
+          if [ "$faltan" = "1" ]; then
+            echo ""
+            echo "Faltan uno o mas secrets/variables de despliegue. Configuralos en el GitHub Environment 'production' de este repositorio antes de volver a correr este workflow."
+            exit 1
+          fi
+
+          echo "Configuracion de despliegue valida."
+
+      - name: Descargar codigo
+        uses: actions/checkout@v4
+
+      - name: Construir imagen Docker
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_API_URL="${{ vars.NEXT_PUBLIC_API_URL }}" \
+            -t docrecordfe:${{ github.sha }} \
+            .
+
+      # Placeholder: aqui va el despliegue real, una vez exista el VPS o
+      # servicio de hosting. Por ejemplo:
+      #   - Guardar la imagen (`docker save`) y copiarla al VPS por scp/rsync,
+      #     o subirla a un registro (GHCR, Docker Hub) y hacer `docker pull`
+      #     desde el VPS.
+      #   - Conectarse por SSH (usando SSH_HOST, SSH_USER, SSH_PRIVATE_KEY) y
+      #     reiniciar el contenedor/servicio con la imagen nueva.
+      #   - O, si se despliega a un PaaS en vez de un VPS propio, usar la
+      #     accion oficial de ese proveedor con sus credenciales.
+      - name: Desplegar (pendiente de infraestructura)
+        run: |
+          echo "Placeholder: aqui iria el despliegue real (rsync/scp de la imagen + restart del servicio via SSH, o push a un registro y pull desde el VPS)."
+          echo "Todavia no existe el VPS/servicio de hosting ni la infraestructura de destino, asi que no se implementa el despliegue real."
