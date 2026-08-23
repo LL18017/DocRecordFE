@@ -35,23 +35,20 @@ describe('mapearRol · prefijo ROLE_ del backend', () => {
   })
 
   /**
-   * DEFECTO CONOCIDO (no corregido a propósito, ver informe).
-   *
-   * `r.name.replace(/^ROLE_/, '').toUpperCase()` normaliza en el orden
-   * equivocado: quita el prefijo ANTES de subir a mayúsculas, y `/^ROLE_/` no
-   * lleva la bandera `i`. Con `role_admin` el prefijo no se quita, queda
-   * 'ROLE_ADMIN' y la comparación es contra el arreglo completo (`includes`
-   * de arreglo, no de texto), así que no coincide con 'ADMIN'.
-   *
-   * Consecuencia: un administrador se convierte en 'medico' en silencio —
-   * sin error, sin aviso, solo un menú incompleto. Basta con que el backend
-   * cambie el `case` de sus authorities.
-   *
-   * Arreglo: `.toUpperCase().replace(/^ROLE_/, '')` (invertir el orden).
+   * Regresión corregida: `r.name.replace(/^ROLE_/, '').toUpperCase()`
+   * normalizaba en el orden equivocado —quitaba el prefijo ANTES de subir a
+   * mayúsculas, y `/^ROLE_/` no lleva la bandera `i`—, así que con
+   * 'role_admin' el prefijo se quedaba puesto, quedaba 'ROLE_ADMIN' y no
+   * coincidía con 'ADMIN'. Un administrador se convertía en 'medico' en
+   * silencio: sin error, sin aviso, solo un menú incompleto, con que el
+   * backend cambiara el case de sus authorities.
    */
-  it.fails('DEFECTO: el prefijo ROLE_ solo se reconoce en mayúsculas', () => {
+  it('reconoce el prefijo ROLE_ venga en el case que venga', () => {
     expect(mapearRol(roles('role_admin'))).toBe('Administrador')
     expect(mapearRol(roles('rOlE_eNfErMeRa'))).toBe('enfermera')
+    expect(mapearRol(roles('Role_Doctor'))).toBe('medico')
+    // Y no se traga un prefijo que no lo es: 'ROLES_ADMIN' no es 'ADMIN'.
+    expect(mapearRol(roles('ROLES_ADMIN'))).toBe('medico')
   })
 
   it('cae al rol por defecto ante un rol desconocido', () => {

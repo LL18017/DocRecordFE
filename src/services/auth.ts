@@ -46,7 +46,12 @@ export function mapearRol(
   roles: { name: string }[],
   porDefecto: Role = 'medico',
 ): Role {
-  const nombres = roles.map(r => r.name.replace(/^ROLE_/, '').toUpperCase())
+  // El orden importa: primero a mayúsculas y después quitar el prefijo. Al
+  // revés, `/^ROLE_/` (sin bandera `i`) no reconocía 'role_admin', quedaba
+  // 'ROLE_ADMIN' y no coincidía con ningún rol conocido, así que un
+  // administrador caía al rol por defecto en silencio —sin error, solo un
+  // menú incompleto— con que el backend cambiara el case de sus authorities.
+  const nombres = roles.map(r => r.name.toUpperCase().replace(/^ROLE_/, ''))
   if (nombres.includes('ADMIN')) return 'Administrador'
   if (nombres.includes('ENFERMERA')) return 'enfermera'
   if (nombres.includes('MEDICO') || nombres.includes('DOCTOR')) return 'medico'
