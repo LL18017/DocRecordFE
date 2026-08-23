@@ -1,10 +1,11 @@
 'use client'
 
-import React from 'react'
+import React, { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { Icon } from '@/components/ui/Icon'
 import { IconName } from '@/types'
+import { registrar } from '@/services/auth'
+import { ApiError } from '@/lib/api'
 
 const specialties = [
   'Medicina General',
@@ -21,12 +22,43 @@ const features: { icon: IconName; text: string }[] = [
   { icon: 'vitals', text: 'Signos vitales en tiempo real' },
   { icon: 'map', text: 'Geolocalización de clínicas' },
 ]
-export default function RegisterPage() {
-  const router = useRouter()
 
-  const handleRegister = (e: React.SubmitEvent<HTMLFormElement>) => {
+/** `user_type` en el backend: 1=DOCTOR. Esta pantalla solo registra médicos. */
+const USER_TYPE_MEDICO = 1
+
+export default function RegisterPage() {
+  const [nombre, setNombre] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState(false)
+  const [registrado, setRegistrado] = useState(false)
+
+  const handleRegister = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
-    router.push('/login')
+    setError(null)
+    setEnviando(true)
+
+    try {
+      // Sin rol MEDICO propio todavía en la tabla `role` (ver mapearRol en
+      // services/auth.ts), así que se registra sin roles adicionales.
+      await registrar({
+        email,
+        userName: nombre,
+        password,
+        roles: [],
+        userType: USER_TYPE_MEDICO,
+      })
+      setRegistrado(true)
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'Ocurrió un error inesperado al crear la cuenta.',
+      )
+    } finally {
+      setEnviando(false)
+    }
   }
 
   return (
@@ -41,54 +73,105 @@ export default function RegisterPage() {
             <Icon name="back" size={16} /> Volver
           </Link>
 
-          <form onSubmit={handleRegister} className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
-            <h3 className="text-xl font-bold text-slate-800 mb-6 font-outfit">Datos del médico</h3>
-            <div className="space-y-4">
-              {[
-                { label: 'Nombre completo', placeholder: 'Juan Armando Guerra Guevara', type: 'text' },
-                { label: 'Correo electrónico', placeholder: 'ejemplo@correo.com', type: 'email' },
-                { label: 'Contraseña', placeholder: '••••••••', type: 'password' },
-              ].map(({ label, placeholder, type }) => (
-                <div key={label}>
+          {registrado ? (
+            <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
+              <h3 className="text-xl font-bold text-slate-800 mb-3 font-outfit">Cuenta creada</h3>
+              <p className="text-sm text-slate-600 leading-relaxed mb-6">
+                Revisa tu correo <span className="font-semibold text-slate-800">{email}</span> para
+                activar tu cuenta. No podrás iniciar sesión hasta que confirmes el enlace que te
+                enviamos.
+              </p>
+              <Link
+                href="/login"
+                className="inline-flex w-full items-center justify-center py-3.5 rounded-2xl font-semibold text-white text-base bg-gradient-to-r from-doc-blue to-doc-blue-light hover:opacity-95 shadow-md shadow-doc-blue/20 transition-all cursor-pointer"
+              >
+                Ir a iniciar sesión
+              </Link>
+            </div>
+          ) : (
+            <form onSubmit={handleRegister} className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
+              <h3 className="text-xl font-bold text-slate-800 mb-6 font-outfit">Datos del médico</h3>
+              <div className="space-y-4">
+                <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-                    {label} *
+                    Nombre completo *
                   </label>
                   <input
                     required
-                    type={type}
-                    placeholder={placeholder}
+                    type="text"
+                    value={nombre}
+                    onChange={(e) => setNombre(e.target.value)}
+                    placeholder="Juan Armando Guerra Guevara"
                     className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
                   />
                 </div>
-              ))}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+                    Correo electrónico *
+                  </label>
+                  <input
+                    required
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="ejemplo@correo.com"
+                    autoComplete="email"
+                    className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+                    Contraseña *
+                  </label>
+                  <input
+                    required
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                    className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-                  Especialidad
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+                    Especialidad
+                  </label>
+                  <select className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white">
+                    {specialties.map((s) => (
+                      <option key={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <label className="flex items-start gap-2 cursor-pointer pt-1">
+                  <input type="checkbox" className="mt-0.5 rounded text-doc-blue" defaultChecked />
+                  <span className="text-xs text-slate-500">
+                    He leído y acepto las{' '}
+                    <span className="font-semibold text-doc-blue">Políticas de Privacidad</span>
+                  </span>
                 </label>
-                <select className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white">
-                  {specialties.map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
-                </select>
               </div>
 
-              <label className="flex items-start gap-2 cursor-pointer pt-1">
-                <input type="checkbox" className="mt-0.5 rounded text-doc-blue" defaultChecked />
-                <span className="text-xs text-slate-500">
-                  He leído y acepto las{' '}
-                  <span className="font-semibold text-doc-blue">Políticas de Privacidad</span>
-                </span>
-              </label>
-            </div>
+              {error && (
+                <p
+                  role="alert"
+                  className="mt-4 rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
+                >
+                  {error}
+                </p>
+              )}
 
-            <button
-              type="submit"
-              className="w-full py-3.5 rounded-2xl font-semibold text-white text-base mt-6 bg-gradient-to-r from-doc-blue to-doc-blue-light hover:opacity-95 shadow-md shadow-doc-blue/20 transition-all cursor-pointer"
-            >
-              Crear cuenta
-            </button>
-          </form>
+              <button
+                type="submit"
+                disabled={enviando}
+                className="w-full py-3.5 rounded-2xl font-semibold text-white text-base mt-6 bg-gradient-to-r from-doc-blue to-doc-blue-light hover:opacity-95 shadow-md shadow-doc-blue/20 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {enviando ? 'Creando cuenta…' : 'Crear cuenta'}
+              </button>
+            </form>
+          )}
         </div>
       </div>
 
