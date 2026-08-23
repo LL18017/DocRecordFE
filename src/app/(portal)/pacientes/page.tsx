@@ -16,7 +16,9 @@ import {
   obtenerPaciente,
   type PacienteDto,
 } from '@/services/pacientes'
+import { listarConsultas } from '@/services/consultas'
 import { pacienteDtoAPatient } from '@/lib/pacienteAdapter'
+import { contarConsultasPorPaciente } from '@/lib/resumenPanel'
 
 export default function PacientesPage() {
   // La lista sale de GET /pacientes. Antes se sembraba con los datos de la
@@ -33,20 +35,50 @@ export default function PacientesPage() {
   // dentro del efecto provoca renders en cascada y lo prohíbe la regla
   // react-hooks/set-state-in-effect. `cargando` ya arranca en true, así que la
   // carga inicial no necesita anunciarse.
+  //
+  // La columna «Consultas» necesita un segundo dato que `GET /pacientes` no
+  // trae. Se resuelve con UNA sola petición más —`GET /consultas` sin filtro
+  // devuelve todas— y no con una por paciente: el N+1 crecería con el padrón y
+  // un fallo parcial de esa ráfaga daría conteos bajos presentados como
+  // ciertos. Van con `allSettled` porque son independientes: si el conteo
+  // falla, la lista se sigue viendo y la columna muestra el hueco en vez de un
+  // cero que afirmaría que nadie ha venido nunca.
   const cargarPacientes = useCallback(async () => {
-    try {
-      const pacientes = await listarPacientes()
-      setPatientsList(pacientes.map(pacienteDtoAPatient))
-      setError(null)
-    } catch (err) {
+    const [resPacientes, resConsultas] = await Promise.allSettled([
+      listarPacientes(),
+      listarConsultas(),
+    ])
+
+    if (resPacientes.status === 'rejected') {
       setError(
-        err instanceof ApiError
-          ? err.message
+        resPacientes.reason instanceof ApiError
+          ? resPacientes.reason.message
           : 'No se pudo cargar la lista de pacientes.',
       )
-    } finally {
       setCargando(false)
+      return
     }
+
+    // `null` = no se sabe; un mapa cargado sin la clave = cero consultas de
+    // verdad. La distinción es toda la diferencia entre el hueco y la mentira.
+    const conteo =
+      resConsultas.status === 'fulfilled'
+        ? contarConsultasPorPaciente(resConsultas.value)
+        : null
+
+    setPatientsList(
+      resPacientes.value.map((p) => ({
+        ...pacienteDtoAPatient(p),
+        consultations: conteo === null ? null : (conteo.get(p.personaId) ?? 0),
+      })),
+    )
+
+    setError(
+      resConsultas.status === 'rejected'
+        ? describirFalloDeConteo(resConsultas.reason)
+        : null,
+    )
+    setCargando(false)
   }, [])
 
   // La regla react-hooks/set-state-in-effect rastrea dentro de la función
@@ -82,7 +114,9 @@ export default function PacientesPage() {
   }
 
   const handlePacienteCreado = (paciente: PacienteDto) => {
-    setPatientsList((prev) => [pacienteDtoAPatient(paciente), ...prev])
+    // Aquí el 0 sí es un dato y no un relleno: el backend acaba de crear al
+    // paciente, así que todavía no puede tener ninguna consulta.
+    setPatientsList((prev) => [{ ...pacienteDtoAPatient(paciente), consultations: 0 }, ...prev])
     setShowModal(false)
   }
 
@@ -105,8 +139,15 @@ export default function PacientesPage() {
   }
 
   const handlePacienteActualizado = (paciente: PacienteDto) => {
+    // Se conserva el conteo que ya tenía la fila: editar los datos personales
+    // no cambia cuántas consultas tiene, y volver a adaptar el DTO lo dejaría
+    // en `null` —un hueco donde sí se sabía el número—.
     setPatientsList((prev) =>
-      prev.map((p) => (p.id === String(paciente.personaId) ? pacienteDtoAPatient(paciente) : p)),
+      prev.map((p) =>
+        p.id === String(paciente.personaId)
+          ? { ...pacienteDtoAPatient(paciente), consultations: p.consultations }
+          : p,
+      ),
     )
     setEditando(null)
   }
@@ -139,15 +180,26 @@ export default function PacientesPage() {
     },
     {
       header: 'Consultas',
-      cell: (p) => (
-        <span
-          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-2xs ${
-            p.consultations > 0 ? 'bg-doc-blue' : 'bg-slate-400'
-          }`}
-        >
-          {p.consultations}
-        </span>
-      ),
+      // El número sale de `GET /consultas`; cuando esa petición falla se pinta
+      // un guion y NO un cero. Un cero aquí se lee como «este paciente nunca
+      // ha venido», que es una afirmación clínica: no se hace sin saberlo.
+      cell: (p) =>
+        p.consultations === null ? (
+          <span
+            className="text-slate-400"
+            title="No se pudo consultar cuántas consultas tiene este paciente."
+          >
+            —
+          </span>
+        ) : (
+          <span
+            className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-2xs ${
+              p.consultations > 0 ? 'bg-doc-blue' : 'bg-slate-400'
+            }`}
+          >
+            {p.consultations}
+          </span>
+        ),
     },
     {
       header: 'Estado',
@@ -274,4 +326,18 @@ export default function PacientesPage() {
       </Modal>
     </div>
   )
+}
+
+/**
+ * Qué se le dice al usuario cuando la lista se pudo cargar pero el conteo de
+ * consultas no.
+ *
+ * El aviso nombra la consecuencia visible —la columna se queda en «—»— en vez
+ * de dejar que el usuario deduzca por su cuenta qué significa ese guion. El
+ * motivo del backend se conserva cuando lo hay, igual que en el resto de
+ * pantallas: explica el caso concreto mejor que una frase fija.
+ */
+function describirFalloDeConteo(error: unknown): string {
+  const motivo = error instanceof ApiError ? ` ${error.message}` : ''
+  return `No se pudo contar las consultas de cada paciente, así que esa columna se muestra como «—».${motivo}`
 }

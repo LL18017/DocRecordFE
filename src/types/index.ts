@@ -54,7 +54,19 @@ export interface Patient {
   phone: string
   age: number
   sex: string
-  consultations: number
+  /**
+   * Cuántas consultas tiene el paciente, o `null` cuando no se pudo
+   * averiguar.
+   *
+   * Es anulable a propósito. `GET /pacientes` NO trae este conteo, así que el
+   * adaptador lo dejaba en 0 fijo y la lista mostraba un cero para todos: un
+   * paciente con dos consultas seguía apareciendo con cero. Ese cero no es un
+   * dato ausente, es una afirmación clínica —«nunca ha venido»— y encima
+   * falsa. El tipo obliga a distinguir «tiene cero consultas» de «no se sabe
+   * cuántas tiene», que es justo lo que se estaba confundiendo; el conteo real
+   * sale de `GET /consultas` (ver `lib/resumenPanel.ts`).
+   */
+  consultations: number | null
   status: string
   blood: string
   email: string

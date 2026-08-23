@@ -45,9 +45,19 @@ describe('pacienteDtoAPatient · nulos del backend', () => {
     expect(paciente.address).toBe('—')
     expect(paciente.blood).toBe('—')
 
+    // `consultations` es la ÚNICA excepción a la barrida de abajo, y es
+    // deliberada: `GET /pacientes` no trae el conteo de consultas, así que el
+    // adaptador no puede saberlo. Antes lo rellenaba con un 0 fijo y la tabla
+    // afirmaba de TODOS los pacientes que nunca habían venido —incluido uno
+    // con dos consultas registradas—. `null` significa «no se sabe» y obliga a
+    // la pantalla a pintar un hueco o a traer el número de verdad.
+    expect(paciente.consultations).toBeNull()
+
     // Comprobación amplia: ningún campo de texto de `Patient` puede quedar
     // null/undefined, aunque mañana se agregue otro campo al adaptador.
+    const PUEDE_SER_NULO = new Set(['consultations'])
     for (const [clave, valor] of Object.entries(paciente)) {
+      if (PUEDE_SER_NULO.has(clave)) continue
       expect(valor, `el campo "${clave}" no debe ser null ni undefined`).not.toBeNull()
       expect(valor, `el campo "${clave}" no debe ser null ni undefined`).not.toBeUndefined()
     }

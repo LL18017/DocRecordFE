@@ -102,7 +102,13 @@ export function pacienteDtoAPatient(p: PacienteDto): Patient {
     phone: p.persona.telefono || '—',
     age: p.persona.fechaNacimiento ? calcularEdad(p.persona.fechaNacimiento) : 0,
     sex: formatearSexo(p.persona.sexo),
-    consultations: 0,
+    // `null`, no 0: `PacienteResponseDto` no incluye el número de consultas y
+    // este adaptador no tiene forma de saberlo. El 0 que había aquí llegaba a
+    // la tabla como un dato más y decía de todos los pacientes que nunca
+    // habían venido, incluidos los que tenían consultas registradas. Quien
+    // pinte la lista debe rellenarlo con el conteo real de `GET /consultas`
+    // (`contarConsultasPorPaciente`) o mostrar el hueco.
+    consultations: null,
     status: 'Activo',
     blood: p.tipoSangre || '—',
     email: '',
