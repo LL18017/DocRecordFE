@@ -27,8 +27,14 @@ import type { PacienteDto } from '@/services/pacientes'
  *
  * Devuelve `null` cuando la cadena no representa una fecha usable, para que
  * quien llama decida qué mostrar en lugar de propagar un `NaN`.
+ *
+ * Se exporta porque la regla vale para cualquier fecha del sistema, no solo
+ * para la de nacimiento: `services/consultas.ts` la usa al pintar la marca de
+ * tiempo de consultas y recetas. Reimplementarla allí habría duplicado —y
+ * tarde o temprano desincronizado— la única defensa que este proyecto tiene
+ * contra el día que retrocede.
  */
-function parsearFechaCivil(fechaISO: string): Date | null {
+export function parsearFechaCivil(fechaISO: string): Date | null {
   const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fechaISO.trim())
 
   if (partes) {
