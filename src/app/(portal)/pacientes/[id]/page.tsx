@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import {
@@ -11,15 +11,18 @@ import {
   Vital,
   Consultation,
   IconName,
+  Patient,
 } from '@/types'
 import {
-  patients,
   vitals as initialVitals,
   consultations as initialConsultations,
 } from '@/data/mockData'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
+import { ApiError } from '@/lib/api'
+import { obtenerPaciente } from '@/services/pacientes'
+import { pacienteDtoAPatient } from '@/lib/pacienteAdapter'
 
 // Modular Forms
 import { AllergyForm } from '@/components/forms/AllergyForm'
@@ -85,7 +88,33 @@ export default function ExpedienteDetailPage() {
   const params = useParams()
   const patientId = Array.isArray(params?.id) ? params.id[0] : (params?.id as string)
 
-  const patient = patients.find((p) => p.id === patientId) || patients[0]
+  const [patient, setPatient] = useState<Patient | null>(null)
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [noEncontrado, setNoEncontrado] = useState(false)
+
+  const cargarPaciente = useCallback(async () => {
+    setError(null)
+    setNoEncontrado(false)
+    try {
+      const paciente = await obtenerPaciente(Number(patientId))
+      setPatient(pacienteDtoAPatient(paciente))
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        setNoEncontrado(true)
+      } else {
+        setError(err instanceof ApiError ? err.message : 'No se pudo cargar el expediente.')
+      }
+    } finally {
+      setCargando(false)
+    }
+  }, [patientId])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga remota al montar; ver pacientes/page.tsx
+    void cargarPaciente()
+  }, [cargarPaciente])
+
   const [expanded, setExpanded] = useState<string[]>(['datos'])
   const [modal, setModal] = useState<ModalType>(null)
   const toggle = (s: string) =>
@@ -115,6 +144,48 @@ export default function ExpedienteDetailPage() {
     Alta: 'red',
     Moderada: 'yellow',
     Baja: 'green',
+  }
+
+  if (cargando) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-16 text-center text-sm text-slate-500">
+        Cargando expediente…
+      </div>
+    )
+  }
+
+  if (noEncontrado) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-16 text-center">
+        <p className="text-sm text-slate-600 mb-4">Este paciente no existe.</p>
+        <Link
+          href="/pacientes"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-doc-blue hover:underline"
+        >
+          <Icon name="back" size={16} /> Volver a Pacientes
+        </Link>
+      </div>
+    )
+  }
+
+  if (error || !patient) {
+    return (
+      <div
+        role="alert"
+        className="bg-white rounded-2xl border border-red-100 shadow-sm px-6 py-16 text-center"
+      >
+        <p className="text-sm text-red-700 mb-4">{error ?? 'No se pudo cargar el expediente.'}</p>
+        <button
+          onClick={() => {
+            setCargando(true)
+            void cargarPaciente()
+          }}
+          className="text-sm font-semibold text-doc-blue hover:underline cursor-pointer"
+        >
+          Reintentar
+        </button>
+      </div>
+    )
   }
 
   return (
