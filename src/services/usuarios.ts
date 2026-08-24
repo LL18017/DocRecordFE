@@ -155,39 +155,48 @@ export interface CrearUsuarioPayload {
 }
 
 /**
+ * Cuerpo de la respuesta de `POST /user`, espejo de `AltaUsuarioResponseDto`.
+ *
+ * Extiende `UsuarioDto` (mismo `userId`/`email`/`userName`/`roles`, este
+ * último siempre vacío en el alta) con `correoDeVerificacionEnviado`, que NO
+ * siempre es `true`. Gmail satura seguido —no es un caso de laboratorio—, y
+ * cuando falla el envío la cuenta igual queda creada en la base: existe, pero
+ * `enabled = false` y sin fila en `verification_token`, así que no hay enlace
+ * de confirmación que abrir y quedaría huérfana para siempre si nadie
+ * interviene. La salida es `asignarContrasena`, que además de fijar la clave
+ * HABILITA la cuenta (ver su comentario más abajo); quien pinte esta
+ * respuesta con `correoDeVerificacionEnviado: false` debe ofrecer ese camino
+ * de inmediato, no solo informar el fallo.
+ */
+export interface AltaUsuarioDto extends UsuarioDto {
+  correoDeVerificacionEnviado: boolean
+}
+
+/**
  * Crea una cuenta. Exige rol ADMIN.
  *
- * ⚠ La cuenta que crea este endpoint SIGUE SIN SERVIR PARA ENTRAR, y conviene
- * saberlo antes de ofrecer un formulario que la use: nace con
- * `enabled = false` y sin fila en `verification_token`, así que no hay enlace
- * de confirmación que abrir y `POST /auth/login` responde siempre «Usuario no
- * ha confirmado su cuenta aun». No es un descuido pendiente de código: el
- * backend lo dejó anotado como una decisión de producto sin tomar (ver el
- * javadoc de `UserService.createUser`) —o se emite el token de verificación y
- * se manda el correo, como en `/auth/register`, o el alta hecha por un
- * administrador nace ya habilitada—, y las dos salidas se excluyen. Mientras
- * no se decida, esta pantalla crea cuentas que alguien tendrá que habilitar a
- * mano.
+ * Ya NO nace deshabilitada sin salida: `UserService.createUser` ahora emite
+ * el token de verificación y manda el correo de confirmación igual que
+ * `/auth/register` —el javadoc que describía la decisión de producto
+ * pendiente ya no dice eso—. `correoDeVerificacionEnviado` en la respuesta es
+ * lo que distingue el camino feliz («revise su correo») del que no lo es
+ * (ver `AltaUsuarioDto`).
  *
- * Lo que YA NO es cierto de este endpoint, y que este comentario afirmaba:
- * la contraseña ya no se guarda en claro. `UserService.createUser` la pasa por
- * el mismo `PasswordEncoder` (argon2) que `/auth/register` antes de guardarla
- * (DocRecordBE ba64a09).
+ * La contraseña no se guarda en claro: `UserService.createUser` la pasa por
+ * el mismo `PasswordEncoder` (argon2) que `/auth/register` antes de
+ * guardarla.
  *
- * Lo que sigue igual: la persona se crea solo con nombres y apellidos —sin
- * DUI, sin fecha de nacimiento y sin sexo—, porque `UserRequestDto` no pide
- * más.
+ * La persona se crea solo con nombres y apellidos —sin DUI, sin fecha de
+ * nacimiento y sin sexo—, porque `UserRequestDto` no pide más.
  *
- * Respuestas: 200 (no 201) con el `UsuarioDto` y `roles: []`; 409 «El correo
- * electrónico ya está registrado» si el correo existe; y 400 de validación
- * que ahora SÍ nombra el campo que el cliente mandó mal (`email`, `userName`
- * o `password`). Antes el controller recibía el cuerpo sin `@Valid` y el
- * fallo llegaba hasta el guardado de la persona, así que el 400 hablaba de
- * `nombres`/`apellidos`, campos que este módulo nunca envía y que ninguna
- * pantalla podía marcar.
+ * Respuestas: **201** (no 200) con `AltaUsuarioDto` y `roles: []` —el alta
+ * nunca asigna rol, hace falta una llamada aparte a `asignarRol`—; 409 «El
+ * correo electrónico ya está registrado» si el correo existe; y 400 de
+ * validación que nombra el campo que el cliente mandó mal (`email`,
+ * `userName` o `password`).
  */
-export async function crearUsuario(payload: CrearUsuarioPayload): Promise<UsuarioDto> {
-  return apiFetch<UsuarioDto>('/user', { method: 'POST', body: payload })
+export async function crearUsuario(payload: CrearUsuarioPayload): Promise<AltaUsuarioDto> {
+  return apiFetch<AltaUsuarioDto>('/user', { method: 'POST', body: payload })
 }
 
 /**
@@ -206,4 +215,40 @@ export async function crearUsuario(payload: CrearUsuarioPayload): Promise<Usuari
  */
 export async function asignarRol(userId: number, roleId: number): Promise<UsuarioDto> {
   return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}`, { method: 'POST' })
+}
+
+/**
+ * Lista el catálogo completo de roles. Se llama sin restricción propia en el
+ * controller, pero en la práctica solo la pide esta pantalla, que ya exige
+ * ADMIN antes de montarse.
+ *
+ * Devuelve los CUATRO roles de la tabla `role` (ADMIN, MEDICO, ENFERMERA,
+ * PACIENTE); a quien arme un selector de personal le toca descartar PACIENTE,
+ * no a este servicio.
+ */
+export async function listarRoles(): Promise<RolDto[]> {
+  return apiFetch<RolDto[]>('/roles/all')
+}
+
+/**
+ * Asigna (o reestablece) la contraseña de una cuenta. Exige rol ADMIN.
+ *
+ * ⚠ No es solo un cambio de clave: `UserService` (a) HABILITA la cuenta —la
+ * saca de `enabled = false` si estaba así, que es justo el estado en que
+ * queda un alta cuyo correo de confirmación no se pudo enviar— y (b) borra
+ * cualquier token de confirmación pendiente. Quien llame desde una pantalla
+ * tiene que poder explicarle ese efecto a quien la usa ANTES de confirmar, no
+ * dejar que lo descubra después.
+ *
+ * 403 si quien llama es ADMIN pero la cuenta objetivo TAMBIÉN es ADMIN y no
+ * es la misma que llama —mensaje exacto del backend: «Un administrador no
+ * puede asignar la contrasena de otro administrador», que `lib/api.ts` ya
+ * extrae de `message` sin que este servicio lo reescriba—; un administrador
+ * SÍ puede asignarse contraseña a sí mismo. 404 si `userId` no existe.
+ */
+export async function asignarContrasena(userId: number, password: string): Promise<UsuarioDto> {
+  return apiFetch<UsuarioDto>(`/user/${userId}/password`, {
+    method: 'POST',
+    body: { password },
+  })
 }
