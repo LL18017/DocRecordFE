@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { Icon } from '@/components/ui/Icon'
 import { useAppContext, useUsuarioAutenticado } from '@/context/AppContext'
+import { etiquetaDeRoles } from '@/lib/roles'
 
 interface TopBarProps {
   title?: string
@@ -93,8 +94,8 @@ export const TopBar: React.FC<TopBarProps> = ({
           <div className="absolute top-12 right-0 bg-white rounded-2xl shadow-xl border border-slate-100 w-60 py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
             <div className="px-4 py-3 border-b border-slate-100">
               <p className="font-semibold text-slate-800 text-sm truncate">{user.name}</p>
-              <p className="text-xs text-slate-500 capitalize">
-                {user.role}
+              <p className="text-xs text-slate-500">
+                {etiquetaDeRoles(user.roles)}
                 {user.specialty ? ` · ${user.specialty}` : ''}
               </p>
               {activeClinic && (

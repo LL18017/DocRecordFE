@@ -50,7 +50,16 @@ export interface RegistroPayload {
 }
 
 /**
- * Convierte los roles del backend al tipo `Role` de la interfaz.
+ * Convierte los roles del backend a la lista COMPLETA de `Role` de la
+ * interfaz — ya no a uno solo.
+ *
+ * Antes esta función devolvía un único `Role`, con ADMIN ganando por
+ * prioridad sobre los demás. Eso colapsaba la sesión de una cuenta
+ * ADMIN+MEDICO a solo 'Administrador' y le escondía el menú de médico
+ * (Consultas, Prescripciones, Agenda) en cuanto ganaba el rol de
+ * administrador. No hay jerarquía real entre ADMIN y MEDICO —son capacidades
+ * distintas, no niveles de lo mismo—, así que la sesión debe llevarlos todos
+ * y quien pinte el menú decide con `.some(...)`, no con `===`.
  *
  * Limitación conocida: `LoginResponseDto` no incluye `userType`, que es el
  * campo que realmente distingue DOCTOR de ENFERMERA. Con la tabla `role`
@@ -58,20 +67,24 @@ export interface RegistroPayload {
  * por `porDefecto`. Se resolverá cuando el backend agregue `userType` a la
  * respuesta de login.
  */
-export function mapearRol(
+export function mapearRoles(
   roles: { name: string }[],
   porDefecto: Role = 'medico',
-): Role {
+): Role[] {
   // El orden importa: primero a mayúsculas y después quitar el prefijo. Al
   // revés, `/^ROLE_/` (sin bandera `i`) no reconocía 'role_admin', quedaba
   // 'ROLE_ADMIN' y no coincidía con ningún rol conocido, así que un
   // administrador caía al rol por defecto en silencio —sin error, solo un
   // menú incompleto— con que el backend cambiara el case de sus authorities.
   const nombres = roles.map(r => r.name.toUpperCase().replace(/^ROLE_/, ''))
-  if (nombres.includes('ADMIN')) return 'Administrador'
-  if (nombres.includes('ENFERMERA')) return 'enfermera'
-  if (nombres.includes('MEDICO') || nombres.includes('DOCTOR')) return 'medico'
-  return porDefecto
+  const encontrados = new Set<Role>()
+  if (nombres.includes('ADMIN')) encontrados.add('Administrador')
+  if (nombres.includes('ENFERMERA')) encontrados.add('enfermera')
+  if (nombres.includes('MEDICO') || nombres.includes('DOCTOR')) encontrados.add('medico')
+  // Ningún rol reconocido (lista vacía o solo nombres desconocidos): se cae al
+  // rol por defecto, igual que antes.
+  if (encontrados.size === 0) encontrados.add(porDefecto)
+  return Array.from(encontrados)
 }
 
 /**
@@ -107,7 +120,7 @@ export async function login(
   return {
     name: datos.userName,
     email: datos.userName,
-    role: mapearRol(datos.roles, rolPorDefecto),
+    roles: mapearRoles(datos.roles, rolPorDefecto),
   }
 }
 

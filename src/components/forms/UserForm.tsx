@@ -41,7 +41,7 @@ export const UserForm: React.FC<UserFormProps> = ({ onSubmit, onCancel }) => {
     onSubmit({
       name,
       email,
-      role,
+      roles: [role],
       specialty: role === 'medico' ? specialty : '—',
       status: 'Activo',
     })

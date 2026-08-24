@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { Role, IconName } from '@/types'
 import { Icon } from '@/components/ui/Icon'
 import { useAppContext, useUsuarioAutenticado } from '@/context/AppContext'
+import { etiquetaDeRoles } from '@/lib/roles'
 
 interface NavItem {
   href: string
@@ -23,16 +24,19 @@ interface NavItem {
 // interfaz: `/user` es `hasRole('ADMIN')`, mientras que `/pacientes`,
 // `/personas` y `/clinics` admiten ADMIN además de MEDICO y ENFERMERA.
 //
-// 'Administrador' aparece también en Dashboard, Pacientes y Clínicas por eso
-// mismo: `mapearRol` colapsa a un solo rol y devuelve 'Administrador' en
-// cuanto la cuenta tiene ADMIN, aunque además sea MEDICO —que es el caso
-// normal, porque ADMIN se otorga sobre una cuenta ya existente—. Sin esas tres
-// entradas, un administrador se quedaba con un menú de una sola opción y sin
-// acceso al trabajo clínico que su cuenta sí puede hacer.
+// 'Administrador' aparece también en Dashboard, Pacientes y Clínicas porque
+// `/pacientes`, `/personas` y `/clinics` admiten ADMIN además de MEDICO y
+// ENFERMERA en el backend. La sesión ya lleva TODOS los roles de la cuenta
+// (ver `mapearRoles` en services/auth.ts), así que un administrador puro
+// también ve esas tres pantallas, y uno que además sea médico ve estas MÁS
+// las suyas de médico — el filtro de abajo es un `.some(...)`, no un `===`.
 //
-// Consultas, Enfermería, Prescripciones y Agenda siguen sin 'Administrador':
-// esas pantallas todavía no tienen backend, así que no hay permiso que
-// consultar y no se les inventa uno.
+// Consultas, Prescripciones y Agenda siguen sin 'Administrador' a propósito:
+// un administrador puro no tiene fila en la tabla `medicos`, así que
+// `ConsultaService` le respondería 403 igual que a cualquier otra cuenta sin
+// esa fila. Ofrecer el enlace ahí sería prometer una pantalla que revienta al
+// pulsarla. Una cuenta ADMIN+MEDICO sigue viéndolas: las gana por su rol de
+// médico, no por el de administrador.
 const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', roles: ['medico', 'enfermera', 'Administrador'] },
   { href: '/pacientes', label: 'Pacientes', icon: 'patients', roles: ['medico', 'enfermera', 'Administrador'] },
@@ -54,7 +58,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen })
   const { activeClinic } = useAppContext()
   const user = useUsuarioAutenticado()
 
-  const visibleItems = navItems.filter((i) => i.roles.includes(user.role))
+  // `.some(...)`, no `.includes(user.role)`: el usuario puede tener varios
+  // roles a la vez y una entrada se ofrece si CUALQUIERA de ellos la permite.
+  const visibleItems = navItems.filter((i) => i.roles.some((rol) => user.roles.includes(rol)))
 
   const userInitials = user.name
     .split(' ')
@@ -134,7 +140,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen })
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-medium truncate">{user.name}</p>
-              <p className="text-blue-300 text-xs capitalize">{user.role}</p>
+              {/* Se listan TODOS los roles, no uno solo: no hay jerarquía real
+                  entre ADMIN y MEDICO (ver `lib/roles.ts`). */}
+              <p className="text-blue-300 text-xs">{etiquetaDeRoles(user.roles)}</p>
             </div>
           </div>
         </div>

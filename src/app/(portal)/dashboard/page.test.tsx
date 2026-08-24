@@ -40,7 +40,7 @@ vi.mock('@/services/clinicas', () => ({
   listarMisClinicas: () => listarMisClinicas(),
 }))
 
-const MEDICO: User = { name: 'Naun Flores', email: 'naun@docrecord.sv', role: 'medico' }
+const MEDICO: User = { name: 'Naun Flores', email: 'naun@docrecord.sv', roles: ['medico'] }
 
 vi.mock('@/context/AppContext', () => ({
   useUsuarioAutenticado: () => MEDICO,
@@ -72,6 +72,7 @@ function paciente(personaId: number): PacienteDto {
       sexo: 'M',
       telefono: null,
       direccion: null,
+      email: null,
     },
   }
 }

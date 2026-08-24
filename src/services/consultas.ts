@@ -124,12 +124,13 @@ export interface ActualizarConsultaPayload {
  * mostrarlo).
  *
  * Se comprueba por exclusión —«no es enfermera»— y no con `=== 'medico'` a
- * propósito. `mapearRol` en services/auth.ts devuelve 'Administrador' en
- * cuanto la cuenta tiene ROLE_ADMIN, aunque además tenga ROLE_MEDICO: la
- * cuenta de prueba del proyecto (naun@docrecord.sv) es exactamente ese caso.
- * Con `=== 'medico'` un médico administrador perdería el campo sin motivo,
- * mientras que la regla que el negocio enunció —y la única que el backend
- * dice imponer— es que la enfermera no diagnostica.
+ * propósito, para que una cuenta con varios roles (ADMIN+MEDICO, el caso de
+ * la cuenta de prueba del proyecto naun@docrecord.sv) no pierda el campo por
+ * comparar contra uno solo. Quien llama recibe la sesión con TODOS sus roles
+ * (`mapearRoles` en services/auth.ts) y decide con
+ * `roles.some(puedeRegistrarDiagnostico)`: basta con que UNO de ellos no sea
+ * enfermera. La regla que el negocio enunció —y la única que el backend dice
+ * imponer— es que la enfermera no diagnostica.
  */
 export function puedeRegistrarDiagnostico(rol: Role): boolean {
   return rol !== 'enfermera'

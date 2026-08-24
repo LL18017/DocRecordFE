@@ -64,8 +64,9 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
 
   // Regla de negocio: el diagnóstico es exclusivo del médico. Sin sesión
   // legible se asume que NO se puede: es la suposición que no ofrece un campo
-  // que el servidor vaya a rechazar.
-  const puedeDiagnosticar = user ? puedeRegistrarDiagnostico(user.role) : false
+  // que el servidor vaya a rechazar. La sesión lleva TODOS los roles de la
+  // cuenta; basta con que UNO de ellos autorice diagnosticar.
+  const puedeDiagnosticar = user ? user.roles.some(puedeRegistrarDiagnostico) : false
 
   const editando = consulta !== undefined
 

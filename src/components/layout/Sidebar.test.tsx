@@ -25,7 +25,7 @@ vi.mock('@/context/AppContext', () => ({
 }))
 
 function sesionCon(role: Role): User {
-  return { name: 'Naun Flores', email: 'naun@docrecord.sv', role }
+  return { name: 'Naun Flores', email: 'naun@docrecord.sv', roles: [role] }
 }
 
 beforeEach(() => {
@@ -67,12 +67,53 @@ describe('Usuarios y Roles', () => {
   })
 })
 
+/** Igual que `montar`, pero con la lista completa de roles de la cuenta. */
+function montarConRoles(roles: Role[]) {
+  sesion = { name: 'Naun Flores', email: 'naun@docrecord.sv', roles }
+  render(<Sidebar sidebarOpen={false} setSidebarOpen={() => {}} />)
+}
+
+describe('una cuenta con varios roles a la vez', () => {
+  // Caso real que originó estas pruebas: naunflores620@gmail.com ganó ADMIN
+  // conservando MEDICO. `mapearRoles` ya no colapsa a uno, pero el filtro del
+  // Sidebar tenía que dejar de usar `.includes(user.role)` (un solo rol) por
+  // `.some(...)` sobre TODOS los roles de la cuenta; si vuelve a colapsar,
+  // estas pruebas lo detectan.
+  it('ADMIN+MEDICO ve las pantallas de médico Y la de administrador', () => {
+    montarConRoles(['Administrador', 'medico'])
+
+    const opciones = opcionesDelMenu()
+    expect(opciones).toContain('Consultas Médicas')
+    expect(opciones).toContain('Prescripciones')
+    expect(opciones).toContain('Agenda de Citas')
+    expect(opciones).toContain('Usuarios y Roles')
+  })
+
+  it('un Administrador puro NO ve Consultas ni Prescripciones aunque sí vea Usuarios y Roles', () => {
+    // La trampa que no había que tomar: si el filtro le diera 'Administrador'
+    // a las pantallas de médico, esta cuenta las vería y el backend le
+    // respondería 403 al pulsarlas (ConsultaService exige fila en `medicos`,
+    // no el rol del token).
+    montarConRoles(['Administrador'])
+
+    const opciones = opcionesDelMenu()
+    expect(opciones).toContain('Usuarios y Roles')
+    expect(opciones).not.toContain('Consultas Médicas')
+    expect(opciones).not.toContain('Prescripciones')
+    expect(opciones).not.toContain('Agenda de Citas')
+  })
+
+  it('el pie de la barra lista todos los roles de la cuenta, no solo uno', () => {
+    montarConRoles(['Administrador', 'medico'])
+
+    expect(screen.getByText('Administrador · Médico')).toBeInTheDocument()
+  })
+})
+
 describe('el resto del menú', () => {
   it('deja al Administrador con las pantallas que su rol sí puede usar', () => {
-    // `mapearRol` colapsa a un solo rol: una cuenta ADMIN+MEDICO llega aquí
-    // como 'Administrador'. Si solo se le ofreciera /usuarios, se quedaría con
-    // un menú de una sola opción, sin el trabajo clínico que el backend sí le
-    // autoriza (/pacientes y /clinics admiten ADMIN).
+    // Un administrador puro (sin rol de médico) también puede usar
+    // /pacientes y /clinicas: el backend admite ADMIN en esos dos endpoints.
     montar('Administrador')
 
     expect(screen.getByRole('link', { name: /pacientes/i })).toHaveAttribute(

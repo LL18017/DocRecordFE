@@ -165,7 +165,7 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {user.role !== 'enfermera' && (
+        {user.roles.some((rol) => rol !== 'enfermera') && (
           <div className="flex gap-2">
             <Link
               href="/pacientes"

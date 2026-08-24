@@ -15,11 +15,20 @@ export type Page =
 
 export type Role = 'medico' | 'enfermera' | 'Administrador'
 
+/**
+ * Usuario en sesión con TODOS sus roles, no uno solo.
+ *
+ * Una cuenta puede tener varios roles del backend a la vez (ADMIN + MEDICO es
+ * el caso normal: ADMIN se otorga sobre una cuenta ya existente). No hay
+ * jerarquía real entre ellos —son capacidades distintas, no niveles de lo
+ * mismo—, así que colapsar a un solo `role` le esconde pantallas a quien sí
+ * puede usarlas. Ver `services/auth.ts` (`mapearRoles`).
+ */
 export interface User {
   id?: number
   name: string
   email?: string
-  role: Role
+  roles: Role[]
   specialty?: string
   status?: string
 }

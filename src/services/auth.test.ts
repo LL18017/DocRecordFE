@@ -1,37 +1,37 @@
 // Guardas del servicio de autenticación: mapeo de roles y mensajes de login.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mapearRol } from './auth'
+import { mapearRoles } from './auth'
 
 function roles(...nombres: string[]): { name: string }[] {
   return nombres.map((name) => ({ name }))
 }
 
-describe('mapearRol · prefijo ROLE_ del backend', () => {
+describe('mapearRoles · prefijo ROLE_ del backend', () => {
   it('reconoce los roles tal como llegan del backend, con prefijo ROLE_', () => {
     // Spring Security antepone ROLE_ a cada authority. Si el adaptador dejara
     // de quitar ese prefijo, TODO usuario caería al rol por defecto y un
     // administrador perdería su menú sin que nada falle a la vista.
-    expect(mapearRol(roles('ROLE_ADMIN'))).toBe('Administrador')
-    expect(mapearRol(roles('ROLE_MEDICO'))).toBe('medico')
-    expect(mapearRol(roles('ROLE_ENFERMERA'))).toBe('enfermera')
+    expect(mapearRoles(roles('ROLE_ADMIN'))).toEqual(['Administrador'])
+    expect(mapearRoles(roles('ROLE_MEDICO'))).toEqual(['medico'])
+    expect(mapearRoles(roles('ROLE_ENFERMERA'))).toEqual(['enfermera'])
   })
 
   it('reconoce los roles también sin el prefijo', () => {
-    expect(mapearRol(roles('ADMIN'))).toBe('Administrador')
-    expect(mapearRol(roles('ENFERMERA'))).toBe('enfermera')
-    expect(mapearRol(roles('MEDICO'))).toBe('medico')
+    expect(mapearRoles(roles('ADMIN'))).toEqual(['Administrador'])
+    expect(mapearRoles(roles('ENFERMERA'))).toEqual(['enfermera'])
+    expect(mapearRoles(roles('MEDICO'))).toEqual(['medico'])
   })
 
   it('acepta DOCTOR como sinónimo de MEDICO', () => {
-    expect(mapearRol(roles('ROLE_DOCTOR'))).toBe('medico')
+    expect(mapearRoles(roles('ROLE_DOCTOR'))).toEqual(['medico'])
   })
 
   it('no depende de mayúsculas en el nombre del rol', () => {
-    expect(mapearRol(roles('ROLE_Admin'))).toBe('Administrador')
-    expect(mapearRol(roles('ROLE_admin'))).toBe('Administrador')
-    expect(mapearRol(roles('admin'))).toBe('Administrador')
-    expect(mapearRol(roles('ROLE_Enfermera'))).toBe('enfermera')
+    expect(mapearRoles(roles('ROLE_Admin'))).toEqual(['Administrador'])
+    expect(mapearRoles(roles('ROLE_admin'))).toEqual(['Administrador'])
+    expect(mapearRoles(roles('admin'))).toEqual(['Administrador'])
+    expect(mapearRoles(roles('ROLE_Enfermera'))).toEqual(['enfermera'])
   })
 
   /**
@@ -44,28 +44,33 @@ describe('mapearRol · prefijo ROLE_ del backend', () => {
    * backend cambiara el case de sus authorities.
    */
   it('reconoce el prefijo ROLE_ venga en el case que venga', () => {
-    expect(mapearRol(roles('role_admin'))).toBe('Administrador')
-    expect(mapearRol(roles('rOlE_eNfErMeRa'))).toBe('enfermera')
-    expect(mapearRol(roles('Role_Doctor'))).toBe('medico')
+    expect(mapearRoles(roles('role_admin'))).toEqual(['Administrador'])
+    expect(mapearRoles(roles('rOlE_eNfErMeRa'))).toEqual(['enfermera'])
+    expect(mapearRoles(roles('Role_Doctor'))).toEqual(['medico'])
     // Y no se traga un prefijo que no lo es: 'ROLES_ADMIN' no es 'ADMIN'.
-    expect(mapearRol(roles('ROLES_ADMIN'))).toBe('medico')
+    expect(mapearRoles(roles('ROLES_ADMIN'))).toEqual(['medico'])
   })
 
   it('cae al rol por defecto ante un rol desconocido', () => {
-    expect(mapearRol(roles('ROLE_RECEPCION'))).toBe('medico')
-    expect(mapearRol(roles('ROLE_RECEPCION'), 'enfermera')).toBe('enfermera')
+    expect(mapearRoles(roles('ROLE_RECEPCION'))).toEqual(['medico'])
+    expect(mapearRoles(roles('ROLE_RECEPCION'), 'enfermera')).toEqual(['enfermera'])
   })
 
   it('cae al rol por defecto con la lista de roles vacía', () => {
-    expect(mapearRol([])).toBe('medico')
-    expect(mapearRol([], 'Administrador')).toBe('Administrador')
+    expect(mapearRoles([])).toEqual(['medico'])
+    expect(mapearRoles([], 'Administrador')).toEqual(['Administrador'])
   })
 
-  it('ADMIN gana cuando el usuario tiene varios roles', () => {
-    // Un administrador que además es médico debe ver la interfaz de
-    // administrador; al revés se quedaría sin acceso a la gestión.
-    expect(mapearRol(roles('ROLE_MEDICO', 'ROLE_ADMIN'))).toBe('Administrador')
-    expect(mapearRol(roles('ROLE_ADMIN', 'ROLE_ENFERMERA'))).toBe('Administrador')
+  it('devuelve TODOS los roles que tenga la cuenta, no solo ADMIN', () => {
+    // Antes ADMIN «ganaba» y el resultado se colapsaba a un solo rol: una
+    // cuenta ADMIN+MEDICO perdía el rol de médico —y con él, el menú
+    // clínico— en cuanto ganaba ADMIN. No hay jerarquía real entre ellos, así
+    // que ahora se devuelven los dos.
+    expect(mapearRoles(roles('ROLE_MEDICO', 'ROLE_ADMIN'))).toEqual(['Administrador', 'medico'])
+    expect(mapearRoles(roles('ROLE_ADMIN', 'ROLE_ENFERMERA'))).toEqual([
+      'Administrador',
+      'enfermera',
+    ])
   })
 })
 
@@ -98,7 +103,7 @@ describe('login · mensajes y tokens', () => {
     throw new Error('Se esperaba que la promesa fuera rechazada, pero se resolvió.')
   }
 
-  it('guarda ambos tokens y devuelve el usuario con su rol', async () => {
+  it('guarda ambos tokens y devuelve el usuario con sus roles', async () => {
     const { login } = await import('./auth')
     fetchMock.mockResolvedValueOnce(
       respuesta(200, {
@@ -114,7 +119,7 @@ describe('login · mensajes y tokens', () => {
     expect(usuario).toEqual({
       name: 'ana@ues.edu.sv',
       email: 'ana@ues.edu.sv',
-      role: 'Administrador',
+      roles: ['Administrador'],
     })
     // Sin el refresh token guardado, la renovación automática del 401 nunca
     // se dispararía y la sesión moriría al expirar el access token.

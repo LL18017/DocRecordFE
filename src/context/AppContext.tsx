@@ -4,6 +4,7 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useSyncExternalStore,
 } from 'react'
@@ -77,6 +78,17 @@ function difundirCierreDeSesion(): void {
   obtenerCanal()?.postMessage({ tipo: 'cierre' })
 }
 
+/**
+ * Limpia la sesión de esta pestaña y avisa a las demás. Es el mismo mecanismo
+ * para las dos razones por las que una sesión deja de ser válida: expiró (el
+ * refresh también falló) o tiene una forma que ya no se reconoce (ver
+ * `esSesionDeFormaVieja` más abajo).
+ */
+function invalidarSesion(): void {
+  limpiarSesion()
+  difundirCierreDeSesion()
+}
+
 // lib/api.ts está más abajo en la jerarquía y no puede importar de aquí (ya
 // es al revés: este módulo depende de services/auth.ts, que depende de
 // lib/api.ts). Por eso api.ts expone un registro en vez de llamar a
@@ -85,10 +97,7 @@ function difundirCierreDeSesion(): void {
 // que la clínica activa también vive en sessionStorage, esta limpieza la
 // alcanza: antes se quedaba en memoria de React y la barra superior seguía
 // anunciando una sede con la sesión ya vencida.
-alExpirarSesion(() => {
-  limpiarSesion()
-  difundirCierreDeSesion()
-})
+alExpirarSesion(invalidarSesion)
 
 /** Instantánea en el cliente: la cadena cruda guardada, o null. */
 function leerSesionEnCliente(): string | null {
@@ -103,6 +112,44 @@ function leerSesionEnCliente(): string | null {
 /** Instantánea en el servidor: nunca hay sesión durante el render en servidor. */
 function leerSesionEnServidor(): string | null {
   return null
+}
+
+/**
+ * `true` cuando lo leído del almacenamiento tiene la forma VIEJA de sesión:
+ * un objeto con `role` (un solo rol) en vez de `roles` (arreglo con todos).
+ *
+ * Antes de este cambio la sesión colapsaba a un único rol; alguien que la
+ * haya dejado abierta desde antes de la actualización puede tener esa forma
+ * guardada todavía. No se intenta convertir ese `role` viejo en
+ * `roles: [role]`: no hay forma segura de saber si ese único rol sigue siendo
+ * la lista completa de hoy —la cuenta pudo ganar un rol después de guardarse
+ * esta sesión, que es justo el bug que se está corrigiendo—, así que es más
+ * seguro forzar un login nuevo que asumirlo.
+ */
+function esSesionDeFormaVieja(valor: unknown): boolean {
+  if (typeof valor !== 'object' || valor === null) return false
+  return !Array.isArray((valor as Record<string, unknown>).roles)
+}
+
+type SesionLeida =
+  | { tipo: 'ausente' }
+  | { tipo: 'corrupta' }
+  | { tipo: 'formaVieja' }
+  | { tipo: 'valida'; usuario: User }
+
+/** Interpreta la cadena cruda de `sessionStorage`: ausente, corrupta, de forma vieja o válida. */
+function leerSesion(cadena: string | null): SesionLeida {
+  if (!cadena) return { tipo: 'ausente' }
+  let datos: unknown
+  try {
+    datos = JSON.parse(cadena)
+  } catch {
+    // Sesión corrupta: se trata como ausencia de sesión, sin limpiar el
+    // almacenamiento (comportamiento previo a este cambio).
+    return { tipo: 'corrupta' }
+  }
+  if (esSesionDeFormaVieja(datos)) return { tipo: 'formaVieja' }
+  return { tipo: 'valida', usuario: datos as User }
 }
 
 function escribirSesion(usuario: User | null): void {
@@ -252,15 +299,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     hidratadoEnServidor,
   )
 
-  const user = useMemo<User | null>(() => {
-    if (!sesionSerializada) return null
-    try {
-      return JSON.parse(sesionSerializada) as User
-    } catch {
-      // Sesión corrupta: se trata como ausencia de sesión.
-      return null
-    }
-  }, [sesionSerializada])
+  const sesionLeida = useMemo(() => leerSesion(sesionSerializada), [sesionSerializada])
+
+  const user = sesionLeida.tipo === 'valida' ? sesionLeida.usuario : null
+
+  // Una sesión de forma vieja no es solo «no hay usuario» en memoria: hay que
+  // borrarla del almacenamiento, o seguiría ahí en el próximo render (y en la
+  // próxima pestaña) sin que nada la lea. Se limpia en un efecto, no durante
+  // el render, para no escribir en sessionStorage desde useMemo.
+  useEffect(() => {
+    if (sesionLeida.tipo === 'formaVieja') invalidarSesion()
+  }, [sesionLeida])
 
   const clinicaSerializada = useSyncExternalStore(
     suscribirseASesion,
@@ -311,13 +360,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const cerrarSesion = useCallback(() => {
     authService.logout()
-    // Usuario y clínica activa se van juntos: la sede elegida es parte de la
-    // sesión de trabajo, no una preferencia del navegador.
-    limpiarSesion()
-    // Las demás pestañas tienen su propia copia de la sesión y no se enteran
-    // solas. En una computadora compartida de clínica, dejar una pestaña con la
-    // sesión viva tras cerrarla en otra es un riesgo real.
-    difundirCierreDeSesion()
+    // Usuario y clínica activa se van juntos (limpiarSesion), y las demás
+    // pestañas se enteran (difundirCierreDeSesion): tienen su propia copia de
+    // la sesión y no se avisan solas. En una computadora compartida de
+    // clínica, dejar una pestaña con la sesión viva tras cerrarla en otra es
+    // un riesgo real.
+    invalidarSesion()
   }, [])
 
   const valor = useMemo<AppContextType>(

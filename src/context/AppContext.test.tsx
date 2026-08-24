@@ -13,8 +13,8 @@ import userEvent from '@testing-library/user-event'
 import type { Clinica, User } from '@/types'
 import { AppProvider, useAppContext } from './AppContext'
 
-const MEDICO: User = { name: 'Naun Flores', email: 'naun@docrecord.sv', role: 'medico' }
-const OTRO_MEDICO: User = { name: 'Ana Rivas', email: 'ana@docrecord.sv', role: 'medico' }
+const MEDICO: User = { name: 'Naun Flores', email: 'naun@docrecord.sv', roles: ['medico'] }
+const OTRO_MEDICO: User = { name: 'Ana Rivas', email: 'ana@docrecord.sv', roles: ['medico'] }
 
 const SEDE: Clinica = { id: 7, name: 'Clínica Familiar Escalón', lat: 13.7053, lng: -89.2182 }
 
@@ -156,6 +156,37 @@ describe('AppContext · la clínica activa muere con la sesión', () => {
     expect(sesionMostrada()).toContain('sin sesión')
     expect(sedeMostrada()).toContain('sin clínica')
     expect(window.sessionStorage.getItem('docrecord.clinica')).toBeNull()
+  })
+})
+
+describe('AppContext · sesión de forma vieja', () => {
+  // Antes de este cambio la sesión guardaba un solo `role`; alguien que la
+  // haya dejado abierta desde antes de la actualización tiene esa forma
+  // todavía en sessionStorage. No debe reventar el render con `undefined`, y
+  // tampoco quedarse ahí sin que nada la lea: se trata como sesión inválida y
+  // se limpia, igual que un cierre de sesión real.
+  it('no revienta con una sesión de antes de esta actualización, y la limpia', () => {
+    window.sessionStorage.setItem(
+      'docrecord.user',
+      JSON.stringify({ name: 'Naun Flores', email: 'naun@docrecord.sv', role: 'medico' }),
+    )
+
+    montar()
+
+    expect(sesionMostrada()).toContain('sin sesión')
+    expect(window.sessionStorage.getItem('docrecord.user')).toBeNull()
+    // Avisa a las demás pestañas, igual que cerrarSesion(): si esta pestaña
+    // tenía la forma vieja, las otras copias abiertas también la tienen.
+    expect(difundidos).toEqual([{ tipo: 'cierre' }])
+  })
+
+  it('una sesión con `roles` como arreglo se lee sin problema, aunque tenga un solo rol', () => {
+    window.sessionStorage.setItem('docrecord.user', JSON.stringify(MEDICO))
+
+    montar()
+
+    expect(sesionMostrada()).toContain('naun@docrecord.sv')
+    expect(window.sessionStorage.getItem('docrecord.user')).not.toBeNull()
   })
 })
 

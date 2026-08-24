@@ -37,7 +37,7 @@ vi.mock('@/services/consultas', async (importarOriginal) => {
 })
 
 // La sesión se simula en vez de montar el AppProvider: lo que se prueba es qué
-// hace el formulario con `user.role` y `activeClinic`, no cómo se guarda la
+// hace el formulario con `user.roles` y `activeClinic`, no cómo se guarda la
 // sesión (eso ya lo cubre AppContext.test.tsx).
 let sesion: { user: User | null; activeClinic: Clinica | null }
 
@@ -48,7 +48,7 @@ vi.mock('@/context/AppContext', () => ({
 const CLINICA: Clinica = { id: 5, name: 'Clínica Escalón', lat: 13.7, lng: -89.2 }
 
 function usuario(role: Role): User {
-  return { name: 'naun@docrecord.sv', email: 'naun@docrecord.sv', role }
+  return { name: 'naun@docrecord.sv', email: 'naun@docrecord.sv', roles: [role] }
 }
 
 function consulta(cambios: Partial<ConsultaDto> = {}): ConsultaDto {

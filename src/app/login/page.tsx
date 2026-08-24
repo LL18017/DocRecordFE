@@ -15,7 +15,7 @@ const features: { icon: IconName; text: string }[] = [
 ]
 
 // TODO: LoginResponseDto no distingue médico de enfermera todavía (la tabla
-// `role` solo tiene ADMIN), así que mapearRol cae a este valor por defecto.
+// `role` solo tiene ADMIN), así que mapearRoles cae a este valor por defecto.
 // Eliminar este respaldo cuando el backend agregue el dato a la respuesta.
 const ROL_POR_DEFECTO: Role = 'medico'
 
