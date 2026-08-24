@@ -21,6 +21,7 @@ import {
   normalizarMedicamentos,
   obtenerPrescripcion,
   textoOpcional,
+  type PaginaDto,
   type PrescripcionDto,
 } from './prescripciones'
 
@@ -42,6 +43,21 @@ function receta(cambios: Partial<PrescripcionDto> = {}): PrescripcionDto {
       { id: 1, medicamento: 'Amoxicilina', dosis: '500 mg', frecuencia: 'cada 8 h', duracion: '7 días' },
     ],
     ...cambios,
+  }
+}
+
+/**
+ * Envuelve una lista en el sobre paginado que el backend usa SIEMPRE para
+ * `/prescripciones`, tal como lo espera el servicio desde que dejó de
+ * tratarlo como un arreglo plano.
+ */
+function pagina(contenido: PrescripcionDto[]): PaginaDto<PrescripcionDto> {
+  return {
+    contenido,
+    paginaActual: 0,
+    tamanoPagina: 20,
+    totalElementos: contenido.length,
+    totalPaginas: 1,
   }
 }
 
@@ -137,13 +153,52 @@ describe('prescripciones · lo que viaja al backend', () => {
   })
 
   it('consulta las recetas por consulta y por paciente con su parámetro', async () => {
-    apiFetch.mockResolvedValue([])
+    apiFetch.mockResolvedValue(pagina([]))
 
     await listarPrescripcionesDeConsulta(7)
     expect(apiFetch).toHaveBeenCalledWith('/prescripciones?consultaId=7')
 
     await listarPrescripcionesDePaciente(42)
     expect(apiFetch).toHaveBeenLastCalledWith('/prescripciones?pacienteId=42')
+  })
+
+  // El fallo real que motiva este bloque: el backend SIEMPRE envuelve
+  // /prescripciones en un sobre paginado, y estas dos funciones prometen
+  // devolver un arreglo plano a quien las llama (el expediente del paciente,
+  // entre otros). Una prueba que solo mira la URL pedida —como la de
+  // arriba— no detecta que alguien vuelva a tratar el sobre como si fuera el
+  // arreglo: hay que comprobar el VALOR que devuelven contra un sobre real,
+  // con contenido de verdad, no un `pagina([])` vacío que pasaría igual
+  // devolviendo el objeto entero por error.
+  it('desenvuelve el sobre paginado y devuelve el arreglo de adentro, no el sobre', async () => {
+    const recetaDeLaConsulta = receta({ prescripcionId: 20 })
+    apiFetch.mockResolvedValue({
+      contenido: [recetaDeLaConsulta],
+      paginaActual: 0,
+      tamanoPagina: 20,
+      totalElementos: 1,
+      totalPaginas: 1,
+    })
+
+    const deLaConsulta = await listarPrescripcionesDeConsulta(7)
+    expect(deLaConsulta).toEqual([recetaDeLaConsulta])
+    // Si algún día volviera a tratarse la respuesta como el arreglo directo,
+    // esto devolvería el sobre entero (con `contenido`/`totalElementos`...),
+    // no un arreglo de recetas: `Array.isArray` lo distingue sin ambigüedad.
+    expect(Array.isArray(deLaConsulta)).toBe(true)
+
+    const recetaDelPaciente = receta({ prescripcionId: 21 })
+    apiFetch.mockResolvedValue({
+      contenido: [recetaDelPaciente],
+      paginaActual: 0,
+      tamanoPagina: 20,
+      totalElementos: 1,
+      totalPaginas: 1,
+    })
+
+    const delPaciente = await listarPrescripcionesDePaciente(42)
+    expect(delPaciente).toEqual([recetaDelPaciente])
+    expect(Array.isArray(delPaciente)).toBe(true)
   })
 
   it('anula con DELETE sobre el id', async () => {
@@ -157,7 +212,7 @@ describe('prescripciones · lo que viaja al backend', () => {
 
 describe('prescripciones · histórico con filtros combinables', () => {
   beforeEach(() => {
-    apiFetch.mockResolvedValue([])
+    apiFetch.mockResolvedValue(pagina([]))
   })
 
   it('sin ningún filtro, pide el histórico completo sin query string', async () => {
@@ -203,6 +258,28 @@ describe('prescripciones · histórico con filtros combinables', () => {
 
   it('arma el nombre completo del paciente de la receta', () => {
     expect(nombreDePacienteDeReceta(receta())).toBe('Ana María Ramírez')
+  })
+
+  // A diferencia de listarPrescripcionesDeConsulta/DePaciente, esta función
+  // NO desenvuelve: la pantalla de histórico necesita totalElementos y
+  // totalPaginas para saber si hay más que cargar. Si alguien la cambiara
+  // para devolver solo `.contenido` "por consistencia" con las otras dos,
+  // el botón «Cargar más» y el contador dejarían de tener con qué decidir
+  // si hay más páginas — esta prueba lo detecta comprobando que el sobre
+  // COMPLETO llega intacto hasta quien llamó, no solo el arreglo.
+  it('devuelve el sobre paginado completo, sin desenvolverlo', async () => {
+    const sobreReal = {
+      contenido: [receta()],
+      paginaActual: 2,
+      tamanoPagina: 20,
+      totalElementos: 57,
+      totalPaginas: 3,
+    }
+    apiFetch.mockResolvedValue(sobreReal)
+
+    const resultado = await listarHistoricoDePrescripciones({ pagina: 2 })
+
+    expect(resultado).toEqual(sobreReal)
   })
 })
 

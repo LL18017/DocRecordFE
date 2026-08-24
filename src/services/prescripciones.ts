@@ -12,6 +12,20 @@ import { ApiError, apiFetch } from '@/lib/api'
 import { formatearFechaHora } from './consultas'
 
 /**
+ * Sobre paginado con el que el backend envuelve TODA lista de `/prescripciones`
+ * (y otros listados): `contenido` trae solo los elementos de esta página,
+ * mientras que `totalElementos`/`totalPaginas` describen el conjunto completo.
+ * `paginaActual` es base 0.
+ */
+export interface PaginaDto<T> {
+  contenido: T[]
+  paginaActual: number
+  tamanoPagina: number
+  totalElementos: number
+  totalPaginas: number
+}
+
+/**
  * Una línea de la receta tal como la devuelve el backend.
  *
  * `dosis`, `frecuencia` y `duracion` son anulables porque el contrato las
@@ -148,61 +162,78 @@ export async function crearPrescripcion(
   }
 }
 
-/** Recetas emitidas en una consulta. */
+/**
+ * Recetas emitidas en una consulta.
+ *
+ * El backend responde con el sobre paginado de siempre (`PaginaDto`), pero
+ * esta función solo devuelve `.contenido`: el tamaño de página por defecto
+ * (20) cubre de sobra las recetas de una sola consulta, así que paginar aquí
+ * no aporta nada y solo complicaría a quien la llama.
+ */
 export async function listarPrescripcionesDeConsulta(
   consultaId: number,
 ): Promise<PrescripcionDto[]> {
-  return apiFetch<PrescripcionDto[]>(
+  const pagina = await apiFetch<PaginaDto<PrescripcionDto>>(
     `/prescripciones?consultaId=${encodeURIComponent(consultaId)}`,
   )
+  return pagina.contenido
 }
 
-/** Todas las recetas de un paciente, de todas sus consultas. */
+/**
+ * Todas las recetas de un paciente, de todas sus consultas.
+ *
+ * Mismo sobre paginado que arriba; se desenvuelve aquí por la misma razón.
+ */
 export async function listarPrescripcionesDePaciente(
   pacienteId: number,
 ): Promise<PrescripcionDto[]> {
-  return apiFetch<PrescripcionDto[]>(
+  const pagina = await apiFetch<PaginaDto<PrescripcionDto>>(
     `/prescripciones?pacienteId=${encodeURIComponent(pacienteId)}`,
   )
+  return pagina.contenido
 }
 
 /**
  * Filtros del histórico general de recetas. Todos opcionales y COMBINABLES:
  * el backend los aplica todos a la vez, no uno solo. `desde` y `hasta` son
  * fechas civiles `YYYY-MM-DD`, tal cual las entrega un `<input type="date">`,
- * sin transformar.
+ * sin transformar. `pagina` es base 0 (por defecto 0); `tamano` topa en 100
+ * del lado del backend (por defecto 20 si se omite).
  */
 export interface FiltroHistoricoDeRecetas {
   pacienteId?: number
   medicoId?: number
   desde?: string
   hasta?: string
+  pagina?: number
+  tamano?: number
 }
 
 /**
  * Histórico de recetas: `GET /prescripciones` con los filtros presentes,
- * combinables y todos opcionales. Sin ninguno, pide el histórico completo;
- * el orden (más reciente primero) lo garantiza el backend, así que aquí no
- * se reordena nada.
+ * combinables y todos opcionales. Sin ninguno, pide la primera página del
+ * histórico completo; el orden (más reciente primero) lo garantiza el
+ * backend, así que aquí no se reordena nada.
  *
- * PAGINACIÓN PENDIENTE: el contrato de `/prescripciones` todavía no decide
- * cómo se pagina (lo está definiendo la sesión que construye el backend en
- * paralelo). Por eso esta función pide TODO sin paginar por ahora —ninguna
- * pantalla depende de una forma de página que aún no existe—; el día que
- * llegue la forma real, es la única función que hay que tocar: está aislada
- * a propósito para eso.
+ * Devuelve el sobre paginado TAL CUAL —sin desenvolver—: a diferencia de
+ * `listarPrescripcionesDeConsulta`/`listarPrescripcionesDePaciente`, esta es
+ * la pantalla que necesita saber cuántas recetas hay en total y pedir más
+ * páginas, así que es la única función de este módulo que expone `PaginaDto`
+ * a quien la llama.
  */
 export async function listarHistoricoDePrescripciones(
   filtro: FiltroHistoricoDeRecetas = {},
-): Promise<PrescripcionDto[]> {
+): Promise<PaginaDto<PrescripcionDto>> {
   const params = new URLSearchParams()
   if (filtro.pacienteId !== undefined) params.set('pacienteId', String(filtro.pacienteId))
   if (filtro.medicoId !== undefined) params.set('medicoId', String(filtro.medicoId))
   if (filtro.desde !== undefined) params.set('desde', filtro.desde)
   if (filtro.hasta !== undefined) params.set('hasta', filtro.hasta)
+  if (filtro.pagina !== undefined) params.set('pagina', String(filtro.pagina))
+  if (filtro.tamano !== undefined) params.set('tamano', String(filtro.tamano))
 
   const query = params.toString()
-  return apiFetch<PrescripcionDto[]>(`/prescripciones${query ? `?${query}` : ''}`)
+  return apiFetch<PaginaDto<PrescripcionDto>>(`/prescripciones${query ? `?${query}` : ''}`)
 }
 
 /** Obtiene una receta. Lanza `ApiError` 404 si no existe. */

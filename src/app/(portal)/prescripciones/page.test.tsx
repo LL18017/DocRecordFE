@@ -15,12 +15,12 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ApiError } from '@/lib/api'
 import type { PacienteDto } from '@/services/pacientes'
-import type { FiltroHistoricoDeRecetas, PrescripcionDto } from '@/services/prescripciones'
+import type { FiltroHistoricoDeRecetas, PaginaDto, PrescripcionDto } from '@/services/prescripciones'
 import PrescripcionesPage from './page'
 
 const listarPacientes = vi.fn<() => Promise<PacienteDto[]>>()
 const listarHistoricoDePrescripciones =
-  vi.fn<(filtro?: FiltroHistoricoDeRecetas) => Promise<PrescripcionDto[]>>()
+  vi.fn<(filtro?: FiltroHistoricoDeRecetas) => Promise<PaginaDto<PrescripcionDto>>>()
 const eliminarPrescripcion = vi.fn<(id: number) => Promise<void>>()
 
 vi.mock('@/services/pacientes', () => ({
@@ -73,12 +73,31 @@ function receta(cambios: Partial<PrescripcionDto> = {}): PrescripcionDto {
   }
 }
 
+/**
+ * Envuelve una lista en el sobre paginado que el backend usa SIEMPRE para
+ * `/prescripciones`, tal como lo espera la pantalla desde que dejó de
+ * tratarlo como un arreglo plano.
+ */
+function sobre(
+  contenido: PrescripcionDto[],
+  extra: Partial<Omit<PaginaDto<PrescripcionDto>, 'contenido'>> = {},
+): PaginaDto<PrescripcionDto> {
+  return {
+    contenido,
+    paginaActual: 0,
+    tamanoPagina: 20,
+    totalElementos: contenido.length,
+    totalPaginas: contenido.length > 0 ? 1 : 0,
+    ...extra,
+  }
+}
+
 beforeEach(() => {
   listarPacientes.mockReset()
   listarHistoricoDePrescripciones.mockReset()
   eliminarPrescripcion.mockReset()
   listarPacientes.mockResolvedValue([paciente()])
-  listarHistoricoDePrescripciones.mockResolvedValue([receta()])
+  listarHistoricoDePrescripciones.mockResolvedValue(sobre([receta()]))
   eliminarPrescripcion.mockResolvedValue(undefined)
 })
 
@@ -112,9 +131,12 @@ describe('recetas · histórico al montar', () => {
     montar()
 
     // Sin filtros: el filtro que viaja al servicio no trae ningún valor
-    // definido (equivale a `{}` — `toHaveBeenCalledWith` ignora las claves en
-    // `undefined`, igual que hace el propio servicio al construir el query).
-    await waitFor(() => expect(listarHistoricoDePrescripciones).toHaveBeenCalledWith({}))
+    // definido salvo `pagina` (equivale a `{ pagina: 0 }` —
+    // `toHaveBeenCalledWith` ignora las claves en `undefined`, igual que hace
+    // el propio servicio al construir el query).
+    await waitFor(() =>
+      expect(listarHistoricoDePrescripciones).toHaveBeenCalledWith({ pagina: 0 }),
+    )
     expect(await screen.findByText(/receta #11/i)).toBeInTheDocument()
   })
 
@@ -129,6 +151,7 @@ describe('recetas · histórico al montar', () => {
       expect(listarHistoricoDePrescripciones).toHaveBeenLastCalledWith({
         pacienteId: 42,
         desde: '2026-01-01',
+        pagina: 0,
       }),
     )
   })
@@ -140,7 +163,7 @@ describe('recetas · histórico al montar', () => {
     await user.selectOptions(screen.getByLabelText('Médico'), '3')
 
     await waitFor(() =>
-      expect(listarHistoricoDePrescripciones).toHaveBeenLastCalledWith({ medicoId: 3 }),
+      expect(listarHistoricoDePrescripciones).toHaveBeenLastCalledWith({ medicoId: 3, pagina: 0 }),
     )
   })
 
@@ -151,7 +174,10 @@ describe('recetas · histórico al montar', () => {
     await user.type(screen.getByLabelText('Hasta'), '2026-12-31')
 
     await waitFor(() =>
-      expect(listarHistoricoDePrescripciones).toHaveBeenLastCalledWith({ hasta: '2026-12-31' }),
+      expect(listarHistoricoDePrescripciones).toHaveBeenLastCalledWith({
+        hasta: '2026-12-31',
+        pagina: 0,
+      }),
     )
   })
 
@@ -170,6 +196,7 @@ describe('recetas · histórico al montar', () => {
         medicoId: 3,
         desde: '2026-01-01',
         hasta: '2026-12-31',
+        pagina: 0,
       }),
     )
   })
@@ -180,24 +207,31 @@ describe('recetas · histórico al montar', () => {
 
     await user.selectOptions(screen.getByLabelText('Paciente'), '42')
     await waitFor(() =>
-      expect(listarHistoricoDePrescripciones).toHaveBeenLastCalledWith({ pacienteId: 42 }),
+      expect(listarHistoricoDePrescripciones).toHaveBeenLastCalledWith({
+        pacienteId: 42,
+        pagina: 0,
+      }),
     )
 
     await user.click(screen.getByRole('button', { name: /limpiar filtros/i }))
 
-    await waitFor(() => expect(listarHistoricoDePrescripciones).toHaveBeenLastCalledWith({}))
+    await waitFor(() =>
+      expect(listarHistoricoDePrescripciones).toHaveBeenLastCalledWith({ pagina: 0 }),
+    )
   })
 })
 
 describe('recetas · el filtro de médico no es un catálogo completo del personal', () => {
   it('solo ofrece médicos que ya aparecen en el histórico cargado', async () => {
-    listarHistoricoDePrescripciones.mockResolvedValue([
-      receta(),
-      receta({
-        prescripcionId: 12,
-        medico: { personaId: 9, nombres: 'Carla', apellidos: 'Sosa' },
-      }),
-    ])
+    listarHistoricoDePrescripciones.mockResolvedValue(
+      sobre([
+        receta(),
+        receta({
+          prescripcionId: 12,
+          medico: { personaId: 9, nombres: 'Carla', apellidos: 'Sosa' },
+        }),
+      ]),
+    )
     montar()
     await screen.findByText(/receta #11/i)
 
@@ -210,12 +244,95 @@ describe('recetas · el filtro de médico no es un catálogo completo del person
   })
 
   it('no repite un médico que firmó varias recetas en el histórico', async () => {
-    listarHistoricoDePrescripciones.mockResolvedValue([receta(), receta({ prescripcionId: 12 })])
+    listarHistoricoDePrescripciones.mockResolvedValue(
+      sobre([receta(), receta({ prescripcionId: 12 })]),
+    )
     montar()
     await screen.findByText(/receta #11/i)
 
     const selectorDeMedico = screen.getByLabelText('Médico')
     expect(within(selectorDeMedico).getAllByRole('option')).toHaveLength(2) // «Todos» + Juan Guerra, una sola vez
+  })
+})
+
+describe('recetas · el sobre paginado real (no un arreglo pelado)', () => {
+  // Estas son justo las pruebas que faltaban: el backend SIEMPRE envuelve
+  // /prescripciones en un sobre paginado (contenido/paginaActual/
+  // totalElementos/totalPaginas), y la pantalla reventó en producción porque
+  // trataba la respuesta como si fuera el arreglo directo. Un simulacro que
+  // devuelve un arreglo pelado no habría detectado eso; estas usan el sobre
+  // real, con más de una página, y comprueban que la pantalla lo pinta de
+  // verdad -el total, el botón de cargar más y lo que pasa al usarlo-.
+
+  it('muestra cuántas recetas hay en total, no solo cuántas se cargaron', async () => {
+    listarHistoricoDePrescripciones.mockResolvedValue(
+      sobre([receta()], { totalElementos: 57, totalPaginas: 3 }),
+    )
+    montar()
+
+    expect(await screen.findByText(/mostrando 1 de 57 recetas/i)).toBeInTheDocument()
+  })
+
+  it('ofrece «Cargar más» cuando quedan páginas, y pide la siguiente sumándola a la lista', async () => {
+    listarHistoricoDePrescripciones.mockResolvedValueOnce(
+      sobre([receta()], { paginaActual: 0, totalElementos: 2, totalPaginas: 2 }),
+    )
+    const user = montar()
+    await screen.findByText(/receta #11/i)
+
+    const segundaReceta = receta({ prescripcionId: 99 })
+    listarHistoricoDePrescripciones.mockResolvedValueOnce(
+      sobre([segundaReceta], { paginaActual: 1, totalElementos: 2, totalPaginas: 2 }),
+    )
+    await user.click(screen.getByRole('button', { name: /^cargar más$/i }))
+
+    await waitFor(() =>
+      expect(listarHistoricoDePrescripciones).toHaveBeenLastCalledWith({ pagina: 1 }),
+    )
+    // SUMA, no reemplaza: la primera receta sigue visible junto a la nueva.
+    expect(await screen.findByText(/receta #99/i)).toBeInTheDocument()
+    expect(screen.getByText(/receta #11/i)).toBeInTheDocument()
+    expect(await screen.findByText(/mostrando 2 de 2 recetas/i)).toBeInTheDocument()
+  })
+
+  it('no ofrece «Cargar más» cuando ya se cargó la última página', async () => {
+    listarHistoricoDePrescripciones.mockResolvedValue(
+      sobre([receta()], { paginaActual: 0, totalElementos: 1, totalPaginas: 1 }),
+    )
+    montar()
+
+    await screen.findByText(/receta #11/i)
+    expect(screen.queryByRole('button', { name: /^cargar más$/i })).toBeNull()
+  })
+
+  it('cambiar un filtro tras cargar más de una página reemplaza la lista, no la suma', async () => {
+    listarHistoricoDePrescripciones.mockResolvedValueOnce(
+      sobre([receta()], { paginaActual: 0, totalElementos: 2, totalPaginas: 2 }),
+    )
+    const user = montar()
+    await screen.findByText(/receta #11/i)
+
+    listarHistoricoDePrescripciones.mockResolvedValueOnce(
+      sobre([receta({ prescripcionId: 99 })], { paginaActual: 1, totalElementos: 2, totalPaginas: 2 }),
+    )
+    await user.click(screen.getByRole('button', { name: /^cargar más$/i }))
+    await screen.findByText(/receta #99/i)
+
+    // Ahora hay dos recetas acumuladas (páginas 0 y 1). Cambiar el filtro de
+    // médico debe volver a pedir desde la página 0 y REEMPLAZAR, no sumar
+    // una tercera receta a las dos que ya había.
+    const soloUnaReceta = receta({ prescripcionId: 5 })
+    listarHistoricoDePrescripciones.mockResolvedValueOnce(
+      sobre([soloUnaReceta], { paginaActual: 0, totalElementos: 1, totalPaginas: 1 }),
+    )
+    await user.selectOptions(screen.getByLabelText('Médico'), '3')
+
+    await waitFor(() =>
+      expect(listarHistoricoDePrescripciones).toHaveBeenLastCalledWith({ medicoId: 3, pagina: 0 }),
+    )
+    expect(await screen.findByText(/receta #5/i)).toBeInTheDocument()
+    expect(screen.queryByText(/receta #11/i)).toBeNull()
+    expect(screen.queryByText(/receta #99/i)).toBeNull()
   })
 })
 
@@ -248,7 +365,7 @@ describe('recetas · anulación', () => {
 
 describe('recetas · estados vacíos', () => {
   it('sin filtros y sin recetas, dice que no hay ninguna registrada', async () => {
-    listarHistoricoDePrescripciones.mockResolvedValue([])
+    listarHistoricoDePrescripciones.mockResolvedValue(sobre([]))
     montar()
 
     expect(
@@ -260,7 +377,7 @@ describe('recetas · estados vacíos', () => {
     const user = montar()
     await screen.findByText(/receta #11/i)
 
-    listarHistoricoDePrescripciones.mockResolvedValueOnce([])
+    listarHistoricoDePrescripciones.mockResolvedValueOnce(sobre([]))
     await user.selectOptions(screen.getByLabelText('Paciente'), '42')
 
     expect(await screen.findByText(/no hay recetas con estos filtros/i)).toBeInTheDocument()
@@ -284,7 +401,7 @@ describe('recetas · carga', () => {
     const user = montar()
     await screen.findByRole('alert')
 
-    listarHistoricoDePrescripciones.mockResolvedValue([receta()])
+    listarHistoricoDePrescripciones.mockResolvedValue(sobre([receta()]))
     await user.click(screen.getByRole('button', { name: /reintentar/i }))
 
     expect(await screen.findByText(/receta #11/i)).toBeInTheDocument()

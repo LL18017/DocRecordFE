@@ -26,8 +26,17 @@ export default function PrescripcionesPage() {
   const [pacientes, setPacientes] = useState<OpcionPaciente[]>([])
   const [cargandoPacientes, setCargandoPacientes] = useState(true)
 
+  // `prescripciones` acumula TODAS las páginas pedidas hasta el momento (la
+  // primera al montar o al cambiar un filtro, más las que sume «Cargar más»).
+  // `paginaActual`/`totalPaginas`/`totalElementos` vienen del último sobre
+  // recibido y describen el conjunto completo en el backend, no solo lo que
+  // ya se acumuló en pantalla.
   const [prescripciones, setPrescripciones] = useState<PrescripcionDto[]>([])
+  const [paginaActual, setPaginaActual] = useState(0)
+  const [totalPaginas, setTotalPaginas] = useState(0)
+  const [totalElementos, setTotalElementos] = useState(0)
   const [cargando, setCargando] = useState(true)
+  const [cargandoMas, setCargandoMas] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [emitiendo, setEmitiendo] = useState(false)
 
@@ -57,24 +66,41 @@ export default function PrescripcionesPage() {
     }
   }, [])
 
-  const cargarRecetas = useCallback(async () => {
-    const filtro: FiltroHistoricoDeRecetas = {
-      pacienteId: pacienteId ? Number(pacienteId) : undefined,
-      medicoId: medicoId ? Number(medicoId) : undefined,
-      desde: desde || undefined,
-      hasta: hasta || undefined,
-    }
-    try {
-      const lista = await listarHistoricoDePrescripciones(filtro)
-      setPrescripciones(lista)
-      setError(null)
-    } catch (err) {
-      setPrescripciones([])
-      setError(describir('No se pudieron cargar las recetas', err))
-    } finally {
-      setCargando(false)
-    }
-  }, [pacienteId, medicoId, desde, hasta])
+  /**
+   * Pide una página del histórico con los filtros vigentes.
+   *
+   * `pagina === 0` REEMPLAZA la lista acumulada (es el caso de montar la
+   * pantalla o cambiar/limpiar un filtro); cualquier página posterior se
+   * SUMA a lo ya mostrado, que es lo que hace «Cargar más».
+   */
+  const cargarRecetas = useCallback(
+    async (pagina: number) => {
+      const filtro: FiltroHistoricoDeRecetas = {
+        pacienteId: pacienteId ? Number(pacienteId) : undefined,
+        medicoId: medicoId ? Number(medicoId) : undefined,
+        desde: desde || undefined,
+        hasta: hasta || undefined,
+        pagina,
+      }
+      try {
+        const resultado = await listarHistoricoDePrescripciones(filtro)
+        setPrescripciones((prev) =>
+          pagina === 0 ? resultado.contenido : [...prev, ...resultado.contenido],
+        )
+        setPaginaActual(resultado.paginaActual)
+        setTotalPaginas(resultado.totalPaginas)
+        setTotalElementos(resultado.totalElementos)
+        setError(null)
+      } catch (err) {
+        if (pagina === 0) setPrescripciones([])
+        setError(describir('No se pudieron cargar las recetas', err))
+      } finally {
+        setCargando(false)
+        setCargandoMas(false)
+      }
+    },
+    [pacienteId, medicoId, desde, hasta],
+  )
 
   // Ver el comentario equivalente en (portal)/pacientes/page.tsx: la regla
   // rastrea los setState posteriores al await, pero cargar datos remotos al
@@ -91,7 +117,7 @@ export default function PrescripcionesPage() {
   // dispara este efecto.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ver comentario arriba
-    void cargarRecetas()
+    void cargarRecetas(0)
   }, [cargarRecetas])
 
   const reintentar = () => {
@@ -101,7 +127,13 @@ export default function PrescripcionesPage() {
       void cargarPacientes()
     }
     setCargando(true)
-    void cargarRecetas()
+    void cargarRecetas(0)
+  }
+
+  /** Pide la página siguiente a la última cargada y la suma a la lista. */
+  const handleCargarMas = () => {
+    setCargandoMas(true)
+    void cargarRecetas(paginaActual + 1)
   }
 
   const handleCambioDePaciente = (valor: string) => {
@@ -141,7 +173,7 @@ export default function PrescripcionesPage() {
     // quien recibió la receta nueva, es correcto que no aparezca: el filtro
     // está diciendo la verdad, no hay nada que esconder recargando distinto.
     setCargando(true)
-    void cargarRecetas()
+    void cargarRecetas(0)
   }
 
   const handleAnular = async (prescripcionId: number) => {
@@ -150,6 +182,9 @@ export default function PrescripcionesPage() {
     try {
       await eliminarPrescripcion(prescripcionId)
       setPrescripciones((prev) => prev.filter((p) => p.prescripcionId !== prescripcionId))
+      // El total que reporta el backend también baja: si no se ajusta aquí,
+      // «Mostrando N de TOTAL» miente hasta la próxima recarga.
+      setTotalElementos((prev) => Math.max(0, prev - 1))
     } catch (err) {
       setError(mensajeDe(err, 'No se pudo anular la receta.'))
     }
@@ -294,6 +329,13 @@ export default function PrescripcionesPage() {
         </div>
       </div>
 
+      {!cargando && prescripciones.length > 0 && (
+        <p className="text-xs text-slate-500 mb-3">
+          Mostrando {prescripciones.length} de {totalElementos} receta
+          {totalElementos === 1 ? '' : 's'}
+        </p>
+      )}
+
       {cargando ? (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-16 text-center text-sm text-slate-500">
           Cargando recetas…
@@ -391,6 +433,18 @@ export default function PrescripcionesPage() {
               </div>
             </div>
           ))}
+
+          {paginaActual + 1 < totalPaginas && (
+            <div className="text-center pt-2">
+              <button
+                onClick={handleCargarMas}
+                disabled={cargandoMas}
+                className="px-5 py-2.5 rounded-xl text-sm font-semibold text-purple-600 border-2 border-purple-100 hover:bg-purple-50 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {cargandoMas ? 'Cargando…' : 'Cargar más'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
