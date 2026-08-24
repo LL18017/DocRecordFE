@@ -35,12 +35,34 @@ export interface PrescripcionMedicoDto {
   apellidos: string
 }
 
-/** Espejo de `PrescripcionDto`. */
+/**
+ * Paciente tal como viene anidado en `PrescripcionDto`.
+ *
+ * Mismo shape EXACTO que `ConsultaPacienteDto` (services/consultas.ts):
+ * ambos anidan la misma proyección de `persona` que ya trae `expediente`, y
+ * duplicar el tipo en vez de reexportarlo evita que este módulo dependa de
+ * consultas por un detalle de forma, no de comportamiento.
+ */
+export interface PrescripcionPacienteDto {
+  personaId: number
+  expediente: string
+  nombres: string
+  apellidos: string
+}
+
+/**
+ * Espejo de `PrescripcionDto`.
+ *
+ * `paciente` es un campo ADITIVO: antes de él, esta pantalla no podía decir
+ * de quién era cada receta sin conocer ya el `pacienteId` que la filtraba
+ * (ver `listarHistoricoDePrescripciones`, que ahora no lo exige).
+ */
 export interface PrescripcionDto {
   prescripcionId: number
   /** Marca de tiempo de emisión; se pinta con `formatearFechaEmision`. */
   fecha: string
   consultaId: number
+  paciente: PrescripcionPacienteDto
   medico: PrescripcionMedicoDto
   medicamentos: MedicamentoPrescritoDto[]
 }
@@ -144,6 +166,45 @@ export async function listarPrescripcionesDePaciente(
   )
 }
 
+/**
+ * Filtros del histórico general de recetas. Todos opcionales y COMBINABLES:
+ * el backend los aplica todos a la vez, no uno solo. `desde` y `hasta` son
+ * fechas civiles `YYYY-MM-DD`, tal cual las entrega un `<input type="date">`,
+ * sin transformar.
+ */
+export interface FiltroHistoricoDeRecetas {
+  pacienteId?: number
+  medicoId?: number
+  desde?: string
+  hasta?: string
+}
+
+/**
+ * Histórico de recetas: `GET /prescripciones` con los filtros presentes,
+ * combinables y todos opcionales. Sin ninguno, pide el histórico completo;
+ * el orden (más reciente primero) lo garantiza el backend, así que aquí no
+ * se reordena nada.
+ *
+ * PAGINACIÓN PENDIENTE: el contrato de `/prescripciones` todavía no decide
+ * cómo se pagina (lo está definiendo la sesión que construye el backend en
+ * paralelo). Por eso esta función pide TODO sin paginar por ahora —ninguna
+ * pantalla depende de una forma de página que aún no existe—; el día que
+ * llegue la forma real, es la única función que hay que tocar: está aislada
+ * a propósito para eso.
+ */
+export async function listarHistoricoDePrescripciones(
+  filtro: FiltroHistoricoDeRecetas = {},
+): Promise<PrescripcionDto[]> {
+  const params = new URLSearchParams()
+  if (filtro.pacienteId !== undefined) params.set('pacienteId', String(filtro.pacienteId))
+  if (filtro.medicoId !== undefined) params.set('medicoId', String(filtro.medicoId))
+  if (filtro.desde !== undefined) params.set('desde', filtro.desde)
+  if (filtro.hasta !== undefined) params.set('hasta', filtro.hasta)
+
+  const query = params.toString()
+  return apiFetch<PrescripcionDto[]>(`/prescripciones${query ? `?${query}` : ''}`)
+}
+
 /** Obtiene una receta. Lanza `ApiError` 404 si no existe. */
 export async function obtenerPrescripcion(prescripcionId: number): Promise<PrescripcionDto> {
   try {
@@ -167,6 +228,11 @@ export async function eliminarPrescripcion(prescripcionId: number): Promise<void
 /** Nombre completo del médico que firma. */
 export function nombreDeMedicoQueReceta(prescripcion: PrescripcionDto): string {
   return `${prescripcion.medico.nombres} ${prescripcion.medico.apellidos}`.trim()
+}
+
+/** Nombre completo del paciente al que pertenece la receta. */
+export function nombreDePacienteDeReceta(prescripcion: PrescripcionDto): string {
+  return `${prescripcion.paciente.nombres} ${prescripcion.paciente.apellidos}`.trim()
 }
 
 /**

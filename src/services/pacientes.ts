@@ -34,6 +34,7 @@ export interface PersonaParaPaciente {
   sexo?: 'M' | 'F'
   telefono?: string
   direccion?: string
+  email?: string
 }
 
 export interface CrearPacientePayload {

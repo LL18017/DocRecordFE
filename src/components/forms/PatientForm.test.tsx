@@ -35,6 +35,7 @@ function persona(cambios: Partial<PersonaDto> = {}): PersonaDto {
     sexo: 'M',
     telefono: '7000-0000',
     direccion: 'San Salvador',
+    email: null,
     esMedico: false,
     esEnfermera: false,
     esPaciente: false,
@@ -172,6 +173,29 @@ describe('PatientForm · reutilizar una persona existente', () => {
     // ningún control que se llame así, solo el rótulo y su valor.
     expect(screen.queryByLabelText(/fecha de nacimiento/i)).not.toBeInTheDocument()
   })
+
+  it('muestra el correo que la persona ya tiene registrado, como texto y no como campo', async () => {
+    const user = montar()
+    buscarPersonaPorDui.mockResolvedValue(persona({ email: 'carlos@correo.com' }))
+
+    await buscarDui(user)
+
+    expect(await screen.findByText('carlos@correo.com')).toBeVisible()
+    expect(screen.queryByLabelText(/correo electrónico/i)).not.toBeInTheDocument()
+  })
+
+  it('dice "—" cuando la persona ya existente no tiene correo capturado', async () => {
+    const user = montar()
+    buscarPersonaPorDui.mockResolvedValue(persona({ email: null }))
+
+    await buscarDui(user)
+    await screen.findByText(/1996-06-15/)
+
+    // El correo va en el mismo resumen que teléfono/dirección: un dato
+    // opcional ausente se marca con «—», no se calla la fila entera.
+    const filaDeCorreo = (await screen.findByText('Correo')).closest('div')!
+    expect(filaDeCorreo).toHaveTextContent('—')
+  })
 })
 
 describe('PatientForm · persona nueva', () => {
@@ -196,7 +220,7 @@ describe('PatientForm · persona nueva', () => {
     expect(JSON.stringify(payload)).not.toMatch(/expediente/i)
   })
 
-  it('omite teléfono y dirección vacíos en vez de mandar cadenas vacías', async () => {
+  it('omite teléfono, dirección y correo vacíos en vez de mandar cadenas vacías', async () => {
     const user = montar()
     buscarPersonaPorDui.mockResolvedValue(null)
 
@@ -211,7 +235,23 @@ describe('PatientForm · persona nueva', () => {
     // hace que la clave ni siquiera viaje en el JSON.
     expect(payload.persona.telefono).toBeUndefined()
     expect(payload.persona.direccion).toBeUndefined()
-    expect(JSON.stringify(payload)).not.toMatch(/"telefono"|"direccion"/)
+    expect(payload.persona.email).toBeUndefined()
+    expect(JSON.stringify(payload)).not.toMatch(/"telefono"|"direccion"|"email"/)
+  })
+
+  it('manda el correo capturado, recortado de espacios', async () => {
+    const user = montar()
+    buscarPersonaPorDui.mockResolvedValue(null)
+
+    await buscarDui(user)
+    await user.type(await screen.findByLabelText(/^nombres/i), 'Ana')
+    await user.type(campoApellidos(), 'Rivas')
+    await user.type(campoFechaNacimiento(), '2000-03-02')
+    await user.type(screen.getByLabelText(/correo electrónico/i), '  ana@correo.com  ')
+
+    const payload = await guardar(user)
+
+    expect(payload.persona.email).toBe('ana@correo.com')
   })
 })
 
@@ -288,6 +328,7 @@ describe('PatientForm · accesibilidad de los campos', () => {
       /^teléfono/i,
       /fecha de nacimiento/i,
       /dirección de residencia/i,
+      /correo electrónico/i,
       /tipo sanguíneo/i,
     ]
     for (const etiqueta of etiquetas) {

@@ -61,7 +61,7 @@ vi.mock('@/services/prescripciones', async (importarOriginal) => {
 })
 
 const SESION: { user: User | null; activeClinic: Clinica | null } = {
-  user: { name: 'naun@docrecord.sv', email: 'naun@docrecord.sv', role: 'medico' },
+  user: { name: 'naun@docrecord.sv', email: 'naun@docrecord.sv', roles: ['medico'] },
   activeClinic: null,
 }
 
@@ -83,6 +83,7 @@ const PACIENTE: PacienteDto = {
     sexo: 'F',
     telefono: '7000-0000',
     direccion: 'San Salvador',
+    email: null,
   },
 }
 
@@ -110,6 +111,9 @@ function recetaEmitida(cambios: Partial<PrescripcionDto> = {}): PrescripcionDto 
     prescripcionId: 11,
     fecha: '2026-08-23T14:45:00',
     consultaId: 7,
+    // Campo aditivo nuevo de `PrescripcionDto` (services/prescripciones.ts):
+    // esta pantalla no lo usa, pero el tipo ya lo exige para compilar.
+    paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
     medico: { personaId: 3, nombres: 'Sofía', apellidos: 'Recinos' },
     medicamentos: [
       {

@@ -65,6 +65,7 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
   const [apellidos, setApellidos] = useState('')
   const [telefono, setTelefono] = useState('')
   const [direccion, setDireccion] = useState('')
+  const [email, setEmail] = useState('')
   const [fechaNacimiento, setFechaNacimiento] = useState('')
   const [sexo, setSexo] = useState<'M' | 'F'>('M')
 
@@ -155,6 +156,7 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
               sexo,
               telefono: telefono.trim() || undefined,
               direccion: direccion.trim() || undefined,
+              email: email.trim() || undefined,
             },
             tipoSangre,
           }
@@ -246,6 +248,7 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
                 {[
                   ['Teléfono', personaExistente.telefono || '—'],
                   ['Dirección', personaExistente.direccion || '—'],
+                  ['Correo', personaExistente.email || '—'],
                 ].map(([k, v]) => (
                   <div key={k}>
                     <span className="block text-xs text-slate-400 uppercase tracking-wide">{k}</span>
@@ -391,6 +394,19 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
                     value={direccion}
                     onChange={(e) => setDireccion(e.target.value)}
                     placeholder="San Salvador, El Salvador"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label htmlFor={id('email')} className={labelClass}>
+                    Correo electrónico
+                  </label>
+                  <input
+                    id={id('email')}
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="paciente@correo.com"
                     className={inputClass}
                   />
                 </div>

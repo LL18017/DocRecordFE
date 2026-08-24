@@ -25,6 +25,7 @@ function dto(persona: Partial<PacienteDto['persona']> = {}, resto: Partial<Pacie
       sexo: 'M',
       telefono: '7000-0000',
       direccion: 'San Salvador',
+      email: null,
       ...persona,
     },
     ...resto,
@@ -44,6 +45,9 @@ describe('pacienteDtoAPatient · nulos del backend', () => {
     expect(paciente.phone).toBe('—')
     expect(paciente.address).toBe('—')
     expect(paciente.blood).toBe('—')
+    // `email` es null aquí porque el fixture base (`dto()`) lo trae null por
+    // defecto: mismo caso que un paciente al que nunca se le capturó correo.
+    expect(paciente.email).toBe('—')
 
     // `consultations` es la ÚNICA excepción a la barrida de abajo, y es
     // deliberada: `GET /pacientes` no trae el conteo de consultas, así que el
@@ -91,6 +95,13 @@ describe('pacienteDtoAPatient · nulos del backend', () => {
     const paciente = pacienteDtoAPatient(dto({}, { personaId: 42 }))
 
     expect(paciente.id).toBe('42')
+  })
+})
+
+describe('pacienteDtoAPatient · correo del paciente', () => {
+  it('pasa el correo tal cual cuando la persona sí lo tiene capturado', () => {
+    const paciente = pacienteDtoAPatient(dto({ email: 'carlos@correo.com' }))
+    expect(paciente.email).toBe('carlos@correo.com')
   })
 })
 

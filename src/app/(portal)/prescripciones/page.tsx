@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { PrescriptionForm } from '@/components/forms/PrescriptionForm'
@@ -9,25 +9,36 @@ import { listarPacientes } from '@/services/pacientes'
 import { formatearFechaHora } from '@/services/consultas'
 import {
   eliminarPrescripcion,
-  listarPrescripcionesDePaciente,
+  listarHistoricoDePrescripciones,
   nombreDeMedicoQueReceta,
+  nombreDePacienteDeReceta,
   textoOpcional,
+  type FiltroHistoricoDeRecetas,
   type PrescripcionDto,
+  type PrescripcionMedicoDto,
 } from '@/services/prescripciones'
 
 const CABECERAS = ['Medicamento', 'Dosis', 'Frecuencia', 'Duración']
 
 export default function PrescripcionesPage() {
-  // El contrato no expone un `GET /prescripciones` sin filtro: las recetas se
-  // piden por consulta o por paciente. Por eso esta pantalla empieza eligiendo
-  // paciente en vez de intentar listar «todas» y recibir un 400.
+  // Catálogo de pacientes, para el filtro y para el formulario de emisión. Es
+  // un catálogo REAL: todo paciente existe ahí, tenga o no recetas.
   const [pacientes, setPacientes] = useState<OpcionPaciente[]>([])
-  const [pacienteId, setPacienteId] = useState<string>('')
-  const [prescripciones, setPrescripciones] = useState<PrescripcionDto[]>([])
   const [cargandoPacientes, setCargandoPacientes] = useState(true)
-  const [cargandoRecetas, setCargandoRecetas] = useState(false)
+
+  const [prescripciones, setPrescripciones] = useState<PrescripcionDto[]>([])
+  const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [emitiendo, setEmitiendo] = useState(false)
+
+  // Filtros del histórico. Los cuatro vacíos = histórico completo, que es lo
+  // que se pide al montar: ya no hace falta elegir un paciente primero.
+  const [pacienteId, setPacienteId] = useState('')
+  const [medicoId, setMedicoId] = useState('')
+  const [desde, setDesde] = useState('')
+  const [hasta, setHasta] = useState('')
+
+  const hayFiltrosActivos = Boolean(pacienteId || medicoId || desde || hasta)
 
   const cargarPacientes = useCallback(async () => {
     try {
@@ -39,10 +50,6 @@ export default function PrescripcionesPage() {
           expediente: p.expediente,
         })),
       )
-      // Se preselecciona el primero para que la pantalla muestre algo útil de
-      // entrada; sin pacientes no se selecciona nada y el aviso lo explica.
-      setPacienteId(lista[0] ? String(lista[0].personaId) : '')
-      setError(null)
     } catch (err) {
       setError(describir('No se pudo cargar el catálogo de pacientes', err))
     } finally {
@@ -50,23 +57,24 @@ export default function PrescripcionesPage() {
     }
   }, [])
 
-  const cargarRecetas = useCallback(async (idPaciente: string) => {
-    if (!idPaciente) {
-      setPrescripciones([])
-      setCargandoRecetas(false)
-      return
+  const cargarRecetas = useCallback(async () => {
+    const filtro: FiltroHistoricoDeRecetas = {
+      pacienteId: pacienteId ? Number(pacienteId) : undefined,
+      medicoId: medicoId ? Number(medicoId) : undefined,
+      desde: desde || undefined,
+      hasta: hasta || undefined,
     }
     try {
-      const lista = await listarPrescripcionesDePaciente(Number(idPaciente))
+      const lista = await listarHistoricoDePrescripciones(filtro)
       setPrescripciones(lista)
       setError(null)
     } catch (err) {
       setPrescripciones([])
-      setError(describir('No se pudieron cargar las recetas del paciente', err))
+      setError(describir('No se pudieron cargar las recetas', err))
     } finally {
-      setCargandoRecetas(false)
+      setCargando(false)
     }
-  }, [])
+  }, [pacienteId, medicoId, desde, hasta])
 
   // Ver el comentario equivalente en (portal)/pacientes/page.tsx: la regla
   // rastrea los setState posteriores al await, pero cargar datos remotos al
@@ -76,37 +84,64 @@ export default function PrescripcionesPage() {
     void cargarPacientes()
   }, [cargarPacientes])
 
+  // Este efecto corre al montar (histórico completo) y cada vez que cambia
+  // algún filtro, porque `cargarRecetas` cambia de identidad con ellos.
+  // `cargando` ya arranca en `true`, y los manejadores de cada filtro lo
+  // vuelven a poner en `true` antes de disparar el cambio de estado que
+  // dispara este efecto.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ver comentario arriba
-    void cargarRecetas(pacienteId)
-  }, [cargarRecetas, pacienteId])
+    void cargarRecetas()
+  }, [cargarRecetas])
 
   const reintentar = () => {
     setError(null)
     if (pacientes.length === 0) {
       setCargandoPacientes(true)
       void cargarPacientes()
-      return
     }
-    setCargandoRecetas(true)
-    void cargarRecetas(pacienteId)
+    setCargando(true)
+    void cargarRecetas()
   }
 
   const handleCambioDePaciente = (valor: string) => {
     setPacienteId(valor)
-    setCargandoRecetas(true)
+    setCargando(true)
+  }
+
+  const handleCambioDeMedico = (valor: string) => {
+    setMedicoId(valor)
+    setCargando(true)
+  }
+
+  const handleCambioDesde = (valor: string) => {
+    setDesde(valor)
+    setCargando(true)
+  }
+
+  const handleCambioHasta = (valor: string) => {
+    setHasta(valor)
+    setCargando(true)
+  }
+
+  const handleLimpiarFiltros = () => {
+    setPacienteId('')
+    setMedicoId('')
+    setDesde('')
+    setHasta('')
+    setCargando(true)
   }
 
   const handleEmitida = () => {
     setEmitiendo(false)
-    // No se inserta la receta recién emitida en la lista: `PrescripcionDto` no
-    // dice de qué paciente es (solo trae `consultaId` y el médico), y el
-    // formulario permite recetar a un paciente distinto del que se está
-    // mirando. Meterla a ciegas mostraría bajo un paciente una receta que es
-    // de otro. Se vuelve a pedir la lista del paciente filtrado, que es la
-    // única respuesta verdadera.
-    setCargandoRecetas(true)
-    void cargarRecetas(pacienteId)
+    // Se recarga el histórico con los FILTROS VIGENTES en este momento, no
+    // «las recetas del paciente que se estaba mirando»: ese era el bug
+    // reportado (el selector se quedaba en otro paciente y la receta nueva no
+    // encajaba ahí). Si hay un filtro de paciente activo que no coincide con
+    // quien recibió la receta nueva, es correcto que no aparezca: el filtro
+    // está diciendo la verdad, no hay nada que esconder recargando distinto.
+    setCargando(true)
+    void cargarRecetas()
   }
 
   const handleAnular = async (prescripcionId: number) => {
@@ -119,6 +154,31 @@ export default function PrescripcionesPage() {
       setError(mensajeDe(err, 'No se pudo anular la receta.'))
     }
   }
+
+  /**
+   * Médicos disponibles para el filtro.
+   *
+   * El <select> de médico NO es un catálogo completo del personal médico: no
+   * existe ningún endpoint que esta pantalla pueda consultar para armarlo (no
+   * hay `/medicos` ni nada equivalente expuesto aquí; lo único con roles de
+   * personal es `GET /user/all`, que es EXCLUSIVO DE ADMIN, y esta pantalla la
+   * usan médicos, no solo administradores). Inventar una lista completa
+   * prometería un filtro que no se puede armar de verdad.
+   *
+   * La salida honesta es filtrar por los médicos que YA aparecen en el
+   * histórico cargado hasta el momento (dedupe por `personaId`, usando
+   * `prescripcion.medico`): solo se puede elegir un médico que ya se vio
+   * recetar algo en lo que está a la vista, nunca uno que todavía no aparece
+   * en los resultados. No es un catálogo del personal, y este comentario
+   * existe para que nadie lo confunda con un descuido más adelante.
+   */
+  const medicos = useMemo(() => {
+    const mapa = new Map<number, PrescripcionMedicoDto>()
+    for (const rx of prescripciones) {
+      if (!mapa.has(rx.medico.personaId)) mapa.set(rx.medico.personaId, rx.medico)
+    }
+    return Array.from(mapa.values())
+  }, [prescripciones])
 
   return (
     <div>
@@ -152,41 +212,107 @@ export default function PrescripcionesPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-4 max-w-md">
-        <label
-          htmlFor="filtro-paciente"
-          className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide"
-        >
-          Paciente
-        </label>
-        <select
-          id="filtro-paciente"
-          value={pacienteId}
-          onChange={(e) => handleCambioDePaciente(e.target.value)}
-          disabled={cargandoPacientes || pacientes.length === 0}
-          className="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:border-purple-400 focus-visible:ring-2 focus-visible:ring-purple-400/40 disabled:bg-slate-50 disabled:text-slate-400"
-        >
-          {cargandoPacientes && <option value="">Cargando pacientes…</option>}
-          {!cargandoPacientes && pacientes.length === 0 && (
-            <option value="">No hay pacientes registrados</option>
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+            Filtros
+          </h2>
+          {hayFiltrosActivos && (
+            <button
+              onClick={handleLimpiarFiltros}
+              className="text-xs font-semibold text-purple-600 hover:underline cursor-pointer"
+            >
+              Limpiar filtros
+            </button>
           )}
-          {pacientes.map((p) => (
-            <option key={p.personaId} value={String(p.personaId)}>
-              {p.expediente ? `${p.nombre} (${p.expediente})` : p.nombre}
-            </option>
-          ))}
-        </select>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div>
+            <label htmlFor="filtro-paciente" className="block text-xs text-slate-500 mb-1">
+              Paciente
+            </label>
+            <select
+              id="filtro-paciente"
+              value={pacienteId}
+              onChange={(e) => handleCambioDePaciente(e.target.value)}
+              disabled={cargandoPacientes}
+              className="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:border-purple-400 focus-visible:ring-2 focus-visible:ring-purple-400/40 disabled:bg-slate-50 disabled:text-slate-400"
+            >
+              <option value="">Todos los pacientes</option>
+              {pacientes.map((p) => (
+                <option key={p.personaId} value={String(p.personaId)}>
+                  {p.expediente ? `${p.nombre} (${p.expediente})` : p.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="filtro-medico" className="block text-xs text-slate-500 mb-1">
+              Médico
+            </label>
+            <select
+              id="filtro-medico"
+              value={medicoId}
+              onChange={(e) => handleCambioDeMedico(e.target.value)}
+              className="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:border-purple-400 focus-visible:ring-2 focus-visible:ring-purple-400/40"
+            >
+              <option value="">Todos los médicos</option>
+              {medicos.map((m) => (
+                <option key={m.personaId} value={String(m.personaId)}>
+                  {m.nombres} {m.apellidos}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="filtro-desde" className="block text-xs text-slate-500 mb-1">
+              Desde
+            </label>
+            <input
+              id="filtro-desde"
+              type="date"
+              value={desde}
+              onChange={(e) => handleCambioDesde(e.target.value)}
+              className="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:border-purple-400 focus-visible:ring-2 focus-visible:ring-purple-400/40"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="filtro-hasta" className="block text-xs text-slate-500 mb-1">
+              Hasta
+            </label>
+            <input
+              id="filtro-hasta"
+              type="date"
+              value={hasta}
+              onChange={(e) => handleCambioHasta(e.target.value)}
+              className="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:border-purple-400 focus-visible:ring-2 focus-visible:ring-purple-400/40"
+            />
+          </div>
+        </div>
       </div>
 
-      {cargandoRecetas ? (
+      {cargando ? (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-16 text-center text-sm text-slate-500">
           Cargando recetas…
         </div>
       ) : prescripciones.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-16 text-center text-sm text-slate-400 italic">
-          {pacienteId
-            ? 'Este paciente todavía no tiene recetas emitidas.'
-            : 'Elige un paciente para ver sus recetas.'}
+          {hayFiltrosActivos ? (
+            <>
+              <p>No hay recetas con estos filtros.</p>
+              <button
+                onClick={handleLimpiarFiltros}
+                className="not-italic mt-2 font-semibold text-purple-600 hover:underline cursor-pointer"
+              >
+                Limpiar filtros
+              </button>
+            </>
+          ) : (
+            <p>Todavía no hay recetas registradas en el sistema.</p>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
@@ -200,9 +326,21 @@ export default function PrescripcionesPage() {
                   <h3 className="font-bold text-slate-800 font-outfit text-base">
                     Receta #{rx.prescripcionId}
                   </h3>
+                  {/* Antes no se podía mostrar el paciente aquí: `PrescripcionDto`
+                      no traía ese campo y la pantalla solo se veía filtrada por un
+                      único paciente elegido de antemano. Ahora el histórico junta
+                      recetas de varios pacientes a la vez, así que cada tarjeta
+                      tiene que decir de quién es, con el mismo peso visual que
+                      quién la firmó. */}
+                  <p className="text-sm font-semibold text-slate-700 mt-1">
+                    {nombreDePacienteDeReceta(rx)}
+                    {rx.paciente.expediente && (
+                      <span className="text-slate-400 font-normal"> ({rx.paciente.expediente})</span>
+                    )}
+                  </p>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    {formatearFechaHora(rx.fecha)} · {nombreDeMedicoQueReceta(rx)} · Consulta #
-                    {rx.consultaId}
+                    {formatearFechaHora(rx.fecha)} · Firmada por {nombreDeMedicoQueReceta(rx)} ·
+                    Consulta #{rx.consultaId}
                   </p>
                 </div>
                 <button
@@ -287,8 +425,8 @@ function mensajeDe(causa: unknown, respaldo: string): string {
 
 /**
  * Igual que `mensajeDe`, pero anteponiendo QUÉ se estaba haciendo: en esta
- * pantalla se piden dos cosas distintas (el catálogo de pacientes y las
- * recetas del elegido) y «Error del servidor (500).» a secas no dice cuál
+ * pantalla se piden dos cosas distintas (el catálogo de pacientes y el
+ * histórico de recetas) y «Error del servidor (500).» a secas no dice cuál
  * falló. Se AÑADE contexto, nunca se reemplaza el motivo.
  */
 function describir(contexto: string, causa: unknown): string {

@@ -22,6 +22,8 @@ export interface PersonaDto {
   sexo: 'M' | 'F' | null
   telefono: string | null
   direccion: string | null
+  /** Prerrequisito para darle acceso al portal del paciente; nulo si no se ha capturado. */
+  email: string | null
   esMedico: boolean
   esEnfermera: boolean
   esPaciente: boolean

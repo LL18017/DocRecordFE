@@ -40,6 +40,7 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
   const [apellidos, setApellidos] = useState(original.apellidos)
   const [telefono, setTelefono] = useState(original.telefono ?? '')
   const [direccion, setDireccion] = useState(original.direccion ?? '')
+  const [email, setEmail] = useState(original.email ?? '')
   const [fechaNacimiento, setFechaNacimiento] = useState(original.fechaNacimiento ?? '')
   const [sexo, setSexo] = useState<'M' | 'F'>(original.sexo ?? 'M')
   // '' representa "sin registrar" (tipoSangre puede venir null del backend);
@@ -58,6 +59,7 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
     if (apellidos !== original.apellidos) persona.apellidos = apellidos
     if (telefono !== (original.telefono ?? '')) persona.telefono = telefono
     if (direccion !== (original.direccion ?? '')) persona.direccion = direccion
+    if (email !== (original.email ?? '')) persona.email = email
     if (fechaNacimiento !== (original.fechaNacimiento ?? '')) persona.fechaNacimiento = fechaNacimiento
     if (sexo !== original.sexo) persona.sexo = sexo
 
@@ -65,7 +67,7 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
     if (Object.keys(persona).length > 0) payload.persona = persona
     if (tipoSangre && tipoSangre !== (paciente.tipoSangre ?? '')) payload.tipoSangre = tipoSangre
     return payload
-  }, [nombres, apellidos, telefono, direccion, fechaNacimiento, sexo, tipoSangre, original, paciente.tipoSangre])
+  }, [nombres, apellidos, telefono, direccion, email, fechaNacimiento, sexo, tipoSangre, original, paciente.tipoSangre])
 
   const hayCambios = Object.keys(cambios).length > 0
 
@@ -159,6 +161,20 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
             value={direccion}
             onChange={(e) => setDireccion(e.target.value)}
             placeholder="San Salvador, El Salvador"
+            className={inputClass}
+          />
+        </div>
+
+        <div className="col-span-2">
+          <label htmlFor={id('email')} className={labelClass}>
+            Correo electrónico
+          </label>
+          <input
+            id={id('email')}
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="paciente@correo.com"
             className={inputClass}
           />
         </div>

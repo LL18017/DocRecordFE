@@ -51,6 +51,9 @@ function receta(): PrescripcionDto {
     prescripcionId: 11,
     fecha: '2026-08-23T15:00:00',
     consultaId: 7,
+    // Campo aditivo nuevo de `PrescripcionDto` (services/prescripciones.ts):
+    // este formulario no lo usa, pero el tipo ya lo exige para compilar.
+    paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
     medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra' },
     medicamentos: [
       { id: 1, medicamento: 'Amoxicilina', dosis: '500 mg', frecuencia: null, duracion: null },

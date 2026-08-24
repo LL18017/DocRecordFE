@@ -12,10 +12,12 @@ import {
   crearPrescripcion,
   eliminarPrescripcion,
   formatearFechaEmision,
+  listarHistoricoDePrescripciones,
   listarPrescripcionesDeConsulta,
   listarPrescripcionesDePaciente,
   MENSAJE_RECETA_VACIA,
   nombreDeMedicoQueReceta,
+  nombreDePacienteDeReceta,
   normalizarMedicamentos,
   obtenerPrescripcion,
   textoOpcional,
@@ -34,6 +36,7 @@ function receta(cambios: Partial<PrescripcionDto> = {}): PrescripcionDto {
     prescripcionId: 11,
     fecha: '2026-08-23T15:00:00',
     consultaId: 7,
+    paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
     medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra' },
     medicamentos: [
       { id: 1, medicamento: 'Amoxicilina', dosis: '500 mg', frecuencia: 'cada 8 h', duracion: '7 días' },
@@ -149,6 +152,57 @@ describe('prescripciones · lo que viaja al backend', () => {
     await eliminarPrescripcion(11)
 
     expect(apiFetch).toHaveBeenCalledWith('/prescripciones/11', { method: 'DELETE' })
+  })
+})
+
+describe('prescripciones · histórico con filtros combinables', () => {
+  beforeEach(() => {
+    apiFetch.mockResolvedValue([])
+  })
+
+  it('sin ningún filtro, pide el histórico completo sin query string', async () => {
+    await listarHistoricoDePrescripciones()
+    expect(apiFetch).toHaveBeenCalledWith('/prescripciones')
+
+    apiFetch.mockClear()
+    await listarHistoricoDePrescripciones({})
+    expect(apiFetch).toHaveBeenCalledWith('/prescripciones')
+  })
+
+  it('filtra por pacienteId solo', async () => {
+    await listarHistoricoDePrescripciones({ pacienteId: 42 })
+    expect(apiFetch).toHaveBeenCalledWith('/prescripciones?pacienteId=42')
+  })
+
+  it('filtra por medicoId solo', async () => {
+    await listarHistoricoDePrescripciones({ medicoId: 3 })
+    expect(apiFetch).toHaveBeenCalledWith('/prescripciones?medicoId=3')
+  })
+
+  it('filtra por desde solo', async () => {
+    await listarHistoricoDePrescripciones({ desde: '2026-01-01' })
+    expect(apiFetch).toHaveBeenCalledWith('/prescripciones?desde=2026-01-01')
+  })
+
+  it('filtra por hasta solo', async () => {
+    await listarHistoricoDePrescripciones({ hasta: '2026-12-31' })
+    expect(apiFetch).toHaveBeenCalledWith('/prescripciones?hasta=2026-12-31')
+  })
+
+  it('combina los cuatro filtros a la vez en una sola llamada', async () => {
+    await listarHistoricoDePrescripciones({
+      pacienteId: 42,
+      medicoId: 3,
+      desde: '2026-01-01',
+      hasta: '2026-12-31',
+    })
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/prescripciones?pacienteId=42&medicoId=3&desde=2026-01-01&hasta=2026-12-31',
+    )
+  })
+
+  it('arma el nombre completo del paciente de la receta', () => {
+    expect(nombreDePacienteDeReceta(receta())).toBe('Ana María Ramírez')
   })
 })
 

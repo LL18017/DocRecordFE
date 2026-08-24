@@ -91,9 +91,8 @@ function formatearSexo(sexo: 'M' | 'F' | null): string {
 }
 
 /**
- * `email` no existe en `persona`, así que queda vacío. `fechaNacimiento` y
- * `sexo` siempre vienen presentes en un `PacienteDto`: el backend exige
- * ambos para crear el paciente (ver PatientForm).
+ * `fechaNacimiento` y `sexo` siempre vienen presentes en un `PacienteDto`: el
+ * backend exige ambos para crear el paciente (ver PatientForm).
  */
 export function pacienteDtoAPatient(p: PacienteDto): Patient {
   return {
@@ -111,7 +110,7 @@ export function pacienteDtoAPatient(p: PacienteDto): Patient {
     consultations: null,
     status: 'Activo',
     blood: p.tipoSangre || '—',
-    email: '',
+    email: p.persona.email || '—',
     address: p.persona.direccion || '—',
     born: p.persona.fechaNacimiento ? formatearFecha(p.persona.fechaNacimiento) : '—',
     // dui puede ser null: los menores de edad no tienen DUI.

@@ -48,6 +48,7 @@ function paciente(personaId: number, nombres: string): PacienteDto {
       sexo: 'M',
       telefono: '7000-0000',
       direccion: 'San Salvador',
+      email: null,
     },
   }
 }
