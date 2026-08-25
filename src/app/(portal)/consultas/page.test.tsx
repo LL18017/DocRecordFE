@@ -110,6 +110,50 @@ describe('consultas · lo que puede venir nulo', () => {
   })
 })
 
+describe('consultas · TODOS los campos anulables nulos a la vez', () => {
+  // Las pruebas de arriba anulan un campo por vez. El contrato permite que
+  // `motivo`, `diagnostico`, `clinica` y `medico.especialidad` vengan null
+  // JUNTOS en la misma fila —por ejemplo una consulta PENDIENTE, registrada
+  // sin sede, por un administrador que atiende sin especialidad capturada—,
+  // y nada garantiza que las guardas que funcionan una a una sigan
+  // funcionando cuando se combinan: un `??`/`?.` que dependiera por error de
+  // otro campo ya resuelto no se vería con un solo nulo a la vez.
+  const TODO_NULO = consulta({
+    consultaId: 99,
+    motivo: null,
+    diagnostico: null,
+    estado: 'PENDIENTE',
+    clinica: null,
+    medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra', especialidad: null },
+  })
+
+  it('pinta la fila entera sin reventar y sin ninguna palabra "null" visible', async () => {
+    listarConsultas.mockResolvedValue([TODO_NULO])
+
+    montar()
+
+    const fila = await filaDe('Ana María Ramírez')
+    // Dos guiones: uno por motivo, otro por diagnóstico.
+    expect(within(fila).getAllByText('—')).toHaveLength(2)
+    expect(within(fila).getByText(/sin sede registrada/i)).toBeInTheDocument()
+    expect(within(fila).queryByText(/null/i)).toBeNull()
+  })
+
+  it('sigue encontrándose por paciente aunque motivo, diagnóstico y clínica sean null a la vez', async () => {
+    listarConsultas.mockResolvedValue([TODO_NULO])
+    const user = montar()
+    await screen.findByText('Ana María Ramírez')
+
+    // Buscar por el nombre del paciente tiene que seguir funcionando: si el
+    // filtro reventara en cuanto `c.motivo` o `c.diagnostico` fueran null
+    // (`c.motivo.toLowerCase()` sin el `?.`), esta búsqueda nunca llegaría a
+    // comparar el nombre y la fila desaparecería con el primer carácter.
+    await user.type(screen.getByPlaceholderText(/buscar por paciente/i), 'ramírez')
+
+    expect(await screen.findByText('Ana María Ramírez')).toBeInTheDocument()
+  })
+})
+
 describe('consultas · buscar con una consulta sin motivo en la lista', () => {
   const SIN_MOTIVO = consulta({
     consultaId: 7,

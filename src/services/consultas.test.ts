@@ -10,7 +10,7 @@
 //  3. Que la traducción de errores solo sustituya al backend cuando gana
 //     precisión; taparlo con una frase fija ya dejó mensajes que mentían.
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import {
   actualizarConsulta,
@@ -182,6 +182,48 @@ describe('consultas · fechas', () => {
 
   it('devuelve la cadena tal cual si no es una fecha usable', () => {
     expect(formatearFechaHora('sin fecha')).toBe('sin fecha')
+  })
+})
+
+describe('consultas · un INSTANTE cerca de la medianoche (UTC vs. El Salvador)', () => {
+  // Distinto del caso ya cubierto en pacienteAdapter.test.ts: ahí el fallo era
+  // tratar una FECHA CIVIL (`YYYY-MM-DD`) como si tuviera hora. Aquí `fecha`
+  // SÍ es un instante real (`ConsultaDto.fecha`/`PrescripcionDto.fecha` llevan
+  // hora) y el propio docblock de `formatearFechaHora` dice que para un
+  // instante `new Date` es la interpretación CORRECTA: el día que hay que
+  // mostrar es el día local, no el día UTC. Estas pruebas fijan ese
+  // comportamiento con el desfase real de El Salvador (UTC-6) para que nadie
+  // lo "corrija" a mostrar el día UTC creyendo que repite el bug de la fecha
+  // civil.
+  const tzOriginal = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+
+  beforeEach(() => {
+    process.env.TZ = 'America/El_Salvador'
+  })
+
+  afterEach(() => {
+    process.env.TZ = tzOriginal
+  })
+
+  it('un instante que es "1 ene" en UTC pero "31 dic" en El Salvador muestra el día LOCAL', () => {
+    // 2026-01-01T02:00:00Z − 6h = 2025-12-31T20:00:00 en El Salvador.
+    const texto = formatearFechaHora('2026-01-01T02:00:00Z')
+
+    expect(texto).toContain('31')
+    expect(texto).toMatch(/dic/i)
+    expect(texto).toContain('2025')
+    expect(texto).not.toContain('2026')
+  })
+
+  it('un minuto antes y un minuto después del cruce de medianoche local caen en días distintos', () => {
+    // El cruce exacto en El Salvador (UTC-6) es las 06:00 UTC.
+    const antes = formatearFechaHora('2026-01-01T05:59:00Z') // 31 dic, 23:59 local
+    const despues = formatearFechaHora('2026-01-01T06:00:00Z') // 1 ene, 00:00 local
+
+    expect(antes).toContain('31')
+    expect(antes).toMatch(/dic/i)
+    expect(despues).toContain('1')
+    expect(despues).toMatch(/ene/i)
   })
 })
 

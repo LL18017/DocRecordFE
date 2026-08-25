@@ -8,7 +8,14 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
-import { actualizarClinica, crearClinica, eliminarClinica } from './clinicas'
+import {
+  actualizarClinica,
+  clinicaDtoAClinica,
+  crearClinica,
+  eliminarClinica,
+  formatearCoordenadas,
+  type ClinicaDto,
+} from './clinicas'
 
 const apiFetch = vi.hoisted(() => vi.fn())
 
@@ -31,6 +38,76 @@ async function errorDe(promesa: Promise<unknown>): Promise<Error> {
 
 beforeEach(() => {
   apiFetch.mockReset()
+})
+
+// Guardas de `clinicaDtoAClinica` y `formatearCoordenadas`, que hasta ahora
+// solo se ejercitaban de forma indirecta (a través de las pantallas). Se
+// prueban aquí con la forma REAL de `ClinicasResponseDto` —`latitud`/
+// `longitud` como `number | null`, tal como lo documenta `ClinicaDto`—, no con
+// un `Clinica` ya adaptado: es en la frontera del adaptador donde un `0` o un
+// texto inventado en vez de `null` se cuela sin que nada avise.
+describe('clinicaDtoAClinica · adapta ClinicasResponseDto tal cual llega', () => {
+  it('traslada las coordenadas cuando la clínica sí las tiene', () => {
+    const dto: ClinicaDto = { clinicaId: 1, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182 }
+
+    expect(clinicaDtoAClinica(dto)).toEqual({
+      id: 1,
+      name: 'Clínica Escalón',
+      lat: 13.7053,
+      lng: -89.2182,
+    })
+  })
+
+  it('conserva AMBOS nulos cuando la clínica no tiene ubicación registrada', () => {
+    // Forma real de una fila sin GPS todavía capturado: las dos columnas
+    // nulas a la vez, no una sola. Sustituir por 0 pondría la clínica en
+    // medio del golfo de Guinea sin que nadie lo note.
+    const dto: ClinicaDto = { clinicaId: 2, name: 'Clínica Sin Sede', latitud: null, longitud: null }
+
+    const clinica = clinicaDtoAClinica(dto)
+
+    expect(clinica.lat).toBeNull()
+    expect(clinica.lng).toBeNull()
+  })
+
+  it('conserva un solo nulo cuando falta nada más una coordenada', () => {
+    // Caso asimétrico: una fila cargada a mano con latitud pero no longitud.
+    // Si el adaptador colapsara "falta una" a "faltan las dos" perdería el
+    // dato real que sí llegó.
+    const dto: ClinicaDto = { clinicaId: 3, name: 'Clínica Parcial', latitud: 13.5, longitud: null }
+
+    const clinica = clinicaDtoAClinica(dto)
+
+    expect(clinica.lat).toBe(13.5)
+    expect(clinica.lng).toBeNull()
+  })
+})
+
+describe('formatearCoordenadas · con los nulos reales del backend', () => {
+  it('formatea con 4 decimales cuando hay ambas coordenadas', () => {
+    expect(formatearCoordenadas(13.7053, -89.2182)).toBe('13.7053, -89.2182')
+  })
+
+  it('devuelve null cuando faltan las dos coordenadas a la vez', () => {
+    expect(formatearCoordenadas(null, null)).toBeNull()
+  })
+
+  it('devuelve null cuando solo falta la latitud', () => {
+    // Una sola coordenada no ubica nada: no hay «casi una posición» que
+    // mostrar, así que esto también debe negarse por completo.
+    expect(formatearCoordenadas(null, -89.2182)).toBeNull()
+  })
+
+  it('devuelve null cuando solo falta la longitud', () => {
+    expect(formatearCoordenadas(13.7053, null)).toBeNull()
+  })
+
+  it('no confunde 0 con nulo: el (0, 0) del golfo de Guinea es una coordenada válida', () => {
+    // `0` es falsy en JS; una comparación con `||` en vez de `=== null`
+    // trataría una clínica real en el ecuador/meridiano como si no tuviera
+    // ubicación.
+    expect(formatearCoordenadas(0, 0)).toBe('0.0000, 0.0000')
+  })
 })
 
 describe('clínicas · 400 de validación', () => {

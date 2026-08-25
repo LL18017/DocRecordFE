@@ -200,6 +200,60 @@ describe('FormularioClinica · el aviso de validación', () => {
   })
 })
 
+describe('clínicas · sin ubicación (nulos reales de ClinicasResponseDto)', () => {
+  // `latitud`/`longitud` son `number | null` en el contrato real (ver el
+  // docblock de `ClinicaDto`): una sede se puede registrar por su nombre
+  // antes de que alguien tome el GPS. El mock de aquí abajo usa la forma
+  // EXACTA que devuelve `GET /clinics/mias`, nulos incluidos, no un `Clinica`
+  // ya adaptado — es la frontera donde ya falló antes un contrato distinto
+  // (prescripciones) por confiar en la forma que el frontend suponía.
+  it('pinta "Sin ubicación registrada" en vez de reventar con una clínica sin coordenadas', async () => {
+    listarMisClinicas.mockResolvedValue([
+      { clinicaId: 5, name: 'Clínica Recién Creada', latitud: null, longitud: null },
+    ])
+
+    render(<ClinicasPage />)
+
+    expect(await screen.findAllByText('Clínica Recién Creada')).not.toHaveLength(0)
+    expect(screen.getAllByText(/sin ubicación registrada/i).length).toBeGreaterThan(0)
+    // Ningún NaN ni "null, null" filtrándose al texto visible.
+    expect(screen.queryByText(/nan/i)).toBeNull()
+    expect(screen.queryByText(/null/i)).toBeNull()
+  })
+
+  it('cuenta correctamente cuántas clínicas quedan fuera del mapa cuando se mezclan con y sin ubicación', async () => {
+    listarMisClinicas.mockResolvedValue([
+      { clinicaId: 1, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182 },
+      { clinicaId: 2, name: 'Clínica Sin GPS A', latitud: null, longitud: null },
+      { clinicaId: 3, name: 'Clínica Sin GPS B', latitud: null, longitud: null },
+    ])
+
+    render(<ClinicasPage />)
+
+    await screen.findAllByText('Clínica Escalón')
+    // Dos de las tres no tienen ubicación: el aviso del mapa debe decir "2
+    // clínicas", en plural y con el número correcto — no "1" (contaría solo
+    // la última) ni "3" (contaría también la que sí tiene coordenadas).
+    expect(
+      await screen.findByText(/2 clínicas no aparecen en el mapa porque no tienen ubicación registrada/i),
+    ).toBeInTheDocument()
+  })
+
+  it('con una sola clínica sin ubicación, el aviso del mapa usa el singular', async () => {
+    listarMisClinicas.mockResolvedValue([
+      { clinicaId: 1, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182 },
+      { clinicaId: 2, name: 'Clínica Sin GPS', latitud: null, longitud: null },
+    ])
+
+    render(<ClinicasPage />)
+
+    await screen.findAllByText('Clínica Escalón')
+    expect(
+      await screen.findByText(/^1 clínica no aparece en el mapa porque no tiene ubicación registrada\.$/i),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('FormularioClinica · edición', () => {
   it('abre con los datos de la clínica en los campos que anuncia su etiqueta', async () => {
     await abrirEdicion()

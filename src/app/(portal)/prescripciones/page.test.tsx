@@ -116,6 +116,30 @@ describe('recetas · campos opcionales', () => {
     expect(within(fila).getAllByText('—')).toHaveLength(2)
   })
 
+  it('con dosis, frecuencia Y duración null a la vez, pinta los tres guiones', async () => {
+    // El fixture base solo anula dos de los tres campos. El contrato permite
+    // que un médico registre un medicamento sin ningún dato de dosificación
+    // (todos opcionales, y opcionales de verdad: pueden faltar los tres a la
+    // vez, no de a uno). Sin `textoOpcional` en las tres celdas a la vez, la
+    // fila mostraría "null" tres veces en una receta que alguien lleva a la
+    // farmacia.
+    listarHistoricoDePrescripciones.mockResolvedValue(
+      sobre([
+        receta({
+          medicamentos: [
+            { id: 1, medicamento: 'Paracetamol', dosis: null, frecuencia: null, duracion: null },
+          ],
+        }),
+      ]),
+    )
+
+    montar()
+
+    const fila = (await screen.findByText('Paracetamol')).closest('tr')!
+    expect(within(fila).getAllByText('—')).toHaveLength(3)
+    expect(within(fila).queryByText(/null/i)).toBeNull()
+  })
+
   it('muestra de quién es la receta y quién la firmó', async () => {
     montar()
 
