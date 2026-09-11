@@ -55,7 +55,6 @@ export const authService = {
     // }
 
     const data = await response.json();
-    console.log(data)
     const token = data.token;
 
     setSessionTokenCookie(token);
