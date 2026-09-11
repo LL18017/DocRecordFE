@@ -1,7 +1,7 @@
 'use client'
 
+import { Clinica, User } from '@/types'
 import React, { createContext, useContext, useState } from 'react'
-import { User, Clinica } from '@/types'
 interface AppContextType {
   user: User
   setUser: (user: User) => void
@@ -32,7 +32,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   })
 
   return (
-    <AppContext.Provider value={{ user, setUser, activeClinic, setActiveClinic }}>
+    <AppContext.Provider
+      value={{
+        user,
+        setUser,
+        activeClinic,
+        setActiveClinic,
+      }}
+    >
       {children}
     </AppContext.Provider>
   )
@@ -44,4 +51,17 @@ export const useAppContext = (): AppContextType => {
     throw new Error('useAppContext must be used within an AppProvider')
   }
   return context
+}
+
+/**
+ * Igual que `useAppContext`, pero para pantallas que solo se renderizan dentro
+ * del portal, donde `PortalLayout` ya garantizó que hay sesión. Evita repetir
+ * comprobaciones de `null` en cada componente.
+ */
+export const useUsuarioAutenticado = (): User => {
+  const { user } = useAppContext()
+  if (!user) {
+    throw new Error('useUsuarioAutenticado requiere una sesión activa')
+  }
+  return user
 }

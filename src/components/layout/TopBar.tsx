@@ -31,7 +31,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   const router = useRouter()
   const pathname = usePathname()
-  const { user, activeClinic } = useAppContext()
+  const { activeClinic, user } = useAppContext()
   const [menuOpen, setMenuOpen] = useState(false)
 
   const currentTitle =
