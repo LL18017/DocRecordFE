@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { Icon } from '@/components/ui/Icon'
 import { useAppContext } from '@/context/AppContext'
+import { authService } from '@/services/auth.service'
 
 interface TopBarProps {
   title?: string
@@ -93,7 +94,6 @@ export const TopBar: React.FC<TopBarProps> = ({
             <div className="px-4 py-3 border-b border-slate-100">
               <p className="font-semibold text-slate-800 text-sm truncate">{user.name}</p>
               <p className="text-xs text-slate-500 capitalize">
-                {user.role}
                 {user.specialty ? ` · ${user.specialty}` : ''}
               </p>
               {activeClinic && (
@@ -122,6 +122,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors font-medium cursor-pointer"
                 onClick={() => {
                   setMenuOpen(false)
+                  authService.logout()
                   router.push('/')
                 }}
               >

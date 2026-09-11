@@ -1,6 +1,8 @@
 'use client'
 
 import { Icon } from '@/components/ui/Icon'
+import Skeleton from '@/components/ui/Skeleton'
+import { useLoading } from '@/hooks/useLoading'
 import { authService } from '@/services/auth.service'
 import { IconName, LoginRequest, Role } from '@/types'
 import Link from 'next/link'
@@ -15,6 +17,7 @@ const features: { icon: IconName; text: string }[] = [
 
 export default function LoginPage() {
   const router = useRouter()
+  const { loading, startLoading, stopLoading } = useLoading(false)
   const [role, setRole] = useState<Role>({
     roleId: 2,
     name: 'Enfermera',
@@ -24,12 +27,15 @@ export default function LoginPage() {
     password: '',
   })
 
-  async function handleLogin (e: React.SubmitEvent<HTMLFormElement>) {
+  async function handleLogin(e: React.SubmitEvent<HTMLFormElement>) {
+    startLoading()
     e.preventDefault()
-    
+
     const res = await authService.login(user)
-    if(res.token)
+    if (res.token)
       router.push('/select-clinica')
+    else
+      stopLoading()
   }
 
   return (
@@ -37,94 +43,98 @@ export default function LoginPage() {
       {/* Left login form*/}
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-6 transition-colors"
-          >
-            <Icon name="back" size={16} /> Volver
-          </Link>
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-slate-800 mb-2 font-outfit">Iniciar sesión</h1>
-            <p className="text-slate-500 text-sm">Ingresa tus credenciales para continuar</p>
-          </div>
-
-          <form onSubmit={handleLogin} className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
-            {/* Role selector */}
-            <div className="mb-6">
-              <label className="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">
-                Rol de acceso
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {([['medico', 'Médico'], ['enfermera', 'Enfermera']]).map(([r, label]) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setRole({roleId: (r === 'medico') ? 1 : 2, name: label})}
-                    className={`py-3 rounded-xl text-sm font-medium border-2 transition-all flex flex-col items-center gap-1.5 cursor-pointer 
-                      ${role.name === label
-                      ? 'border-blue-600 text-blue-700 bg-blue-50/70 font-semibold'
-                      : 'border-slate-200 text-slate-500 hover:border-slate-300 bg-slate-50/50'
-                      }`}
-                  >
-                    <Icon
-                      name={r === 'medico' ? 'consultas' : 'enfermeria'}
-                      size={18}
-                      color={role.name === label ? '#1d4ed8' : '#94a3b8'}
-                    />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Form fields */}
-            <div className="space-y-4 mb-6">
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">
-                  Correo electrónico
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="juan.guerra@docrecord.sv"
-                  onChange={(e) => { setUser({ ...user, email: e.target.value }) }}
-                  className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">
-                  Contraseña
-                </label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  onChange={(e) => { setUser({ ...user, password: e.target.value }) }}
-                  className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none 
-                    focus:border-doc-blue transition-colors bg-white"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-3.5 rounded-2xl font-semibold text-white text-base bg-linear-to-r 
-                from-doc-blue to-doc-blue-light hover:opacity-95 shadow-md shadow-doc-blue/20 transition-all cursor-pointer"
-            >
-              Ingresar al sistema
-            </button>
-
-            <p className="text-center text-sm text-slate-500 mt-5">
-              ¿Sin cuenta?{' '}
+          {loading ? (<Skeleton rows={5} />) : (
+            <div>
               <Link
-                href="/register"
-                className="font-semibold text-doc-blue hover:underline cursor-pointer"
+                href="/"
+                className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-6 transition-colors"
               >
-                Registrarme como médico
+                <Icon name="back" size={16} /> Volver
               </Link>
-            </p>
-          </form>
+              <div className="text-center mb-8">
+                <h1 className="text-3xl font-bold text-slate-800 mb-2 font-outfit">Iniciar sesión</h1>
+                <p className="text-slate-500 text-sm">Ingresa tus credenciales para continuar</p>
+              </div>
 
+              <form onSubmit={handleLogin} className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
+                {/* Role selector */}
+                <div className="mb-6">
+                  <label className="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">
+                    Rol de acceso
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([['medico', 'Médico'], ['enfermera', 'Enfermera']]).map(([r, label]) => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => setRole({ roleId: (r === 'medico') ? 1 : 2, name: label })}
+                        className={`py-3 rounded-xl text-sm font-medium border-2 transition-all flex flex-col items-center gap-1.5 cursor-pointer 
+                      ${role.name === label
+                            ? 'border-blue-600 text-blue-700 bg-blue-50/70 font-semibold'
+                            : 'border-slate-200 text-slate-500 hover:border-slate-300 bg-slate-50/50'
+                          }`}
+                      >
+                        <Icon
+                          name={r === 'medico' ? 'consultas' : 'enfermeria'}
+                          size={18}
+                          color={role.name === label ? '#1d4ed8' : '#94a3b8'}
+                        />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Form fields */}
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">
+                      Correo electrónico
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="juan.guerra@docrecord.sv"
+                      onChange={(e) => { setUser({ ...user, email: e.target.value }) }}
+                      className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">
+                      Contraseña
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="••••••••"
+                      onChange={(e) => { setUser({ ...user, password: e.target.value }) }}
+                      className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none 
+                    focus:border-doc-blue transition-colors bg-white"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3.5 rounded-2xl font-semibold text-white text-base bg-linear-to-r 
+                from-doc-blue to-doc-blue-light hover:opacity-95 shadow-md shadow-doc-blue/20 transition-all cursor-pointer"
+                >
+                  Ingresar al sistema
+                </button>
+
+                <p className="text-center text-sm text-slate-500 mt-5">
+                  ¿Sin cuenta?{' '}
+                  <Link
+                    href="/register"
+                    className="font-semibold text-doc-blue hover:underline cursor-pointer"
+                  >
+                    Registrarme como médico
+                  </Link>
+                </p>
+              </form>
+
+            </div>
+          )}
         </div>
       </div>
 

@@ -1,27 +1,42 @@
 'use client'
 
-import React, { useState } from 'react'
-import { Clinica } from '@/types'
-import { clinicas as initialClinicas } from '@/data/mockData'
+import { ClinicForm } from '@/components/forms/ClinicForm'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
-import { ClinicForm } from '@/components/forms/ClinicForm'
 import { useAppContext } from '@/context/AppContext'
+import { clinicaService } from '@/services/clinica.service'
+import { Clinica } from '@/types'
+import { useEffect, useState } from 'react'
 
 export default function ClinicasPage() {
   const { activeClinic, setActiveClinic } = useAppContext()
-  const [list, setList] = useState<Clinica[]>(initialClinicas)
-  const [selected, setSelected] = useState<Clinica>(initialClinicas[0])
+  const [list, setList] = useState<Clinica[]>([])
+  const [selected, setSelected] = useState<Clinica>()
   const [showNew, setShowNew] = useState(false)
   const [workModal, setWorkModal] = useState<Clinica | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<Clinica | null>(null)
 
-  const handleCreateClinic = (clinic: Clinica) => {
-    setList((prev) => [...prev, clinic])
-    setSelected(clinic)
-    setShowNew(false)
+  async function getClinicas() {
+    const res = await clinicaService.list(2)
+    console.log(activeClinic)
+    if (res.success)
+      setList(res.data)
   }
+
+  const handleCreateClinic = async (clinic: Clinica) => {
+    clinic.userId = 2
+    const res = await clinicaService.create(clinic)
+    if (res.success) {
+      setShowNew(false)
+      getClinicas()
+    }
+  }
+
+  useEffect(() => {
+    getClinicas()
+    setSelected(activeClinic!)
+  }, [])
 
   return (
     <div>
@@ -51,16 +66,15 @@ export default function ClinicasPage() {
             Clínicas registradas ({list.length})
           </h3>
           {list.map((c) => {
-            const isActive = activeClinic?.id === c.id
-            const isSelected = selected.id === c.id
+            const isActive = activeClinic?.clinicaId === c.clinicaId
+            const isSelected = activeClinic?.clinicaId === c.clinicaId
             return (
               <div
-                key={c.id}
-                className={`rounded-2xl border-2 transition-all overflow-hidden ${
-                  isSelected
-                    ? 'border-blue-400 bg-blue-50/70 shadow-xs'
-                    : 'border-slate-200 bg-white hover:border-slate-300'
-                }`}
+                key={c.clinicaId}
+                className={`rounded-2xl border-2 transition-all overflow-hidden ${isSelected
+                  ? 'border-blue-400 bg-blue-50/70 shadow-xs'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
               >
                 <button
                   type="button"
@@ -69,9 +83,8 @@ export default function ClinicasPage() {
                 >
                   <div className="flex items-center gap-3">
                     <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center relative shadow-2xs ${
-                        isSelected ? 'bg-doc-blue text-white' : 'bg-doc-surface text-slate-500'
-                      }`}
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center relative shadow-2xs 
+                        ${isSelected ? 'bg-doc-blue text-white' : 'bg-doc-surface text-slate-500'}`}
                     >
                       <Icon name="clinicas" size={18} />
                       {isActive && (
@@ -82,24 +95,23 @@ export default function ClinicasPage() {
                       <div className="flex items-center gap-2">
                         <p className="font-semibold text-slate-800 text-sm truncate font-outfit">{c.name}</p>
                         {isActive && <Badge color="green">Activa</Badge>}
+                        <button
+                          onClick={() => setDeleteConfirm(c)}
+                          className="ml-auto w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-500 hover:bg-blue-100 transition-colors cursor-pointer"
+                          title="Editar clínica"
+                        >
+                          <Icon name="edit" size={14} />
+                        </button>
                       </div>
-                      <p className="text-xs text-slate-400 truncate">{c.address}</p>
                     </div>
-                  </div>
-                  <div className="mt-3 flex items-center gap-3 text-xs text-slate-500">
-                    <span>{c.phone}</span>
-                    <span className="ml-auto">
-                      <Badge color="blue">{c.patients} pacientes</Badge>
-                    </span>
                   </div>
                 </button>
 
                 <div className="flex items-center gap-2 px-4 pb-3">
                   <button
-                    onClick={() => setWorkModal(c)}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold text-white transition-all shadow-xs cursor-pointer ${
-                      isActive ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-doc-blue hover:bg-doc-blue-light'
-                    }`}
+                    onClick={() => !isActive && setWorkModal(c)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold text-white 
+                      transition-all shadow-xs cursor-pointer ${isActive ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-doc-blue hover:bg-doc-blue-light'}`}
                   >
                     {isActive ? (
                       <>
@@ -118,6 +130,7 @@ export default function ClinicasPage() {
                   >
                     <Icon name="delete" size={14} />
                   </button>
+
                 </div>
               </div>
             )
@@ -129,23 +142,22 @@ export default function ClinicasPage() {
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white">
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-slate-800 font-outfit">{selected.name}</h3>
-                {activeClinic?.id === selected.id && <Badge color="green">Clínica activa</Badge>}
+                <h3 className="font-bold text-slate-800 font-outfit">{selected?.name}</h3>
+                {activeClinic?.clinicaId === selected?.clinicaId && <Badge color="green">Clínica activa</Badge>}
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">{selected.address}</p>
             </div>
             <div className="flex items-center gap-3">
               <span className="font-mono text-xs text-slate-400">
-                {selected.lat.toFixed(4)}, {selected.lng.toFixed(4)}
+                {/* {selected?.latitud.toFixed(4)}, {selected?.longitud.toFixed(4)} */}
               </span>
               <button
-                onClick={() => setWorkModal(selected)}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-white text-xs font-semibold transition-all shadow-xs cursor-pointer ${
-                  activeClinic?.id === selected.id ? 'bg-emerald-600' : 'bg-doc-blue hover:opacity-90'
-                }`}
+                onClick={() => setWorkModal(selected!)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-white text-xs font-semibold transition-all 
+                  shadow-xs cursor-pointer ${activeClinic?.clinicaId === selected?.clinicaId ? 'bg-emerald-600' : 'bg-doc-blue hover:opacity-90'
+                  }`}
               >
                 <Icon name="clinicas" size={13} color="white" />
-                {activeClinic?.id === selected.id ? 'Activa' : 'Trabajar aquí'}
+                {activeClinic?.clinicaId === selected?.clinicaId ? 'Activa' : 'Trabajar aquí'}
               </button>
             </div>
           </div>
@@ -156,8 +168,8 @@ export default function ClinicasPage() {
             {/* Street/blocks decorations */}
             {[
               { x: '30%', y: '40%', w: 120, h: 60, color: '#c8b870', label: 'Barrio Centro' },
-              { x: '55%', y: '25%', w: 80, h: 40, color: '#c8b870', label: '' },
-              { x: '20%', y: '60%', w: 100, h: 50, color: '#c8b870', label: '' },
+              { x: '55%', y: '25%', w: 80, h: 40, color: '#c8b870', label: 'Sarita' },
+              { x: '20%', y: '60%', w: 100, h: 50, color: '#c8b870', label: 'Super Mr' },
               { x: '65%', y: '55%', w: 90, h: 45, color: '#c8b870', label: 'Zona Comercial' },
             ].map((block, i) => (
               <div
@@ -199,7 +211,7 @@ export default function ClinicasPage() {
             {/* Clinic pins */}
             {list.map((c, i) => (
               <button
-                key={c.id}
+                key={c.clinicaId}
                 onClick={() => {
                   setSelected(c)
                   setWorkModal(c)
@@ -212,28 +224,27 @@ export default function ClinicasPage() {
                 }}
               >
                 <div
-                  className={`w-9 h-9 rounded-full border-2 border-white shadow-lg flex items-center justify-center ${
-                    activeClinic?.id === c.id
-                      ? 'bg-emerald-600'
-                      : selected.id === c.id
+                  className={`w-9 h-9 rounded-full border-2 border-white shadow-lg flex items-center justify-center ${activeClinic?.clinicaId === c.clinicaId
+                    ? 'bg-emerald-600'
+                    : selected?.clinicaId === c.clinicaId
                       ? 'bg-doc-blue'
                       : 'bg-doc-amber'
-                  }`}
+                    }`}
                 >
                   <Icon name="clinicas" size={15} color="white" />
                 </div>
                 <div
-                  className={`w-2 h-2 rounded-full mx-auto -mt-0.5 ${
-                    activeClinic?.id === c.id
-                      ? 'bg-emerald-600'
-                      : selected.id === c.id
+                  className={`w-2 h-2 rounded-full mx-auto -mt-0.5 ${activeClinic?.clinicaId === c.clinicaId
+                    ? 'bg-emerald-600'
+                    : selected?.clinicaId === c.clinicaId
                       ? 'bg-doc-blue'
                       : 'bg-doc-amber'
-                  }`}
+                    }`}
                 />
-                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-lg px-3 py-1.5 whitespace-nowrap text-xs font-medium text-slate-700 border border-slate-100">
+                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-lg px-3 py-1.5 
+                  whitespace-nowrap text-xs font-medium text-slate-700 border border-slate-100">
                   {c.name.split(' ').slice(0, 2).join(' ')}
-                  {activeClinic?.id === c.id && <span className="text-emerald-600 font-bold ml-1">✓</span>}
+                  {activeClinic?.clinicaId === c.clinicaId && <span className="text-emerald-600 font-bold ml-1">✓</span>}
                 </div>
               </button>
             ))}
@@ -267,20 +278,18 @@ export default function ClinicasPage() {
         {workModal && (
           <div className="text-center py-2">
             <h4 className="text-lg font-bold mb-1 text-doc-blue font-outfit">{workModal.name}</h4>
-            <p className="text-slate-400 text-sm mb-2">{workModal.address}</p>
             <div className="flex items-center justify-center gap-4 text-xs text-slate-400 mb-6 font-mono">
-              <span>{workModal.phone}</span>
               <span>
-                {workModal.lat.toFixed(4)}, {workModal.lng.toFixed(4)}
+                {/* {workModal.latitud.toFixed(4)}, {workModal.longitud.toFixed(4)} */}
               </span>
             </div>
 
-            {activeClinic && activeClinic.id !== workModal.id && (
+            {activeClinic && activeClinic.clinicaId !== workModal.clinicaId && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6 text-sm text-amber-800 text-left">
                 Actualmente operando en <strong>{activeClinic.name}</strong>. Se cambiará la sesión a la nueva sede.
               </div>
             )}
-            {activeClinic?.id === workModal.id && (
+            {activeClinic?.clinicaId === workModal.clinicaId && (
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 mb-6 text-sm text-emerald-800 flex items-center gap-2 justify-center">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
                 Esta es tu clínica activa actualmente.
@@ -301,7 +310,7 @@ export default function ClinicasPage() {
                 }}
                 className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-doc-blue hover:opacity-90 shadow-sm transition-all cursor-pointer"
               >
-                {activeClinic?.id === workModal.id ? 'Continuar aquí' : 'Establecer como activa'}
+                {activeClinic?.clinicaId === workModal.clinicaId ? 'Continuar aquí' : 'Establecer como activa'}
               </button>
             </div>
           </div>
@@ -326,15 +335,16 @@ export default function ClinicasPage() {
             <div className="flex gap-3">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 hover:border-slate-300 transition-colors cursor-pointer"
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 
+                hover:border-slate-300 transition-colors cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 onClick={() => {
-                  setList((prev) => prev.filter((c) => c.id !== deleteConfirm.id))
-                  if (selected.id === deleteConfirm.id) {
-                    setSelected(list.find((c) => c.id !== deleteConfirm.id) || list[0])
+                  setList((prev) => prev.filter((c) => c.clinicaId !== deleteConfirm.clinicaId))
+                  if (selected?.clinicaId === deleteConfirm.clinicaId) {
+                    setSelected(list.find((c) => c.clinicaId !== deleteConfirm.clinicaId) || list[0])
                   }
                   setDeleteConfirm(null)
                 }}

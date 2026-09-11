@@ -2,27 +2,34 @@
 
 import React, { createContext, useContext, useState } from 'react'
 import { User, Clinica } from '@/types'
-import { clinicas } from '@/data/mockData'
-
 interface AppContextType {
   user: User
   setUser: (user: User) => void
-  activeClinic: Clinica | null
-  setActiveClinic: (clinic: Clinica | null) => void
+  activeClinic: Clinica 
+  setActiveClinic: (clinic: Clinica ) => void
 }
 
 const defaultUser: User = {
   name: 'Dr. Juan Armando Guerra Guevara',
-  role: 'medico',
+  roles: [{ roleId: 1, name: 'Medico' }, { roleId: 2, name: 'Enfermera' }],
   specialty: 'Medicina General',
   email: 'juan.guerra@docrecord.sv',
+  password: '',
+  enabled: true,
+  userType: { userTypeID: 1, name: 'Medico' }
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined)
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User>(defaultUser)
-  const [activeClinic, setActiveClinic] = useState<Clinica | null>(clinicas[0])
+  const [activeClinic, setActiveClinic] = useState<Clinica>({
+    clinicaId: 1,
+    name: 'Clínica Regional de Santa Ana',
+    latitud: 13.9942,
+    longitud: -89.5597,
+    userId: 1
+  })
 
   return (
     <AppContext.Provider value={{ user, setUser, activeClinic, setActiveClinic }}>

@@ -9,37 +9,27 @@ interface ClinicFormProps {
 }
 
 export const ClinicForm: React.FC<ClinicFormProps> = ({ onSubmit, onCancel }) => {
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<Clinica>({
+    clinicaId: 0,
     name: '',
-    address: '',
-    phone: '',
-    lat: '13.6929',
-    lng: '-89.2182',
+    latitud: 13.7053,
+    longitud: -93.7053,
+    userId: 0
   })
 
   const handleSubmit = (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!form.name.trim()) return
 
-    onSubmit({
-      id: Date.now(),
-      name: form.name,
-      address: form.address || 'El Salvador',
-      phone: form.phone || '2200-0000',
-      lat: parseFloat(form.lat) || 13.6929,
-      lng: parseFloat(form.lng) || -89.2182,
-      patients: 0,
-    })
+    onSubmit(form)
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {[
         ['Nombre de la clínica *', 'name', 'Clínica Familiar Escalón'],
-        ['Dirección *', 'address', 'Paseo General Escalón, San Salvador'],
-        ['Teléfono', 'phone', '2245-0000'],
-        ['Latitud', 'lat', '13.7053'],
-        ['Longitud', 'lng', '-89.2182'],
+        ['Latitud', 'latitud', '13.7053'],
+        ['Longitud', 'longitud', '-89.2182'],
       ].map(([label, field, ph]) => (
         <div key={field}>
           <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
@@ -48,7 +38,7 @@ export const ClinicForm: React.FC<ClinicFormProps> = ({ onSubmit, onCancel }) =>
           <input
             required={field === 'name' || field === 'address'}
             placeholder={ph}
-            value={(form as Record<string, string>)[field]}
+            value={form[field as keyof Clinica]}
             onChange={(e) => setForm((prev) => ({ ...prev, [field]: e.target.value }))}
             className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 transition-colors bg-white"
           />

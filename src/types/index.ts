@@ -57,13 +57,11 @@ export interface UserRegister {
 }
 
 export interface Clinica {
-  id: number
+  clinicaId: number
   name: string
-  address: string
-  lat: number
-  lng: number
-  phone: string
-  patients: number
+  latitud: number
+  longitud: number
+  userId: number
 }
 
 export interface Patient {

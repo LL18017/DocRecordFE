@@ -15,14 +15,14 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', roles: ['medico', 'enfermera'] },
-  { href: '/pacientes', label: 'Pacientes', icon: 'patients', roles: ['medico', 'enfermera'] },
-  { href: '/consultas', label: 'Consultas Médicas', icon: 'consultas', roles: ['medico'] },
-  { href: '/enfermeria', label: 'Registro Enfermería', icon: 'enfermeria', roles: ['enfermera'] },
-  { href: '/prescripciones', label: 'Prescripciones', icon: 'prescripciones', roles: ['medico'] },
-  { href: '/agenda', label: 'Agenda de Citas', icon: 'agenda', roles: ['medico', 'enfermera'] },
-  { href: '/clinicas', label: 'Clínicas', icon: 'clinicas', roles: ['medico', 'enfermera'] },
-  { href: '/usuarios', label: 'Usuarios y Roles', icon: 'usuarios', roles: ['medico'] },
+  { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', roles:  [{roleId: 1, name: 'Medico'}, {roleId: 2, name: 'Enfermera'}]},
+  { href: '/pacientes', label: 'Pacientes', icon: 'patients', roles: [{roleId: 1, name: 'Medico'}, {roleId: 2, name: 'Enfermera'}]},
+  { href: '/consultas', label: 'Consultas Médicas', icon: 'consultas', roles: [{roleId: 1, name: 'Medico'}] },
+  { href: '/enfermeria', label: 'Registro Enfermería', icon: 'enfermeria', roles: [{roleId: 2, name: 'Enfermera'}] },
+  { href: '/prescripciones', label: 'Prescripciones', icon: 'prescripciones', roles: [{roleId: 1, name: 'Medico'}] },
+  { href: '/agenda', label: 'Agenda de Citas', icon: 'agenda', roles: [{roleId: 1, name: 'Medico'}, {roleId: 2, name: 'Enfermera'}] },
+  { href: '/clinicas', label: 'Clínicas', icon: 'clinicas', roles: [{roleId: 1, name: 'Medico'}, {roleId: 2, name: 'Enfermera'}] },
+  { href: '/usuarios', label: 'Usuarios y Roles', icon: 'usuarios', roles: [{roleId: 1, name: 'Medico'}] },
 ]
 
 interface SidebarProps {
@@ -34,7 +34,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen })
   const pathname = usePathname()
   const { user, activeClinic } = useAppContext()
 
-  const visibleItems = navItems.filter((i) => i.roles.includes(user.role))
+  const visibleItems = navItems.filter((i) => i.roles.some((r) => 
+      user.roles.some((ur) => ur.roleId === r.roleId)
+  ))
 
   const userInitials = user.name
     .split(' ')
@@ -114,7 +116,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen })
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-medium truncate">{user.name}</p>
-              <p className="text-blue-300 text-xs capitalize">{user.role}</p>
+              <p className="text-blue-300 text-xs capitalize">{user.roles[0].name}</p>
             </div>
           </div>
         </div>
