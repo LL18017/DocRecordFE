@@ -1,8 +1,8 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { Suspense, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Role, IconName } from '@/types'
 import { Icon } from '@/components/ui/Icon'
 import { useAppContext } from '@/context/AppContext'
@@ -36,9 +36,13 @@ const inputClass =
 const labelClass =
   'block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider'
 
-export default function LoginPage() {
+function FormularioDeLogin() {
   const router = useRouter()
   const { iniciarSesion } = useAppContext()
+  // HU-06 criterio 2: la sesión no expira en silencio. Sin esto, el médico
+  // vuelve, encuentra la pantalla de ingreso y no sabe si se cerró sola, si se
+  // cayó el sistema o si perdió lo que estaba escribiendo.
+  const expiroPorInactividad = useSearchParams().get('motivo') === 'inactividad'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -78,6 +82,15 @@ export default function LoginPage() {
             <h1 className="text-3xl font-bold text-slate-800 mb-2 font-outfit">Iniciar sesión</h1>
             <p className="text-slate-500 text-sm">Ingresa tus credenciales para continuar</p>
           </div>
+
+          {expiroPorInactividad && (
+            <p
+              role="status"
+              className="mb-4 rounded-xl border-2 border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+            >
+              Tu sesión expiró por inactividad. Vuelve a ingresar para continuar.
+            </p>
+          )}
 
           <form onSubmit={handleLogin} className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
             {/* Form fields */}
@@ -193,5 +206,17 @@ export default function LoginPage() {
       </div>
 
     </div>
+  )
+}
+
+/**
+ * `useSearchParams()` obliga a envolver en Suspense al componente que lo usa:
+ * sin él, `next build` falla al prerenderizar esta ruta.
+ */
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-doc-surface" />}>
+      <FormularioDeLogin />
+    </Suspense>
   )
 }

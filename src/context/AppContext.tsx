@@ -14,6 +14,28 @@ import { alExpirarSesion } from '@/lib/api'
 import type { Role } from '@/types'
 
 const USER_KEY = 'docrecord.user'
+
+/**
+ * Si el almacenamiento dice que hay sesión, sin pasar por el estado de React.
+ *
+ * Existe para el criterio 4 de HU-06. Cuando el navegador restaura una página
+ * desde su caché de retroceso, devuelve el árbol de React tal como quedó —con
+ * el expediente pintado— y no ejecuta ningún efecto, así que preguntarle al
+ * estado daría la respuesta de antes de cerrar sesión. Lo único que sí refleja
+ * la realidad es el almacenamiento.
+ *
+ * Se exporta desde aquí, y no se repite la clave donde haga falta, porque una
+ * cadena literal duplicada es una cadena que alguien cambia en un sitio.
+ */
+export function haySesionEnElAlmacenamiento(): boolean {
+  try {
+    return window.sessionStorage.getItem(USER_KEY) !== null
+  } catch {
+    // Sin almacenamiento no se puede afirmar que haya sesión. Se responde que
+    // no, que es el lado prudente del error.
+    return false
+  }
+}
 const CLINICA_KEY = 'docrecord.clinica'
 
 // ─── Sesión como estado externo ───────────────────────────────────────────────

@@ -18,6 +18,9 @@ const push = vi.fn()
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push }),
+  // Desde HU-06 la pantalla lee `?motivo=inactividad` para explicar por qué se
+  // cerró la sesión. Sin este doble, el componente revienta al montarse.
+  useSearchParams: () => new URLSearchParams(''),
 }))
 
 vi.mock('@/context/AppContext', () => ({
