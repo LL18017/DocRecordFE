@@ -107,18 +107,48 @@ jobs:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/despliegue
+
+          # tr -d '\r': una clave copiada desde Windows llega con CRLF y ssh la
+          # rechaza sin decir por que. Y el \n final de printf porque OpenSSH
+          # exige que el archivo TERMINE en salto de linea, que es justo lo que
+          # se pierde al pegar en el formulario de secretos de GitHub.
+          printf '%s\n' "$VPS_SSH_KEY" | tr -d '\r' > ~/.ssh/despliegue
           chmod 600 ~/.ssh/despliegue
 
-          # La IP publica de esta instancia cambia en cada apagado (no hay
-          # Elastic IP asociada), asi que la huella del host no se puede fijar
-          # de antemano y se acepta la que responda. Es una confianza al primer
-          # uso; si se asocia una Elastic IP, conviene fijarla en un secreto.
-          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # La clave se valida ANTES de intentar conectarse. Sin esto, una mal
+          # pegada produce un fallo de cinco segundos que parece un problema de
+          # red o del servidor, y en el servidor no aparece ni un intento
+          # rechazado -- porque nunca llego ninguno.
+          if ! ssh-keygen -y -f ~/.ssh/despliegue >/dev/null 2>&1; then
+            echo "::error::El secreto VPS_SSH_KEY no es una clave privada valida."
+            echo "::error::Copiarla COMPLETA, incluidas las lineas BEGIN y END."
+            echo "::error::Obtenerla con: ssh -i <llave.pem> $VPS_USER@$VPS_HOST 'cat ~/.ssh/despliegue_actions'"
+            exit 1
+          fi
+          echo "Clave privada valida. Huella: $(ssh-keygen -lf ~/.ssh/despliegue | cut -d' ' -f2)"
+
+          # Que el puerto conteste, antes de hablar de autenticacion. Si la
+          # instancia se apago y la IP ya no es esta, o si cambio el Security
+          # Group, el error de ssh no lo dice.
+          if ! timeout 10 bash -c "echo > /dev/tcp/$VPS_HOST/22" 2>/dev/null; then
+            echo "::error::Sin respuesta en $VPS_HOST:22. Revisar que la instancia este encendida y que VPS_HOST siga siendo su IP: cambia cada vez que se apaga."
+            exit 1
+          fi
+
+          # La IP publica cambia en cada apagado (no hay Elastic IP), asi que la
+          # huella del host no se puede fijar de antemano y se acepta la que
+          # responda.
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          if [ -s ~/.ssh/known_hosts ]; then
+            OPCIONES_HOST=""
+          else
+            echo "::warning::ssh-keyscan no devolvio nada; se acepta la clave del host al primer uso."
+            OPCIONES_HOST="-o StrictHostKeyChecking=accept-new"
+          fi
 
           # desplegar.sh trae AMBOS repositorios desde GitHub y reconstruye; no
           # se le envia codigo desde aqui. Este paso solo dispara el despliegue.
-          ssh -i ~/.ssh/despliegue -o BatchMode=yes \
+          ssh -i ~/.ssh/despliegue -o BatchMode=yes $OPCIONES_HOST \
               "$VPS_USER@$VPS_HOST" \
               "cd /opt/docrecord && ./desplegar.sh dev-naun"
 
