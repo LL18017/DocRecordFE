@@ -87,6 +87,7 @@ const PACIENTE: PacienteDto = {
   expediente: 'EXP-0042',
   tipoSangre: 'O+',
   creadoEn: '2026-01-10T08:00:00',
+  estado: 'ACTIVO',
   persona: {
     personaId: 42,
     dui: '01234567-8',

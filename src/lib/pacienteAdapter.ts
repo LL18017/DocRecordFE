@@ -108,7 +108,11 @@ export function pacienteDtoAPatient(p: PacienteDto): Patient {
     // pinte la lista debe rellenarlo con el conteo real de `GET /consultas`
     // (`contarConsultasPorPaciente`) o mostrar el hueco.
     consultations: null,
-    status: 'Activo',
+    // El valor real de la columna, no un literal. Hasta la migración V12 aquí
+    // había un 'Activo' fijo: la tabla pintaba la misma insignia para todos los
+    // pacientes porque no leía ningún dato, de modo que no podía ser falsa
+    // —y por eso tampoco informaba cuando era verdadera—.
+    status: p.estado === 'INACTIVO' ? 'Inactivo' : 'Activo',
     blood: p.tipoSangre || '—',
     email: p.persona.email || '—',
     address: p.persona.direccion || '—',

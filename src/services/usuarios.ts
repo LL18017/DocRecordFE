@@ -81,6 +81,16 @@ export interface UsuarioDto {
   email: string
   userName: string
   roles: RolDto[]
+  /**
+   * La especialidad, si la cuenta ejerce la medicina.
+   *
+   * `null` cuando no aplica —una enfermera, un administrador que no ejerce— y
+   * eso no es un dato faltante: es que la pregunta no le corresponde. Se pinta
+   * como un guion, nunca como texto inventado.
+   */
+  especialidad: string | null
+  /** Si la cuenta puede iniciar sesión. Espeja `users.enabled` del backend. */
+  activo: boolean
 }
 
 /**
@@ -320,5 +330,23 @@ export async function asignarContrasena(userId: number, password: string): Promi
   return apiFetch<UsuarioDto>(`/user/${userId}/password`, {
     method: 'POST',
     body: { password },
+  })
+}
+
+/**
+ * Activa o desactiva una cuenta (HU-05 criterio 3).
+ *
+ * Desactivar impide iniciar sesión pero no borra nada: las consultas que firmó
+ * un médico siguen firmadas por él aunque su cuenta quede cerrada, porque
+ * ocurrieron. El backend rechaza con `409` desactivarse a uno mismo o dejar al
+ * sistema sin ningún administrador activo.
+ */
+export async function cambiarEstadoUsuario(
+  userId: number,
+  activo: boolean,
+): Promise<UsuarioDto> {
+  return apiFetch<UsuarioDto>(`/user/${userId}/estado`, {
+    method: 'PATCH',
+    body: { activo },
   })
 }

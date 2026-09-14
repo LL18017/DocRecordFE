@@ -61,6 +61,8 @@ function usuario(userId: number, cambios: Partial<UsuarioDto> = {}): UsuarioDto 
     email: `usuario${userId}@docrecord.sv`,
     userName: `Usuario ${userId}`,
     roles: [{ id: 2, name: 'MEDICO' }],
+    especialidad: 'Medicina General',
+    activo: true,
     ...cambios,
   }
 }

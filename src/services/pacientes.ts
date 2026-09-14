@@ -55,6 +55,14 @@ export interface PacienteDto {
   /** La columna admite NULL en el backend; el DTO no lo exige. */
   tipoSangre: string | null
   creadoEn: string
+  /**
+   * `ACTIVO` o `INACTIVO`.
+   *
+   * Hasta la migración V12 esta pantalla pintaba una insignia «Activo» fija en
+   * el componente, igual para todos los pacientes porque no leía ningún dato.
+   * Un valor que no puede ser falso tampoco informa cuando es verdadero.
+   */
+  estado: 'ACTIVO' | 'INACTIVO'
   persona: Omit<PersonaDto, 'esMedico' | 'esEnfermera' | 'esPaciente'>
 }
 
@@ -145,4 +153,21 @@ export async function actualizarPaciente(
  */
 export async function eliminarPaciente(personaId: number): Promise<void> {
   await apiFetch<void>(`/pacientes/${personaId}`, { method: 'DELETE' })
+}
+
+/**
+ * Da de alta o de baja a un paciente.
+ *
+ * No borra nada: el expediente, las consultas, las constantes y las recetas
+ * siguen existiendo. Un paciente inactivo solo deja de aparecer en los
+ * listados de trabajo diario.
+ */
+export async function cambiarEstadoPaciente(
+  personaId: number,
+  estado: 'ACTIVO' | 'INACTIVO',
+): Promise<PacienteDto> {
+  return apiFetch<PacienteDto>(`/pacientes/${personaId}/estado`, {
+    method: 'PATCH',
+    body: { estado },
+  })
 }

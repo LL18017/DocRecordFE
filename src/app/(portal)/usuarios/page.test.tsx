@@ -30,6 +30,7 @@ const asignarRol = vi.fn<(userId: number, roleId: number) => Promise<UsuarioDto>
 const asignarContrasena = vi.fn<(userId: number, password: string) => Promise<UsuarioDto>>()
 const listarRoles = vi.fn<() => Promise<RolDto[]>>()
 const quitarRol = vi.fn<(userId: number, roleId: number) => Promise<UsuarioDto>>()
+const cambiarEstadoUsuario = vi.fn<(userId: number, activo: boolean) => Promise<UsuarioDto>>()
 
 vi.mock('@/services/usuarios', () => ({
   listarUsuarios: () => listarUsuarios(),
@@ -38,6 +39,8 @@ vi.mock('@/services/usuarios', () => ({
   asignarContrasena: (userId: number, password: string) => asignarContrasena(userId, password),
   listarRoles: () => listarRoles(),
   quitarRol: (userId: number, roleId: number) => quitarRol(userId, roleId),
+  cambiarEstadoUsuario: (userId: number, activo: boolean) =>
+    cambiarEstadoUsuario(userId, activo),
 }))
 
 let sesion: User
@@ -64,6 +67,8 @@ const DEL_API: UsuarioDto[] = [
     userId: 152,
     email: 'naun@docrecord.sv',
     userName: 'Naun Enrique Flores Menjivar',
+    especialidad: null,
+    activo: true,
     roles: [
       { id: 1, name: 'ADMIN' },
       { id: 2, name: 'MEDICO' },
@@ -73,6 +78,8 @@ const DEL_API: UsuarioDto[] = [
     userId: 353,
     email: 'sin.rol@docrecord.sv',
     userName: 'Cuenta Sin Rol',
+    especialidad: null,
+    activo: true,
     roles: [],
   },
 ]
@@ -168,6 +175,8 @@ describe('con rol Administrador', () => {
         userId: 900,
         email: 'catalogo.roto@docrecord.sv',
         userName: 'Cuenta Con Rol Roto',
+        especialidad: null,
+        activo: true,
         roles: [{ id: null, name: null }],
       },
     ])
@@ -187,6 +196,8 @@ describe('con rol Administrador', () => {
         userId: 900,
         email: 'catalogo.roto@docrecord.sv',
         userName: 'Cuenta Con Rol Roto',
+        especialidad: null,
+        activo: true,
         roles: [{ id: null, name: null }],
       },
       DEL_API[0],
@@ -304,6 +315,8 @@ describe('dar de alta personal', () => {
       userId: 500,
       email: 'nueva@docrecord.sv',
       userName: 'Nueva Cuenta',
+      especialidad: null,
+      activo: true,
       roles: [],
       correoDeVerificacionEnviado: true,
     })
@@ -334,6 +347,8 @@ describe('dar de alta personal', () => {
       userId: 501,
       email: 'sinenlace@docrecord.sv',
       userName: 'Sin Enlace',
+      especialidad: null,
+      activo: true,
       roles: [],
       correoDeVerificacionEnviado: false,
     })
@@ -365,6 +380,8 @@ describe('dar de alta personal', () => {
       userId: 502,
       email: 'con.correo@docrecord.sv',
       userName: 'Con Correo',
+      especialidad: null,
+      activo: true,
       roles: [],
       correoDeVerificacionEnviado: true,
     })
@@ -413,6 +430,8 @@ describe('dar de alta personal', () => {
       userId: 503,
       email: 'oculta@docrecord.sv',
       userName: 'Cuenta Oculta',
+      especialidad: null,
+      activo: true,
       roles: [],
       correoDeVerificacionEnviado: true,
     })
@@ -449,6 +468,8 @@ describe('asignar contraseña', () => {
       userId: 353,
       email: 'sin.rol@docrecord.sv',
       userName: 'Cuenta Sin Rol',
+      especialidad: null,
+      activo: true,
       // El endpoint real no toca los roles; se devuelve uno aquí solo para
       // poder observar en la tabla que la fila se actualizó con lo que
       // volvió del API, no con una suposición local.
@@ -525,6 +546,8 @@ describe('asignar contraseña', () => {
         userId: 900,
         email: 'otro.admin@docrecord.sv',
         userName: 'Otro Administrador',
+        especialidad: null,
+        activo: true,
         roles: [{ id: 1, name: 'ADMIN' }],
       },
     ])
@@ -608,6 +631,8 @@ describe('asignar rol', () => {
       userId: 353,
       email: 'sin.rol@docrecord.sv',
       userName: 'Cuenta Sin Rol',
+      especialidad: null,
+      activo: true,
       roles: [{ id: 3, name: 'ENFERMERA' }],
     })
 
@@ -621,5 +646,152 @@ describe('asignar rol', () => {
     await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(353, 3))
     expect(await screen.findByText('Enfermera')).toBeVisible()
     expect(screen.queryByText(/sin rol asignado/i)).toBeNull()
+  })
+})
+
+// ─── HU-05 · especialidad y estado en el listado ─────────────────────────────
+describe('Usuarios y Roles · especialidad y estado', () => {
+  beforeEach(() => {
+    sesion = ADMIN
+    listarRoles.mockResolvedValue([])
+    cambiarEstadoUsuario.mockReset()
+  })
+
+  it('muestra la especialidad del médico y un guion cuando no aplica', async () => {
+    // Criterio 1: «veo la lista con nombre, correo, rol, especialidad y
+    // estado». El guion no es decorativo: una cuenta que no ejerce la medicina
+    // no tiene especialidad, y pintar una por defecto sería inventarla.
+    listarUsuarios.mockResolvedValue([
+      {
+        userId: 1,
+        email: 'medico@docrecord.sv',
+        userName: 'Ricardo Melgar',
+        roles: [{ id: 2, name: 'MEDICO' }],
+        especialidad: 'Cardiología',
+        activo: true,
+      },
+      {
+        userId: 2,
+        email: 'enfermera@docrecord.sv',
+        userName: 'Marta Guevara',
+        roles: [{ id: 3, name: 'ENFERMERA' }],
+        especialidad: null,
+        activo: true,
+      },
+    ])
+
+    render(<UsuariosPage />)
+
+    const filaMedico = (await screen.findByText('Ricardo Melgar')).closest('tr')!
+    expect(within(filaMedico).getByText('Cardiología')).toBeInTheDocument()
+
+    const filaEnfermera = screen.getByText('Marta Guevara').closest('tr')!
+    expect(within(filaEnfermera).getByLabelText('Sin especialidad')).toBeInTheDocument()
+    expect(within(filaEnfermera).queryByText('Cardiología')).not.toBeInTheDocument()
+  })
+
+  it('distingue una cuenta activa de una inactiva', async () => {
+    listarUsuarios.mockResolvedValue([
+      {
+        userId: 1,
+        email: 'activa@docrecord.sv',
+        userName: 'Cuenta Activa',
+        roles: [{ id: 2, name: 'MEDICO' }],
+        especialidad: null,
+        activo: true,
+      },
+      {
+        userId: 2,
+        email: 'inactiva@docrecord.sv',
+        userName: 'Cuenta Inactiva',
+        roles: [{ id: 2, name: 'MEDICO' }],
+        especialidad: null,
+        activo: false,
+      },
+    ])
+
+    render(<UsuariosPage />)
+
+    const activa = (await screen.findByText('Cuenta Activa')).closest('tr')!
+    const inactiva = screen.getByText('Cuenta Inactiva').closest('tr')!
+    expect(within(activa).getByText('Activa')).toBeInTheDocument()
+    expect(within(inactiva).getByText('Inactiva')).toBeInTheDocument()
+  })
+
+  it('desactivar una cuenta la manda al backend y refleja lo que este devuelve', async () => {
+    // La fila se reemplaza con la respuesta del servidor, no invirtiendo el
+    // valor a mano: si el backend decidiera otra cosa, la pantalla debe
+    // mostrar lo que quedó guardado.
+    const original: UsuarioDto = {
+      userId: 7,
+      email: 'objetivo@docrecord.sv',
+      userName: 'Cuenta Objetivo',
+      roles: [{ id: 2, name: 'MEDICO' }],
+      especialidad: 'Pediatría',
+      activo: true,
+    }
+    listarUsuarios.mockResolvedValue([original])
+    cambiarEstadoUsuario.mockResolvedValue({ ...original, activo: false })
+
+    render(<UsuariosPage />)
+
+    const fila = (await screen.findByText('Cuenta Objetivo')).closest('tr')!
+    await userEvent.click(within(fila).getByRole('button', { name: /desactivar/i }))
+
+    await waitFor(() => expect(cambiarEstadoUsuario).toHaveBeenCalledWith(7, false))
+    await waitFor(() =>
+      expect(within(screen.getByText('Cuenta Objetivo').closest('tr')!).getByText('Inactiva'))
+        .toBeInTheDocument(),
+    )
+  })
+
+  it('no ofrece desactivar la cuenta propia, y explica por qué', async () => {
+    // El backend responde 409 —dejarse fuera uno mismo no tiene arreglo desde
+    // la aplicación—. Se anticipa aquí en vez de ofrecer un botón que falla.
+    listarUsuarios.mockResolvedValue([
+      {
+        userId: 1,
+        email: 'naun@docrecord.sv', // el mismo de ADMIN: la fila ES la cuenta en sesión
+        userName: 'Naun Flores',
+        roles: [{ id: 1, name: 'ADMIN' }],
+        especialidad: null,
+        activo: true,
+      },
+    ])
+
+    render(<UsuariosPage />)
+
+    const fila = (await screen.findByText('Naun Flores')).closest('tr')!
+    expect(within(fila).queryByRole('button', { name: /desactivar/i })).not.toBeInTheDocument()
+    expect(within(fila).getByText('Es su cuenta')).toBeInTheDocument()
+  })
+
+  it('si el backend rechaza el cambio, lo dice y no altera la fila', async () => {
+    listarUsuarios.mockResolvedValue([
+      {
+        userId: 9,
+        email: 'ultimo.admin@docrecord.sv',
+        userName: 'Ultimo Admin',
+        roles: [{ id: 1, name: 'ADMIN' }],
+        especialidad: null,
+        activo: true,
+      },
+    ])
+    cambiarEstadoUsuario.mockRejectedValue(
+      new ApiError(409, 'No se puede desactivar al ultimo administrador activo'),
+    )
+
+    render(<UsuariosPage />)
+
+    const fila = (await screen.findByText('Ultimo Admin')).closest('tr')!
+    await userEvent.click(within(fila).getByRole('button', { name: /desactivar/i }))
+
+    expect(
+      await screen.findByText(/no se puede desactivar al ultimo administrador activo/i),
+    ).toBeInTheDocument()
+    // Y la fila sigue como estaba: el rechazo no debe pintar un cambio que no ocurrió.
+    expect(
+      within(screen.getByText('Ultimo Admin').closest('tr')!).getByText('Activa'),
+    ).toBeInTheDocument()
   })
 })

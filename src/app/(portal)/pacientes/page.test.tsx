@@ -39,6 +39,7 @@ function paciente(personaId: number, nombres: string): PacienteDto {
     expediente: `EXP-${personaId}`,
     tipoSangre: 'O+',
     creadoEn: '2026-01-10T09:00:00',
+    estado: 'ACTIVO',
     persona: {
       personaId,
       dui: `0123456${personaId}-8`,

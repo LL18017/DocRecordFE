@@ -45,6 +45,7 @@ function paciente(): PacienteDto {
     expediente: 'EXP-0042',
     tipoSangre: 'O+',
     creadoEn: '2026-08-22T23:09:13',
+    estado: 'ACTIVO',
     persona: {
       personaId: 42,
       dui: '01234567-8',

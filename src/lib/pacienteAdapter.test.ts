@@ -16,6 +16,7 @@ function dto(persona: Partial<PacienteDto['persona']> = {}, resto: Partial<Pacie
     expediente: 'EXP-0001',
     tipoSangre: 'O+',
     creadoEn: '2026-01-10T10:00:00Z',
+    estado: 'ACTIVO',
     persona: {
       personaId: 7,
       dui: '01234567-8',

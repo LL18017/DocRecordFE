@@ -13,6 +13,7 @@ import {
   asignarClinica,
   asignarContrasena,
   asignarRol,
+  cambiarEstadoUsuario,
   clinicasAsignadas,
   crearUsuario,
   listarRoles,
@@ -182,6 +183,9 @@ export default function UsuariosPage() {
   const [usuarioParaRol, setUsuarioParaRol] = useState<UsuarioDto | null>(null)
   const [usuarioParaContrasena, setUsuarioParaContrasena] = useState<UsuarioDto | null>(null)
   const [usuarioParaClinicas, setUsuarioParaClinicas] = useState<UsuarioDto | null>(null)
+  // El id de la fila en vuelo, no un booleano compartido: con un booleano,
+  // pulsar una fila deshabilitaria el boton de todas.
+  const [cambiandoEstado, setCambiandoEstado] = useState<number | null>(null)
 
   // Ningún setState antes del primer await (regla react-hooks/set-state-in-effect);
   // `cargando` ya arranca en true, así que la carga inicial no se anuncia.
@@ -232,6 +236,34 @@ export default function UsuariosPage() {
     setUsuarios((prev) => [nuevo, ...prev])
   }
 
+  /**
+   * Activa o desactiva una cuenta (HU-05 criterio 3).
+   *
+   * Guarda el `userId` en vuelo y no un booleano de «cargando»: con un
+   * booleano compartido, pulsar una fila deshabilitaría el botón de TODAS, que
+   * es justo lo que hace pensar que la pantalla se colgó.
+   *
+   * La fila se reemplaza con lo que devuelve el backend en vez de invertir el
+   * valor a mano: si el servidor decidió otra cosa —o rechazó el cambio— la
+   * pantalla debe mostrar lo que quedó guardado, no lo que se pidió.
+   */
+  const cambiarEstado = async (u: UsuarioDto) => {
+    setCambiandoEstado(u.userId)
+    setError(null)
+    try {
+      const actualizado = await cambiarEstadoUsuario(u.userId, !u.activo)
+      setUsuarios((prev) => prev.map((x) => (x.userId === u.userId ? { ...x, ...actualizado } : x)))
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : 'No se pudo cambiar el estado de la cuenta. Intente de nuevo.',
+      )
+    } finally {
+      setCambiandoEstado(null)
+    }
+  }
+
   const columns: Column<UsuarioDto>[] = [
     {
       header: 'Usuario',
@@ -278,6 +310,26 @@ export default function UsuariosPage() {
             ))}
           </div>
         ),
+    },
+    {
+      header: 'Especialidad',
+      // Null cuando la cuenta no ejerce la medicina, y eso no es un dato que
+      // falte: es que la pregunta no le corresponde. Se pinta un guion, nunca
+      // texto inventado ni una especialidad por defecto.
+      cell: (u) =>
+        u.especialidad ? (
+          <span className="text-sm text-slate-700">{u.especialidad}</span>
+        ) : (
+          <span className="text-slate-400" aria-label="Sin especialidad">
+            —
+          </span>
+        ),
+    },
+    {
+      header: 'Estado',
+      cell: (u) => (
+        <Badge color={u.activo ? 'green' : 'red'}>{u.activo ? 'Activa' : 'Inactiva'}</Badge>
+      ),
     },
     {
       header: 'Acciones',
@@ -332,6 +384,37 @@ export default function UsuariosPage() {
               >
                 Contraseña no disponible (admin↔admin)
               </span>
+            )}
+            {/* Activar o desactivar (HU-05 criterio 3). No se ofrece sobre la
+                cuenta propia: el backend lo rechaza con 409 —quedarse uno
+                mismo fuera no tiene arreglo desde la aplicación— y es mejor
+                explicar por qué no está que mostrar un botón que va a fallar. */}
+            {esLaPropiaCuenta ? (
+              <span
+                className="text-[11px] text-slate-400 italic"
+                title="Nadie puede desactivar su propia cuenta: si el último administrador se deja fuera, no hay forma de volver a entrar."
+              >
+                Es su cuenta
+              </span>
+            ) : (
+              <button
+                type="button"
+                disabled={cambiandoEstado === u.userId}
+                onClick={() => cambiarEstado(u)}
+                title={
+                  u.activo
+                    ? 'Desactivar: la cuenta deja de poder iniciar sesión, pero conserva todos sus registros'
+                    : 'Reactivar: la cuenta vuelve a poder iniciar sesión'
+                }
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait ${
+                  u.activo
+                    ? 'text-red-600 bg-red-50 hover:bg-red-100'
+                    : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                }`}
+              >
+                <Icon name={u.activo ? 'close' : 'shield'} size={13} />
+                {cambiandoEstado === u.userId ? 'Guardando…' : u.activo ? 'Desactivar' : 'Reactivar'}
+              </button>
             )}
           </div>
         )
