@@ -24,7 +24,18 @@ vi.mock('@/lib/api', async (importarOriginal) => {
   return { ...real, apiFetch }
 })
 
-const PAYLOAD = { name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182 }
+// Desde HU-26 el alta exige también la dirección completa: sin ella el backend
+// responde 400, y un payload incompleto aquí probaría el error equivocado.
+const PAYLOAD = {
+  name: 'Clínica Escalón',
+  latitud: 13.7053,
+  longitud: -89.2182,
+  departamento: 'San Salvador',
+  municipio: 'San Salvador',
+  direccion: 'Paseo General Escalón #3700',
+  telefono: '2263-4500',
+  horario: 'Lunes a viernes, 7:00 a 16:00',
+}
 
 /** Espera el rechazo y devuelve el error. Falla si la promesa se resuelve. */
 async function errorDe(promesa: Promise<unknown>): Promise<Error> {
@@ -48,13 +59,21 @@ beforeEach(() => {
 // texto inventado en vez de `null` se cuela sin que nada avise.
 describe('clinicaDtoAClinica · adapta ClinicasResponseDto tal cual llega', () => {
   it('traslada las coordenadas cuando la clínica sí las tiene', () => {
-    const dto: ClinicaDto = { clinicaId: 1, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182 }
+    const dto: ClinicaDto = { clinicaId: 1, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182, departamento: null, municipio: null, direccion: null, telefono: null, horario: null, estado: 'ACTIVA' as const }
 
     expect(clinicaDtoAClinica(dto)).toEqual({
       id: 1,
       name: 'Clínica Escalón',
       lat: 13.7053,
       lng: -89.2182,
+      // Los datos de dirección se trasladan tal cual, nulos incluidos: el
+      // adaptador no inventa nada para las clínicas registradas antes de V16.
+      departamento: null,
+      municipio: null,
+      direccion: null,
+      telefono: null,
+      horario: null,
+      estado: 'ACTIVA',
     })
   })
 
@@ -62,7 +81,7 @@ describe('clinicaDtoAClinica · adapta ClinicasResponseDto tal cual llega', () =
     // Forma real de una fila sin GPS todavía capturado: las dos columnas
     // nulas a la vez, no una sola. Sustituir por 0 pondría la clínica en
     // medio del golfo de Guinea sin que nadie lo note.
-    const dto: ClinicaDto = { clinicaId: 2, name: 'Clínica Sin Sede', latitud: null, longitud: null }
+    const dto: ClinicaDto = { clinicaId: 2, name: 'Clínica Sin Sede', latitud: null, longitud: null, departamento: null, municipio: null, direccion: null, telefono: null, horario: null, estado: 'ACTIVA' as const }
 
     const clinica = clinicaDtoAClinica(dto)
 
@@ -74,7 +93,7 @@ describe('clinicaDtoAClinica · adapta ClinicasResponseDto tal cual llega', () =
     // Caso asimétrico: una fila cargada a mano con latitud pero no longitud.
     // Si el adaptador colapsara "falta una" a "faltan las dos" perdería el
     // dato real que sí llegó.
-    const dto: ClinicaDto = { clinicaId: 3, name: 'Clínica Parcial', latitud: 13.5, longitud: null }
+    const dto: ClinicaDto = { clinicaId: 3, name: 'Clínica Parcial', latitud: 13.5, longitud: null, departamento: null, municipio: null, direccion: null, telefono: null, horario: null, estado: 'ACTIVA' as const }
 
     const clinica = clinicaDtoAClinica(dto)
 

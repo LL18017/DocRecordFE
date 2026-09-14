@@ -43,7 +43,7 @@ vi.mock('@/components/mapa/MapaClinicas', () => ({
 }))
 
 function clinica(cambios: Partial<ClinicaDto> = {}): ClinicaDto {
-  return { clinicaId: 3, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182, ...cambios }
+  return { clinicaId: 3, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182, ...cambios, departamento: null, municipio: null, direccion: null, telefono: null, horario: null, estado: 'ACTIVA' as const }
 }
 
 beforeEach(() => {
@@ -82,6 +82,23 @@ const campoNombre = () => screen.getByLabelText(/^nombre de la clínica/i)
 const campoLatitud = () => screen.getByLabelText(/^latitud/i)
 const campoLongitud = () => screen.getByLabelText(/^longitud/i)
 
+/**
+ * Llena los cinco campos de dirección que HU-26 volvió obligatorios.
+ *
+ * Estas pruebas se escribieron cuando una clínica era un nombre y unas
+ * coordenadas. Ninguna trata sobre la dirección —comprueban validación de
+ * coordenadas, mensajes de error, edición— así que rellenarla aquí las deja
+ * llegar a lo que de verdad miran, en vez de chocar con un «falta el
+ * municipio» que no tiene nada que ver.
+ */
+async function llenarDireccion(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText(/^departamento/i), 'San Salvador')
+  await user.type(screen.getByLabelText(/^municipio/i), 'San Salvador')
+  await user.type(screen.getByLabelText(/^dirección/i), 'Calle Principal')
+  await user.type(screen.getByLabelText(/^teléfono/i), '2222-0000')
+  await user.type(screen.getByLabelText(/^horario de atención/i), 'Lunes a viernes, 8 a 16')
+}
+
 describe('FormularioClinica · nombre accesible de los campos', () => {
   it('localiza los tres campos por su etiqueta visible', async () => {
     await abrirAlta()
@@ -113,6 +130,7 @@ describe('FormularioClinica · nombre accesible de los campos', () => {
     const user = await abrirAlta()
 
     await user.type(campoNombre(), 'Clínica Nueva')
+    await llenarDireccion(user)
     await user.type(campoLatitud(), '13.5')
     await user.type(campoLongitud(), '-89.1')
     await user.click(screen.getByRole('button', { name: /guardar clínica/i }))
@@ -125,6 +143,14 @@ describe('FormularioClinica · nombre accesible de los campos', () => {
       name: 'Clínica Nueva',
       latitud: 13.5,
       longitud: -89.1,
+      // Los valores que escribió `llenarDireccion`. Que viajen tal cual es
+      // parte de lo que esta prueba vigila: una etiqueta puede existir y
+      // apuntar al control equivocado, y ahí el dato llega al campo que no es.
+      departamento: 'San Salvador',
+      municipio: 'San Salvador',
+      direccion: 'Calle Principal',
+      telefono: '2222-0000',
+      horario: 'Lunes a viernes, 8 a 16',
     })
   })
 })
@@ -136,6 +162,7 @@ describe('FormularioClinica · el aviso de validación', () => {
     // Espacios: pasan el `required` del navegador y los descarta el `trim()`,
     // que es el camino por el que el formulario redacta su propio aviso.
     await user.type(campoNombre(), '   ')
+    await llenarDireccion(user)
     await user.type(campoLatitud(), '13.5')
     await user.type(campoLongitud(), '-89.1')
     await user.click(screen.getByRole('button', { name: /guardar clínica/i }))
@@ -161,6 +188,7 @@ describe('FormularioClinica · el aviso de validación', () => {
     const user = await abrirAlta()
 
     await user.type(campoNombre(), 'Clínica Nueva')
+    await llenarDireccion(user)
     await user.type(campoLatitud(), 'trece y pico')
     await user.type(campoLongitud(), '-89.1')
     await user.click(screen.getByRole('button', { name: /guardar clínica/i }))
@@ -178,6 +206,7 @@ describe('FormularioClinica · el aviso de validación', () => {
     const user = await abrirAlta()
 
     await user.type(campoNombre(), 'Clínica Nueva')
+    await llenarDireccion(user)
     await user.type(campoLatitud(), '13.5')
     await user.type(campoLongitud(), '-89.1')
     await user.click(screen.getByRole('button', { name: /guardar clínica/i }))
@@ -209,7 +238,7 @@ describe('clínicas · sin ubicación (nulos reales de ClinicasResponseDto)', ()
   // (prescripciones) por confiar en la forma que el frontend suponía.
   it('pinta "Sin ubicación registrada" en vez de reventar con una clínica sin coordenadas', async () => {
     listarMisClinicas.mockResolvedValue([
-      { clinicaId: 5, name: 'Clínica Recién Creada', latitud: null, longitud: null },
+      { clinicaId: 5, name: 'Clínica Recién Creada', latitud: null, longitud: null, departamento: null, municipio: null, direccion: null, telefono: null, horario: null, estado: 'ACTIVA' as const },
     ])
 
     render(<ClinicasPage />)
@@ -223,9 +252,9 @@ describe('clínicas · sin ubicación (nulos reales de ClinicasResponseDto)', ()
 
   it('cuenta correctamente cuántas clínicas quedan fuera del mapa cuando se mezclan con y sin ubicación', async () => {
     listarMisClinicas.mockResolvedValue([
-      { clinicaId: 1, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182 },
-      { clinicaId: 2, name: 'Clínica Sin GPS A', latitud: null, longitud: null },
-      { clinicaId: 3, name: 'Clínica Sin GPS B', latitud: null, longitud: null },
+      { clinicaId: 1, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182, departamento: null, municipio: null, direccion: null, telefono: null, horario: null, estado: 'ACTIVA' as const },
+      { clinicaId: 2, name: 'Clínica Sin GPS A', latitud: null, longitud: null, departamento: null, municipio: null, direccion: null, telefono: null, horario: null, estado: 'ACTIVA' as const },
+      { clinicaId: 3, name: 'Clínica Sin GPS B', latitud: null, longitud: null, departamento: null, municipio: null, direccion: null, telefono: null, horario: null, estado: 'ACTIVA' as const },
     ])
 
     render(<ClinicasPage />)
@@ -241,8 +270,8 @@ describe('clínicas · sin ubicación (nulos reales de ClinicasResponseDto)', ()
 
   it('con una sola clínica sin ubicación, el aviso del mapa usa el singular', async () => {
     listarMisClinicas.mockResolvedValue([
-      { clinicaId: 1, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182 },
-      { clinicaId: 2, name: 'Clínica Sin GPS', latitud: null, longitud: null },
+      { clinicaId: 1, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182, departamento: null, municipio: null, direccion: null, telefono: null, horario: null, estado: 'ACTIVA' as const },
+      { clinicaId: 2, name: 'Clínica Sin GPS', latitud: null, longitud: null, departamento: null, municipio: null, direccion: null, telefono: null, horario: null, estado: 'ACTIVA' as const },
     ])
 
     render(<ClinicasPage />)
@@ -270,6 +299,7 @@ describe('FormularioClinica · edición', () => {
 
     await user.clear(campoNombre())
     await user.type(campoNombre(), 'Clínica Renombrada')
+    await llenarDireccion(user)
     await user.click(screen.getByRole('button', { name: /guardar clínica/i }))
 
     await waitFor(() => expect(actualizarClinica).toHaveBeenCalled())

@@ -99,7 +99,21 @@ function consulta(cambios: Partial<ConsultaDto> & { pacienteId?: number } = {}):
 }
 
 function clinica(clinicaId: number): ClinicaDto {
-  return { clinicaId, name: `Clínica ${clinicaId}`, latitud: null, longitud: null }
+  return {
+    clinicaId,
+    name: `Clínica ${clinicaId}`,
+    latitud: null,
+    longitud: null,
+    // Nulos a propósito: así llegan las clínicas registradas antes de la
+    // migración V16, que es el caso que el panel tiene que saber pintar sin
+    // reventar.
+    departamento: null,
+    municipio: null,
+    direccion: null,
+    telefono: null,
+    horario: null,
+    estado: 'ACTIVA',
+  }
 }
 
 /**

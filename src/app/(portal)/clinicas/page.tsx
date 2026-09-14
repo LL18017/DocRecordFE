@@ -4,6 +4,10 @@ import dynamic from 'next/dynamic'
 import React, { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { Clinica } from '@/types'
 import { Badge } from '@/components/ui/Badge'
+import {
+  dentroDeElSalvador,
+  SelectorDeUbicacion,
+} from '@/components/clinico/SelectorDeUbicacion'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { useAppContext } from '@/context/AppContext'
@@ -482,7 +486,15 @@ export default function ClinicasPage() {
 // `ClinicasRequestDto` acepta de verdad: nombre y coordenadas.
 
 /** Los campos que este formulario captura, que son los que el API acepta. */
-type Campo = 'name' | 'lat' | 'lng'
+type Campo =
+  | 'name'
+  | 'departamento'
+  | 'municipio'
+  | 'direccion'
+  | 'telefono'
+  | 'horario'
+  | 'lat'
+  | 'lng'
 
 // Clases de los controles. Lo único que se agrega a las que ya había es
 // `focus-visible:ring-*`, que acompaña al `focus:outline-none`: quitar el
@@ -509,6 +521,15 @@ const FormularioClinica: React.FC<FormularioClinicaProps> = ({
 }) => {
   const [form, setForm] = useState({
     name: clinica?.name ?? '',
+    // HU-26 criterio 1. Un paciente que busca dónde atenderse no puede hacer
+    // nada con un nombre y un punto: necesita el municipio para saber si le
+    // queda cerca, la dirección para llegar, el teléfono para preguntar y el
+    // horario para no ir en balde.
+    departamento: clinica?.departamento ?? '',
+    municipio: clinica?.municipio ?? '',
+    direccion: clinica?.direccion ?? '',
+    telefono: clinica?.telefono ?? '',
+    horario: clinica?.horario ?? '',
     // Las coordenadas se guardan como texto mientras se escriben: un input
     // numérico controlado por un number no deja teclear "-" ni "13." a medias.
     lat: clinica?.lat !== null && clinica?.lat !== undefined ? String(clinica.lat) : '',
@@ -552,12 +573,37 @@ const FormularioClinica: React.FC<FormularioClinicaProps> = ({
       fallar(`El nombre no puede superar los ${MAX_LARGO_NOMBRE_CLINICA} caracteres.`, ['name'])
       return
     }
-    // El backend exige ambas coordenadas aunque la columna admita nulos, así
-    // que se avisa aquí en vez de dejar que responda un 400 genérico.
+    // Los cinco datos de dirección son obligatorios desde HU-26. Se comprueban
+    // aquí en vez de dejar que el backend responda un 400 con la lista entera:
+    // señalar el campo concreto ahorra tener que adivinar cuál falta.
+    const obligatorios: [Campo, string, string][] = [
+      ['departamento', form.departamento.trim(), 'El departamento es obligatorio.'],
+      ['municipio', form.municipio.trim(), 'El municipio es obligatorio.'],
+      ['direccion', form.direccion.trim(), 'La dirección es obligatoria.'],
+      ['telefono', form.telefono.trim(), 'El teléfono es obligatorio.'],
+      ['horario', form.horario.trim(), 'El horario de atención es obligatorio.'],
+    ]
+    const vacio = obligatorios.find(([, valor]) => !valor)
+    if (vacio) {
+      fallar(vacio[2], [vacio[0]])
+      return
+    }
+
     if (latitud === null || longitud === null) {
       fallar(
-        'Latitud y longitud son obligatorias (entre -90 y 90, y entre -180 y 180).',
+        'Marca la ubicación en el mapa, o escribe la latitud y la longitud.',
         latitud === null && longitud === null ? ['lat', 'lng'] : latitud === null ? ['lat'] : ['lng'],
+      )
+      return
+    }
+
+    // El rango del territorio salvadoreño, el mismo que valida el backend. Se
+    // avisa aquí porque el error casi siempre es haber invertido los dos
+    // valores, y decirlo ahorra el rato de mirarlos sin ver qué tienen de malo.
+    if (!dentroDeElSalvador(latitud, longitud)) {
+      fallar(
+        'Esas coordenadas quedan fuera de El Salvador. ¿Se invirtieron la latitud y la longitud?',
+        ['lat', 'lng'],
       )
       return
     }
@@ -566,9 +612,19 @@ const FormularioClinica: React.FC<FormularioClinicaProps> = ({
     setError(null)
     setCamposDelError([])
     try {
+      const datos = {
+        name,
+        latitud,
+        longitud,
+        departamento: form.departamento.trim(),
+        municipio: form.municipio.trim(),
+        direccion: form.direccion.trim(),
+        telefono: form.telefono.trim(),
+        horario: form.horario.trim(),
+      }
       const guardada = clinica
-        ? await actualizarClinica(clinica.id, { name, latitud, longitud })
-        : await crearClinica({ name, latitud, longitud })
+        ? await actualizarClinica(clinica.id, datos)
+        : await crearClinica(datos)
       onGuardada(guardada)
     } catch (err) {
       fallar(err instanceof Error ? err.message : 'No se pudo guardar la clínica.', [])
@@ -579,9 +635,20 @@ const FormularioClinica: React.FC<FormularioClinicaProps> = ({
 
   const campos: [string, Campo, string][] = [
     ['Nombre de la clínica', 'name', 'Clínica Familiar Escalón'],
+    ['Departamento', 'departamento', 'San Salvador'],
+    ['Municipio', 'municipio', 'San Salvador'],
+    ['Dirección', 'direccion', 'Paseo General Escalón #3700'],
+    ['Teléfono', 'telefono', '2263-4500'],
+    ['Horario de atención', 'horario', 'Lunes a viernes, 7:00 a 16:00'],
     ['Latitud', 'lat', '13.7053'],
     ['Longitud', 'lng', '-89.2182'],
   ]
+
+  // Lo que el mapa necesita para pintar el marcador: las coordenadas ya
+  // escritas, si es que son números. Mientras alguien teclea «13.» no lo son, y
+  // el mapa se queda donde estaba en vez de saltar a un punto a medio escribir.
+  const latDelMapa = parsearCoordenada(form.lat, 90)
+  const lngDelMapa = parsearCoordenada(form.lng, 180)
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -591,6 +658,20 @@ const FormularioClinica: React.FC<FormularioClinicaProps> = ({
           indicar latitud y longitud.
         </p>
       )}
+
+      {/* HU-26 criterio 3. El mapa va ANTES de los campos de coordenadas
+          porque es la forma en que se espera que se rellenen: teclear dos
+          números es el camino de respaldo, no el principal. */}
+      <div>
+        <span className={labelClass}>Ubicación en el mapa</span>
+        <SelectorDeUbicacion
+          latitud={latDelMapa}
+          longitud={lngDelMapa}
+          onCambiar={(lat, lng) =>
+            setForm((prev) => ({ ...prev, lat: String(lat), lng: String(lng) }))
+          }
+        />
+      </div>
 
       {campos.map(([label, field, ph]) => {
         const senalado = camposDelError.includes(field)

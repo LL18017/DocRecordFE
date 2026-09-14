@@ -26,6 +26,20 @@ export interface ClinicaDto {
   name: string
   latitud: number | null
   longitud: number | null
+  /**
+   * Los cinco datos de dirección que añadió HU-26.
+   *
+   * Admiten `null` porque las clínicas registradas antes de la migración V16 no
+   * los tienen, y no se puede inventar la dirección de una sede que ya existe.
+   * Las nuevas los exigen todos.
+   */
+  departamento: string | null
+  municipio: string | null
+  direccion: string | null
+  telefono: string | null
+  horario: string | null
+  /** `ACTIVA` o `INACTIVA`. Una clínica inactiva deja de ofrecerse para atender. */
+  estado: 'ACTIVA' | 'INACTIVA'
 }
 
 /**
@@ -41,6 +55,11 @@ export interface GuardarClinicaPayload {
   name: string
   latitud: number
   longitud: number
+  departamento: string
+  municipio: string
+  direccion: string
+  telefono: string
+  horario: string
 }
 
 /** Longitud máxima de `name` según `@Size(max = 100)` del backend. */
@@ -126,6 +145,12 @@ export function clinicaDtoAClinica(dto: ClinicaDto): Clinica {
     name: dto.name,
     lat: dto.latitud,
     lng: dto.longitud,
+    departamento: dto.departamento,
+    municipio: dto.municipio,
+    direccion: dto.direccion,
+    telefono: dto.telefono,
+    horario: dto.horario,
+    estado: dto.estado,
   }
 }
 

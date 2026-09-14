@@ -295,6 +295,17 @@ export interface ClinicaAsignadaDto {
   name: string
   latitud: number | null
   longitud: number | null
+  /**
+   * Los datos de dirección que añadió HU-26. Este endpoint devuelve el mismo
+   * `ClinicasResponseDto` que `/clinics`, así que llegan igual: con `null` en
+   * las clínicas registradas antes de la migración V16.
+   */
+  departamento: string | null
+  municipio: string | null
+  direccion: string | null
+  telefono: string | null
+  horario: string | null
+  estado: 'ACTIVA' | 'INACTIVA'
 }
 
 /**

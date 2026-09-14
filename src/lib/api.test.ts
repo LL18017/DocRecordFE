@@ -331,6 +331,11 @@ describe('apiFetch · traducción de errores', () => {
       respuesta(400, {
         latitud: 'La latitud es obligatoria',
         longitud: 'La longitud es obligatoria',
+        departamento: 'San Salvador',
+        municipio: 'San Salvador',
+        direccion: 'Calle Principal',
+        telefono: '2222-0000',
+        horario: 'Lunes a viernes, 8:00 a 16:00',
       }),
     )
 

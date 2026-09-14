@@ -52,7 +52,33 @@ export interface Clinica {
   name: string
   lat: number | null
   lng: number | null
+  /**
+   * Dónde queda, de verdad (HU-26).
+   *
+   * `null` en las clínicas registradas antes de la migración V16: no se puede
+   * inventar la dirección de una sede que ya existe, así que se muestra el hueco
+   * y se completa a mano.
+   *
+   * ── Por qué opcionales aquí y obligatorios en `ClinicaDto` ─────────────
+   * Son dos contratos distintos. `ClinicaDto` espeja lo que devuelve la API, y
+   * el backend manda siempre las seis claves —con `null` cuando no las tiene—,
+   * así que ahí exigirlas es lo correcto: si alguna faltara, la respuesta no
+   * sería la que el backend promete.
+   *
+   * `Clinica` es el modelo que usan las pantallas, y lo construyen también la
+   * maqueta y el contexto de sesión, que no tienen dirección ninguna. Exigirlas
+   * ahí obligaría a inventar datos para que compilara, que es exactamente lo
+   * contrario de lo que se busca. Ausente y `null` se pintan igual: un guion.
+   */
+  departamento?: string | null
+  municipio?: string | null
+  direccion?: string | null
+  telefono?: string | null
+  horario?: string | null
+  estado?: 'ACTIVA' | 'INACTIVA'
+  /** @deprecated Restos de la maqueta; usar `direccion` y `telefono`. */
   address?: string
+  /** @deprecated */
   phone?: string
   patients?: number
 }
