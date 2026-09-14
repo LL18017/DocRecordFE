@@ -83,7 +83,19 @@ beforeEach(() => {
   onCancel = vi.fn<() => void>()
 })
 
-function montar(props: Partial<React.ComponentProps<typeof ConsultationForm>> = {}) {
+/**
+ * Monta el formulario Y ELIGE EL PACIENTE, porque ya no viene preseleccionado.
+ *
+ * El desplegable arrancaba en `pacientes[0]`, y ese valor por defecto es el que
+ * acaba registrando la consulta en el expediente equivocado: se abre el modal,
+ * se escribe el motivo y se guarda sin releer un campo que ya venía relleno.
+ * Elegir a conciencia es ahora parte del flujo, así que también lo es de estas
+ * pruebas.
+ *
+ * Al editar, o con `pacienteIdPorDefecto`, el paciente SÍ se conoce y no hay
+ * nada que elegir: de ahí el `queryByLabelText` y la condición.
+ */
+async function montar(props: Partial<React.ComponentProps<typeof ConsultationForm>> = {}) {
   render(
     <ConsultationForm
       pacientes={PACIENTES}
@@ -92,7 +104,16 @@ function montar(props: Partial<React.ComponentProps<typeof ConsultationForm>> = 
       {...props}
     />,
   )
-  return userEvent.setup()
+  const user = userEvent.setup()
+  const selectorDePaciente = screen.queryByLabelText(/^paciente/i)
+  if (
+    selectorDePaciente instanceof HTMLSelectElement &&
+    props.pacienteIdPorDefecto === undefined &&
+    props.consulta === undefined
+  ) {
+    await user.selectOptions(selectorDePaciente, String(PACIENTES[0].personaId))
+  }
+  return user
 }
 
 const campoMotivo = () => screen.getByLabelText(/motivo de consulta/i)
@@ -103,7 +124,7 @@ describe('ConsultationForm · el diagnóstico es exclusivo del médico', () => {
   it('no le ofrece el campo a una enfermera', async () => {
     sesion = { user: usuario('enfermera'), activeClinic: CLINICA }
 
-    montar()
+    await montar()
 
     expect(campoDiagnostico()).toBeNull()
     // Y se explica por qué falta, en vez de dejar un hueco sin motivo.
@@ -112,7 +133,7 @@ describe('ConsultationForm · el diagnóstico es exclusivo del médico', () => {
 
   it('tampoco manda diagnóstico en el cuerpo cuando registra una enfermera', async () => {
     sesion = { user: usuario('enfermera'), activeClinic: CLINICA }
-    const user = montar()
+    const user = await montar()
 
     await user.type(campoMotivo(), 'Control de presión')
     await user.click(botonGuardar())
@@ -125,8 +146,8 @@ describe('ConsultationForm · el diagnóstico es exclusivo del médico', () => {
     })
   })
 
-  it('sí se lo ofrece al médico', () => {
-    montar()
+  it('sí se lo ofrece al médico', async () => {
+    await montar()
 
     expect(campoDiagnostico()).toBeInTheDocument()
   })
@@ -136,7 +157,7 @@ describe('ConsultationForm · el diagnóstico es exclusivo del médico', () => {
     // motivo. Mandar `diagnostico` aquí —aunque fuera el mismo texto— sería
     // pedirle al backend una escritura que su rol tiene prohibida.
     sesion = { user: usuario('enfermera'), activeClinic: CLINICA }
-    const user = montar({ consulta: consulta({ diagnostico: 'Faringitis aguda' }) })
+    const user = await montar({ consulta: consulta({ diagnostico: 'Faringitis aguda' }) })
 
     await user.clear(campoMotivo())
     await user.type(campoMotivo(), 'Dolor de garganta y fiebre')
@@ -151,7 +172,7 @@ describe('ConsultationForm · el diagnóstico es exclusivo del médico', () => {
 
 describe('ConsultationForm · el cuerpo que viaja al backend', () => {
   it('manda exactamente los campos del contrato', async () => {
-    const user = montar()
+    const user = await montar()
 
     await user.selectOptions(screen.getByLabelText(/paciente/i), '15')
     await user.type(campoMotivo(), '  Dolor de garganta  ')
@@ -171,7 +192,7 @@ describe('ConsultationForm · el cuerpo que viaja al backend', () => {
     // `clinicaId` es opcional en el contrato. Mandar null (o un 0 inventado)
     // no es lo mismo que omitirlo: es un 400 o una clínica equivocada.
     sesion = { user: usuario('medico'), activeClinic: null }
-    const user = montar()
+    const user = await montar()
 
     await user.type(campoMotivo(), 'Control')
     await user.click(botonGuardar())
@@ -181,7 +202,7 @@ describe('ConsultationForm · el cuerpo que viaja al backend', () => {
   })
 
   it('omite el diagnóstico cuando el médico lo deja en blanco', async () => {
-    const user = montar()
+    const user = await montar()
 
     await user.type(campoMotivo(), 'Control')
     await user.type(campoDiagnostico()!, '   ')
@@ -196,7 +217,7 @@ describe('ConsultationForm · el cuerpo que viaja al backend', () => {
   })
 
   it('no envía nada si el motivo está en blanco', async () => {
-    const user = montar()
+    const user = await montar()
 
     await user.type(campoMotivo(), '    ')
     await user.click(botonGuardar())
@@ -210,7 +231,7 @@ describe('ConsultationForm · edición', () => {
     // El PUT completa sin destruir: «campo ausente = no lo toco». Reenviar el
     // motivo sin cambios es ruido; reenviar `clinicaId` con la sede activa de
     // quien edita movería la consulta de clínica sin que nadie lo pidiera.
-    const user = montar({ consulta: consulta({ motivo: 'Dolor de garganta' }) })
+    const user = await montar({ consulta: consulta({ motivo: 'Dolor de garganta' }) })
 
     await user.type(campoDiagnostico()!, 'Faringitis aguda')
     await user.click(botonGuardar())
@@ -220,17 +241,17 @@ describe('ConsultationForm · edición', () => {
     expect(actualizarConsulta.mock.calls[0][1]).toEqual({ diagnostico: 'Faringitis aguda' })
   })
 
-  it('muestra al paciente pero no deja cambiarlo', () => {
-    montar({ consulta: consulta() })
+  it('muestra al paciente pero no deja cambiarlo', async () => {
+    await montar({ consulta: consulta() })
 
     expect(screen.getByText('Ana María Ramírez')).toBeInTheDocument()
     expect(screen.queryByRole('combobox')).toBeNull()
   })
 
-  it('parte del diagnóstico existente sin reventar cuando viene null', () => {
+  it('parte del diagnóstico existente sin reventar cuando viene null', async () => {
     // `diagnostico` llega null mientras la consulta sigue PENDIENTE; el
     // textarea necesita una cadena.
-    montar({ consulta: consulta({ diagnostico: null }) })
+    await montar({ consulta: consulta({ diagnostico: null }) })
 
     expect(campoDiagnostico()).toHaveValue('')
   })
@@ -239,7 +260,7 @@ describe('ConsultationForm · edición', () => {
     // `motivo` también puede venir null (la columna no lo exige). Sin el
     // `?? ''`, el textarea arrancaría con la palabra «null» dentro y quien
     // editara la consulta la guardaría como motivo de verdad.
-    const user = montar({ consulta: consulta({ motivo: null }) })
+    const user = await montar({ consulta: consulta({ motivo: null }) })
 
     expect(campoMotivo()).toHaveValue('')
 
@@ -254,7 +275,7 @@ describe('ConsultationForm · edición', () => {
 describe('ConsultationForm · errores', () => {
   it('muestra el motivo que dio el backend, sin sustituirlo', async () => {
     crearConsulta.mockRejectedValue(new ApiError(400, 'El motivo es obligatorio.'))
-    const user = montar()
+    const user = await montar()
 
     await user.type(campoMotivo(), 'Control')
     await user.click(botonGuardar())
@@ -266,7 +287,7 @@ describe('ConsultationForm · errores', () => {
   it('avisa a la pantalla solo cuando el servidor confirmó', async () => {
     const guardada = consulta({ consultaId: 99 })
     crearConsulta.mockResolvedValue(guardada)
-    const user = montar()
+    const user = await montar()
 
     await user.type(campoMotivo(), 'Control')
     await user.click(botonGuardar())
@@ -276,16 +297,16 @@ describe('ConsultationForm · errores', () => {
 })
 
 describe('ConsultationForm · etiquetas que apuntan a un control de verdad', () => {
-  it('al registrar, «Paciente» nombra al selector', () => {
-    montar()
+  it('al registrar, «Paciente» nombra al selector', async () => {
+    await montar()
 
     // El nombre accesible tiene que resolver a un control: si el `htmlFor`
     // señalara otra cosa, aquí no habría un <select>.
     expect(screen.getByLabelText(/^paciente/i).tagName).toBe('SELECT')
   })
 
-  it('al editar, el paciente se muestra sin fingir que es un campo', () => {
-    montar({ consulta: consulta() })
+  it('al editar, el paciente se muestra sin fingir que es un campo', async () => {
+    await montar({ consulta: consulta() })
 
     // Al editar no hay selector: el paciente solo se muestra. Un
     // `<label htmlFor>` apuntando a ese <p> es una etiqueta rota —el navegador

@@ -23,7 +23,16 @@ import { ClinicForm } from './ClinicForm'
 import { HabitForm } from './HabitForm'
 import { HereditaryForm } from './HereditaryForm'
 import { UserForm } from './UserForm'
-import { VitalsForm } from './VitalsForm'
+import { VitalsForm, type PacienteParaToma } from './VitalsForm'
+
+/**
+ * VitalsForm ya no recibe el `Patient` de la interfaz sino lo mínimo para
+ * identificar al paciente en el desplegable, que es lo que devuelve
+ * `GET /pacientes`: no necesita edad, sexo ni tipo de sangre para una toma.
+ */
+const PACIENTES_PARA_TOMA: PacienteParaToma[] = [
+  { personaId: 42, nombre: 'Ana María Ramírez', expediente: 'EXP-0042' },
+]
 
 const PACIENTES: Patient[] = [
   {
@@ -101,17 +110,27 @@ const FORMULARIOS: Formulario[] = [
   },
   {
     nombre: 'VitalsForm',
-    montar: () => <VitalsForm patients={PACIENTES} onSubmit={nada} onCancel={nada} />,
+    montar: () => (
+      <VitalsForm pacientes={PACIENTES_PARA_TOMA} onSubmit={nada} onCancel={nada} />
+    ),
+    // La presión dejó de ser UN campo de texto («120/80») y pasó a ser dos
+    // numéricos: el backend guarda sistólica y diastólica en columnas
+    // distintas para poder consultarlas.
+    //
+    // Y desapareció «Enfermera responsable». Quien firma la toma sale del
+    // token, no de una casilla que cualquiera puede escribir: un campo libre
+    // ahí permitía atribuirle una presión arterial a otra compañera.
     campos: [
-      { etiqueta: /^paciente$/i, control: 'SELECT', obligatorio: false },
+      { etiqueta: /^paciente$/i, control: 'SELECT', obligatorio: true },
       { etiqueta: /^peso \(kg\)$/i, control: 'INPUT', obligatorio: false },
       { etiqueta: /^talla \(cm\)$/i, control: 'INPUT', obligatorio: false },
       { etiqueta: /^temperatura \(°C\)$/i, control: 'INPUT', obligatorio: false },
-      { etiqueta: /^presión arterial \(mmHg\)$/i, control: 'INPUT', obligatorio: false },
-      { etiqueta: /^pulso \(bpm\)$/i, control: 'INPUT', obligatorio: false },
+      { etiqueta: /^presión sistólica \(mmHg\)$/i, control: 'INPUT', obligatorio: false },
+      { etiqueta: /^presión diastólica \(mmHg\)$/i, control: 'INPUT', obligatorio: false },
+      { etiqueta: /^pulso \(lpm\)$/i, control: 'INPUT', obligatorio: false },
       { etiqueta: /^frecuencia resp\. \(rpm\)$/i, control: 'INPUT', obligatorio: false },
       { etiqueta: /^saturación O₂ \(%\)$/i, control: 'INPUT', obligatorio: false },
-      { etiqueta: /^enfermera responsable$/i, control: 'INPUT', obligatorio: false },
+      { etiqueta: /^observaciones$/i, control: 'TEXTAREA', obligatorio: false },
     ],
   },
   {
@@ -219,9 +238,10 @@ describe('Formularios de modal · el asterisco no es el que informa', () => {
 
 describe('VitalsForm · el selector de paciente solo existe si hay lista', () => {
   it('no ofrece un campo «Paciente» cuando el expediente ya fija al paciente', () => {
-    // El expediente monta el formulario sin `patients`: no hay a quién elegir.
-    // Si apareciera un rótulo sin control detrás, sería una etiqueta rota.
-    render(<VitalsForm defaultPatientId="42" onSubmit={nada} onCancel={nada} />)
+    // Montado sin lista: no hay a quién elegir porque el paciente ya está
+    // fijado. Si apareciera un rótulo sin control detrás, sería una etiqueta
+    // rota.
+    render(<VitalsForm defaultPacienteId={42} onSubmit={nada} onCancel={nada} />)
 
     expect(screen.queryByLabelText(/^paciente$/i)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/^peso \(kg\)$/i)).toBeInTheDocument()
@@ -234,6 +254,8 @@ describe('AppointmentForm · lo que se agenda', () => {
     const user = userEvent.setup()
     render(<AppointmentForm patients={PACIENTES} onSubmit={onSubmit} onCancel={nada} />)
 
+    // El paciente ya no viene preseleccionado: elegirlo es parte del flujo.
+    await user.selectOptions(screen.getByLabelText(/^paciente/i), 'Ana María Ramírez')
     await user.clear(screen.getByLabelText(/^hora/i))
     await user.type(screen.getByLabelText(/^hora/i), '14:30')
     await user.type(screen.getByLabelText(/^notas u observaciones$/i), 'Control de presión')
@@ -283,10 +305,15 @@ describe('ClinicForm · cada rótulo sobre su casilla', () => {
 })
 
 describe('VitalsForm · cada rótulo sobre su constante', () => {
-  it('manda cada valor con la unidad del rótulo bajo el que se escribió', async () => {
+  it('manda cada valor en el campo del rótulo bajo el que se escribió', async () => {
     const onSubmit = vi.fn()
     const user = userEvent.setup()
-    render(<VitalsForm patients={PACIENTES} onSubmit={onSubmit} onCancel={nada} />)
+    render(
+      <VitalsForm pacientes={PACIENTES_PARA_TOMA} onSubmit={onSubmit} onCancel={nada} />,
+    )
+
+    // El paciente ya no viene preseleccionado: elegirlo es parte del flujo.
+    await user.selectOptions(screen.getByLabelText(/^paciente$/i), '42')
 
     const escribir = async (etiqueta: RegExp, valor: string) => {
       await user.clear(screen.getByLabelText(etiqueta))
@@ -294,18 +321,85 @@ describe('VitalsForm · cada rótulo sobre su constante', () => {
     }
     await escribir(/^peso \(kg\)$/i, '81')
     await escribir(/^talla \(cm\)$/i, '162')
-    await escribir(/^pulso \(bpm\)$/i, '55')
+    await escribir(/^pulso \(lpm\)$/i, '55')
     await escribir(/^saturación O₂ \(%\)$/i, '91')
     await user.click(screen.getByRole('button', { name: /guardar registro/i }))
 
+    // NÚMEROS, no cadenas con la unidad pegada: el backend guarda columnas
+    // numéricas para poder preguntar «quiénes tienen la sistólica sobre 140».
     // Valores distintos entre sí a propósito: con dos iguales, un cruce de
     // etiquetas pasaría desapercibido.
     expect(onSubmit.mock.calls[0][0]).toMatchObject({
-      weight: '81 kg',
-      height: '162 cm',
-      pulse: '55 bpm',
-      sat: '91%',
+      pacienteId: 42,
+      pesoKg: 81,
+      estaturaCm: 162,
+      pulsoLpm: 55,
+      saturacionPct: 91,
     })
+  })
+
+  it('omite del cuerpo las medidas que no se tomaron, en vez de mandarlas en cero', async () => {
+    // Un 0 en una saturación es una urgencia; una casilla vacía es un hueco.
+    // Mandar lo segundo como lo primero convierte una ausencia en una alarma.
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <VitalsForm pacientes={PACIENTES_PARA_TOMA} onSubmit={onSubmit} onCancel={nada} />,
+    )
+
+    await user.selectOptions(screen.getByLabelText(/^paciente$/i), '42')
+    await user.type(screen.getByLabelText(/^pulso \(lpm\)$/i), '72')
+    await user.click(screen.getByRole('button', { name: /guardar registro/i }))
+
+    const cuerpo = onSubmit.mock.calls[0][0]
+    expect(cuerpo).toEqual({ pacienteId: 42, pulsoLpm: 72 })
+    expect(cuerpo).not.toHaveProperty('saturacionPct')
+    expect(cuerpo).not.toHaveProperty('pesoKg')
+  })
+
+  it('no trae ningún paciente preseleccionado', async () => {
+    // El desplegable arrancaba en `pacientes[0]` —quien el catálogo pusiera
+    // primero—, y ese valor por defecto es el que acaba escribiendo la toma en
+    // el expediente equivocado: se abre el modal con el tensiómetro en la mano,
+    // se escriben las medidas y se guarda sin releer un campo que ya venía
+    // relleno. Una toma en la ficha de otro paciente no se distingue después de
+    // una real.
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <VitalsForm pacientes={PACIENTES_PARA_TOMA} onSubmit={onSubmit} onCancel={nada} />,
+    )
+
+    expect(screen.getByLabelText(/^paciente$/i)).toHaveValue('')
+
+    // Y sin elegirlo no se envía, aunque haya medidas escritas.
+    await user.type(screen.getByLabelText(/^pulso \(lpm\)$/i), '72')
+    await user.click(screen.getByRole('button', { name: /guardar registro/i }))
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('no deja guardar una toma sin ninguna medida', async () => {
+    // El formulario nacía con siete constantes escritas -72 kg, 120/80, 36.8…-
+    // y «Guardar» sin tocar nada dejaba en el expediente medidas que nadie
+    // tomó. Ahora nace vacío, y vacío no se puede guardar.
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <VitalsForm pacientes={PACIENTES_PARA_TOMA} onSubmit={onSubmit} onCancel={nada} />,
+    )
+
+    for (const etiqueta of [
+      /^peso \(kg\)$/i,
+      /^talla \(cm\)$/i,
+      /^temperatura \(°C\)$/i,
+      /^pulso \(lpm\)$/i,
+      /^saturación O₂ \(%\)$/i,
+    ]) {
+      expect(screen.getByLabelText(etiqueta)).toHaveValue(null)
+    }
+
+    await user.click(screen.getByRole('button', { name: /guardar registro/i }))
+    expect(onSubmit).not.toHaveBeenCalled()
   })
 })
 

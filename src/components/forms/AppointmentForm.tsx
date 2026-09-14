@@ -36,7 +36,12 @@ export const AppointmentForm: React.FC<AppointmentFormProps> = ({
   const uid = useId()
   const id = (nombre: string) => `${uid}-${nombre}`
 
-  const [patient, setPatient] = useState(patients[0]?.name || '')
+  // SIN paciente preseleccionado, igual que en consultas, prescripciones y
+  // signos vitales. Arrancaba en `patients[0]` —quien el catálogo pusiera
+  // primero—, y ese valor por defecto es el que acaba agendando la cita a otra
+  // persona: se abre el modal, se pone fecha y hora, y se guarda sin releer un
+  // campo que ya venía relleno.
+  const [patient, setPatient] = useState('')
   const [date, setDate] = useState('2026-08-20')
   const [time, setTime] = useState('09:00')
   const [type, setType] = useState('Consulta médica')
@@ -68,6 +73,9 @@ export const AppointmentForm: React.FC<AppointmentFormProps> = ({
           onChange={(e) => setPatient(e.target.value)}
           className={campoBase}
         >
+          {/* La opción vacía obliga a elegir a conciencia; con `required` el
+              navegador no deja enviar mientras siga puesta. */}
+          <option value="">Selecciona un paciente…</option>
           {patients.map((p) => (
             <option key={p.id} value={p.name}>
               {p.name} ({p.id_num})

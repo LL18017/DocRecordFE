@@ -78,9 +78,18 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
   const uid = useId()
   const id = (nombre: string) => `${uid}-${nombre}`
 
+  // SIN paciente preseleccionado cuando no se sabe cuál es. Antes caía en
+  // `pacientes[0]` —quien el catálogo pusiera primero—, y aquí eso es lo más
+  // grave de los tres formularios: una receta lleva firma de médico y es el
+  // documento con el que alguien se toma un medicamento. Emitida al paciente
+  // equivocado por un desplegable que ya venía relleno, no se distingue
+  // después de una real.
+  //
+  // `pacienteIdPorDefecto` sí se respeta: ahí el paciente viene de haber
+  // abierto el formulario desde su propio expediente, no del orden de la lista.
   const [pacienteId, setPacienteId] = useState<string>(() => {
     if (pacienteIdPorDefecto !== undefined) return String(pacienteIdPorDefecto)
-    return pacientes[0] ? String(pacientes[0].personaId) : ''
+    return ''
   })
 
   // Una receta cuelga siempre de una consulta, así que hay que elegir cuál.
@@ -214,7 +223,13 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
               onChange={(e) => handlePacienteChange(e.target.value)}
               className={inputClass}
             >
-              {pacientes.length === 0 && <option value="">No hay pacientes registrados</option>}
+              {/* La opción vacía obliga a elegir a conciencia; con `required`
+                  el navegador no deja enviar mientras siga puesta. */}
+              <option value="">
+                {pacientes.length === 0
+                  ? 'No hay pacientes registrados'
+                  : 'Selecciona un paciente…'}
+              </option>
               {pacientes.map((p) => (
                 <option key={p.personaId} value={String(p.personaId)}>
                   {p.expediente ? `${p.nombre} (${p.expediente})` : p.nombre}

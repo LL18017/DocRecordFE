@@ -70,10 +70,20 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
 
   const editando = consulta !== undefined
 
+  // SIN paciente preseleccionado cuando no se sabe cuál es. Antes caía en
+  // `pacientes[0]` —quien el catálogo pusiera primero—, y ese es el valor por
+  // defecto que acaba en el expediente equivocado: se abre el modal, se
+  // escribe el motivo y se guarda sin releer un desplegable que ya venía
+  // relleno. Una consulta registrada a otro paciente no se distingue después
+  // de una real.
+  //
+  // Los otros dos casos SÍ conocen al paciente y no se tocan: al editar es el
+  // de la consulta, y `pacienteIdPorDefecto` viene de haber abierto el
+  // formulario desde su propio expediente.
   const [pacienteId, setPacienteId] = useState<string>(() => {
     if (consulta) return String(consulta.paciente.personaId)
     if (pacienteIdPorDefecto !== undefined) return String(pacienteIdPorDefecto)
-    return pacientes[0] ? String(pacientes[0].personaId) : ''
+    return ''
   })
   // `motivo` puede venir null igual que `diagnostico` (la columna no lo exige
   // y el DTO de alta tampoco): el textarea necesita una cadena.
@@ -193,7 +203,13 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
               onChange={(e) => setPacienteId(e.target.value)}
               className={inputClass}
             >
-              {pacientes.length === 0 && <option value="">No hay pacientes registrados</option>}
+              {/* La opción vacía obliga a elegir a conciencia; con `required`
+                  el navegador no deja enviar mientras siga puesta. */}
+              <option value="">
+                {pacientes.length === 0
+                  ? 'No hay pacientes registrados'
+                  : 'Selecciona un paciente…'}
+              </option>
               {pacientes.map((p) => (
                 <option key={p.personaId} value={String(p.personaId)}>
                   {p.expediente ? `${p.nombre} (${p.expediente})` : p.nombre}

@@ -75,7 +75,19 @@ beforeEach(() => {
   onCancel = vi.fn<() => void>()
 })
 
-function montar(props: Partial<React.ComponentProps<typeof PrescriptionForm>> = {}) {
+/**
+ * Monta el formulario Y ELIGE EL PACIENTE, porque ya no viene preseleccionado.
+ *
+ * El desplegable arrancaba en `pacientes[0]`, y ese valor por defecto es el que
+ * acaba emitiendo una receta al paciente equivocado: se abre el modal, se
+ * escriben los medicamentos y se emite sin releer un campo que ya venía
+ * relleno. Elegir a conciencia es ahora parte del flujo, así que también lo es
+ * de estas pruebas.
+ *
+ * Con `consulta` fija no hay desplegable de paciente —el paciente sale de la
+ * consulta—, de ahí el `queryByLabelText`.
+ */
+async function montar(props: Partial<React.ComponentProps<typeof PrescriptionForm>> = {}) {
   render(
     <PrescriptionForm
       pacientes={PACIENTES}
@@ -84,7 +96,12 @@ function montar(props: Partial<React.ComponentProps<typeof PrescriptionForm>> = 
       {...props}
     />,
   )
-  return userEvent.setup()
+  const user = userEvent.setup()
+  const selectorDePaciente = screen.queryByLabelText(/^paciente/i)
+  if (selectorDePaciente && props.pacienteIdPorDefecto === undefined) {
+    await user.selectOptions(selectorDePaciente, String(PACIENTES[0].personaId))
+  }
+  return user
 }
 
 const botonEmitir = () => screen.getByRole('button', { name: /emitir/i })
@@ -101,7 +118,7 @@ async function esperarConsultas() {
 
 describe('PrescriptionForm · una receta sin medicamentos no es una receta', () => {
   it('no emite nada si no se escribió ningún medicamento', async () => {
-    const user = montar()
+    const user = await montar()
     await esperarConsultas()
 
     await user.click(botonEmitir())
@@ -114,7 +131,7 @@ describe('PrescriptionForm · una receta sin medicamentos no es una receta', () 
   it('tampoco cuenta como receta un par de líneas en blanco', async () => {
     // «Agregar medicamento» tres veces y no llenar ninguna sigue siendo cero
     // medicamentos, por mucho que la pantalla muestre tres filas.
-    const user = montar()
+    const user = await montar()
     await esperarConsultas()
 
     await user.click(screen.getByRole('button', { name: /agregar medicamento/i }))
@@ -129,7 +146,7 @@ describe('PrescriptionForm · una receta sin medicamentos no es una receta', () 
 
 describe('PrescriptionForm · el cuerpo que viaja al backend', () => {
   it('manda consultaId y los medicamentos, omitiendo los opcionales vacíos', async () => {
-    const user = montar()
+    const user = await montar()
     await esperarConsultas()
 
     await user.type(campoMedicamento(1), 'Amoxicilina')
@@ -150,7 +167,7 @@ describe('PrescriptionForm · el cuerpo que viaja al backend', () => {
   })
 
   it('descarta la línea que quedó vacía entre dos llenas', async () => {
-    const user = montar()
+    const user = await montar()
     await esperarConsultas()
 
     await user.type(campoMedicamento(1), 'Amoxicilina')
@@ -167,7 +184,7 @@ describe('PrescriptionForm · el cuerpo que viaja al backend', () => {
   })
 
   it('usa la consulta fija cuando se receta desde una consulta concreta', async () => {
-    const user = montar({ consulta: consulta({ consultaId: 99 }) })
+    const user = await montar({ consulta: consulta({ consultaId: 99 }) })
 
     await user.type(campoMedicamento(1), 'Amoxicilina')
     await user.click(botonEmitir())
@@ -185,7 +202,7 @@ describe('PrescriptionForm · la consulta de la que cuelga la receta', () => {
       consulta({ consultaId: 20, motivo: 'Control post operatorio' }),
       consulta({ consultaId: 7 }),
     ])
-    const user = montar()
+    const user = await montar()
     await waitFor(() => expect(listarConsultas).toHaveBeenCalledWith(42))
     await screen.findByRole('option', { name: /control post operatorio/i })
 
@@ -198,7 +215,7 @@ describe('PrescriptionForm · la consulta de la que cuelga la receta', () => {
 
   it('avisa cuando el paciente no tiene consultas, en vez de dejar emitir a ciegas', async () => {
     listarConsultas.mockResolvedValue([])
-    const user = montar()
+    const user = await montar()
     await waitFor(() => expect(listarConsultas).toHaveBeenCalled())
     await screen.findByRole('option', { name: /no tiene consultas registradas/i })
 
@@ -216,7 +233,7 @@ describe('PrescriptionForm · la consulta de la que cuelga la receta', () => {
     // consultas y no sobre la pantalla entera para que la prueba no dependa
     // de que ninguna otra parte diga «null» por su cuenta.
     listarConsultas.mockResolvedValue([consulta({ consultaId: 20, motivo: null })])
-    montar()
+    await montar()
     await waitFor(() => expect(listarConsultas).toHaveBeenCalled())
 
     const selector = await screen.findByLabelText(/^consulta/i)
@@ -233,7 +250,7 @@ describe('PrescriptionForm · la consulta de la que cuelga la receta', () => {
 
   it('muestra el error de carga de consultas con el motivo del backend', async () => {
     listarConsultas.mockRejectedValue(new ApiError(403, 'No tiene acceso a este paciente'))
-    montar()
+    await montar()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No tiene acceso a este paciente')
   })
@@ -244,7 +261,7 @@ describe('PrescriptionForm · errores al emitir', () => {
     crearPrescripcion.mockRejectedValue(
       new ApiError(403, 'Solo el médico que atendió la consulta puede recetar'),
     )
-    const user = montar()
+    const user = await montar()
     await esperarConsultas()
 
     await user.type(campoMedicamento(1), 'Amoxicilina')
@@ -259,7 +276,7 @@ describe('PrescriptionForm · errores al emitir', () => {
   it('avisa a la pantalla con la receta que devolvió el servidor', async () => {
     const emitida = receta()
     crearPrescripcion.mockResolvedValue(emitida)
-    const user = montar()
+    const user = await montar()
     await esperarConsultas()
 
     await user.type(campoMedicamento(1), 'Amoxicilina')
