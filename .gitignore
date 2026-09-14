@@ -42,3 +42,12 @@ next-env.d.ts
 
 # La plantilla si se versiona; los valores reales no.
 !.env.example
+
+# Pruebas end-to-end (Playwright)
+# `.env.e2e` lleva credenciales reales del entorno de desarrollo: una
+# contraseña committeada sigue en el historial de git aunque se borre despues.
+.env.e2e
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
