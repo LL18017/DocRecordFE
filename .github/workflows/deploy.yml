@@ -1,84 +1,131 @@
-# Despliegue del frontend. Se dispara a mano (nunca en cada push): construir
-# y publicar una imagen todavia no es algo que deba pasar en cada commit.
-#
-# Estado actual: INERTE A PROPOSITO. No existe todavia el VPS/servicio de
-# hosting ni las credenciales para llegar a el, asi que este workflow valida
-# que la configuracion exista y se detiene ahi. El paso de despliegue real
-# queda como placeholder comentado hasta que esa infraestructura exista.
-name: Despliegue
+name: Deploy
 
+# Despliegue a produccion (EC2, us-east-2).
+#
+# -- Cuando corre --------------------------------------------------------
+# En cada push a dev-naun, pero SOLO despues de que las pruebas pasen: el job
+# `pruebas` invoca el workflow CI de este mismo repositorio y `desplegar`
+# depende de el. Si CI falla, el despliegue no se ejecuta y el servidor se
+# queda con la version anterior en pie.
+#
+# Que las pruebas vayan por delante no es ceremonia. El 13 de septiembre llego
+# a dev-naun un commit que no compilaba, y con un despliegue atado solo al push
+# el build habria muerto en el servidor despues de detener lo que ya estaba
+# funcionando.
+#
+# Se llama a CI con `uses:` en vez de encadenarlo con `workflow_run` porque
+# `workflow_run` solo se dispara cuando el archivo que lo declara esta en la
+# rama por defecto -- aqui `main` --, de modo que desde dev-naun nunca habria
+# corrido, y sin error visible.
+#
+# -- Que secretos necesita -----------------------------------------------
+# Solo los tres de acceso SSH. Los secretos de la APLICACION (contrasena de
+# PostgreSQL, JWT_SECRET, credenciales de correo, el administrador inicial) NO
+# viajan desde aqui: viven en /opt/docrecord/.env, se generaron dentro de la
+# propia instancia con openssl y nunca han salido de ella. Tenerlos ademas en
+# GitHub significaria dos copias que se desincronizan y un segundo lugar del
+# que se pueden filtrar, a cambio de nada.
 on:
+  push:
+    branches: [dev-naun]
   workflow_dispatch:
 
-# Permisos minimos: este workflow todavia no publica nada (ni imagen ni
-# artefactos), solo valida configuracion.
 permissions:
   contents: read
 
+# Los dos repositorios despliegan en la MISMA maquina y corren el mismo script.
+# Esto evita que dos ejecuciones de este repositorio se pisen; el cruce entre
+# repositorios lo resuelve un flock dentro de desplegar.sh, porque los grupos
+# de concurrencia de GitHub no cruzan repositorios.
+concurrency:
+  group: despliegue-produccion
+  cancel-in-progress: false
+
 jobs:
+  pruebas:
+    name: Pruebas
+    uses: ./.github/workflows/ci.yml
+
   desplegar:
     name: Desplegar a produccion
+    needs: pruebas
     runs-on: ubuntu-latest
-    # GitHub Environment "production": el usuario debe crearlo en
-    # Settings > Environments y configurarle proteccion/aprobacion manual.
-    # Este workflow solo lo referencia por nombre; no lo crea.
+    timeout-minutes: 30
     environment: production
+
     steps:
-      # Paso inicial, antes de cualquier otra cosa: falla aqui, con un
-      # mensaje humano, en vez de fallar a mitad de un `ssh` o `docker build`
-      # con un error criptico por una variable vacia.
-      - name: Validar que exista la configuracion de despliegue
+      # Antes de tocar la red: si falta un secreto, morir aqui con el nombre
+      # exacto que hay que crear, en vez de a mitad de camino con un error de
+      # SSH que no dice nada.
+      - name: Validar que los secretos de despliegue esten configurados
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
-          faltan=0
+          FALTANTES=()
+          registrar_si_falta() {
+            [ -z "$1" ] && FALTANTES+=("$2 — $3")
+            return 0
+          }
 
-          # --- Secrets reales (credenciales), van en secrets.* ---
-          if [ -z "${{ secrets.SSH_HOST }}" ]; then
-            echo "Falta crear el secret SSH_HOST en el entorno 'production' (Settings > Environments > production > Environment secrets). Debe ser el host o IP del VPS de destino."
-            faltan=1
-          fi
-          if [ -z "${{ secrets.SSH_USER }}" ]; then
-            echo "Falta crear el secret SSH_USER en el entorno 'production' (Settings > Environments > production > Environment secrets). Debe ser el usuario SSH con permiso para desplegar en el VPS."
-            faltan=1
-          fi
-          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
-            echo "Falta crear el secret SSH_PRIVATE_KEY en el entorno 'production' (Settings > Environments > production > Environment secrets). Debe ser la llave privada SSH (formato PEM) para autenticar contra el VPS."
-            faltan=1
-          fi
+          registrar_si_falta "$VPS_HOST" "VPS_HOST" "IP o host publico de la instancia EC2"
+          registrar_si_falta "$VPS_USER" "VPS_USER" "usuario SSH en la instancia (ubuntu)"
+          registrar_si_falta "$VPS_SSH_KEY" "VPS_SSH_KEY" "clave privada SSH completa, con las lineas BEGIN y END"
 
-          # --- Variables publicas (no sensibles), van en vars.* ---
-          if [ -z "${{ vars.NEXT_PUBLIC_API_URL }}" ]; then
-            echo "Falta crear la variable NEXT_PUBLIC_API_URL en el entorno 'production' (Settings > Environments > production > Environment variables). Debe ser la URL publica de la API de DocRecordBE en produccion (se usa como --build-arg NEXT_PUBLIC_API_URL en el build de la imagen; NEXT_PUBLIC_* se hornea en el bundle en build-time, por eso hace falta aqui)."
-            faltan=1
+          if [ "${#FALTANTES[@]}" -eq 0 ]; then
+            echo "Los tres secretos de despliegue estan configurados."
+            exit 0
           fi
 
-          if [ "$faltan" = "1" ]; then
-            echo ""
-            echo "Faltan uno o mas secrets/variables de despliegue. Configuralos en el GitHub Environment 'production' de este repositorio antes de volver a correr este workflow."
-            exit 1
-          fi
+          {
+            echo "## Despliegue detenido: faltan secretos"
+            echo
+            echo "Crear en Settings > Environments > production > Environment secrets:"
+            echo
+            for F in "${FALTANTES[@]}"; do echo "- \`$F\`"; done
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "Configuracion de despliegue valida."
+          for F in "${FALTANTES[@]}"; do echo "::error::Falta el secreto $F"; done
+          exit 1
 
-      - name: Descargar codigo
-        uses: actions/checkout@v4
-
-      - name: Construir imagen Docker
+      - name: Desplegar por SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
-          docker build \
-            --build-arg NEXT_PUBLIC_API_URL="${{ vars.NEXT_PUBLIC_API_URL }}" \
-            -t docrecordfe:${{ github.sha }} \
-            .
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/despliegue
+          chmod 600 ~/.ssh/despliegue
 
-      # Placeholder: aqui va el despliegue real, una vez exista el VPS o
-      # servicio de hosting. Por ejemplo:
-      #   - Guardar la imagen (`docker save`) y copiarla al VPS por scp/rsync,
-      #     o subirla a un registro (GHCR, Docker Hub) y hacer `docker pull`
-      #     desde el VPS.
-      #   - Conectarse por SSH (usando SSH_HOST, SSH_USER, SSH_PRIVATE_KEY) y
-      #     reiniciar el contenedor/servicio con la imagen nueva.
-      #   - O, si se despliega a un PaaS en vez de un VPS propio, usar la
-      #     accion oficial de ese proveedor con sus credenciales.
-      - name: Desplegar (pendiente de infraestructura)
+          # La IP publica de esta instancia cambia en cada apagado (no hay
+          # Elastic IP asociada), asi que la huella del host no se puede fijar
+          # de antemano y se acepta la que responda. Es una confianza al primer
+          # uso; si se asocia una Elastic IP, conviene fijarla en un secreto.
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          # desplegar.sh trae AMBOS repositorios desde GitHub y reconstruye; no
+          # se le envia codigo desde aqui. Este paso solo dispara el despliegue.
+          ssh -i ~/.ssh/despliegue -o BatchMode=yes \
+              "$VPS_USER@$VPS_HOST" \
+              "cd /opt/docrecord && ./desplegar.sh dev-naun"
+
+      # Que el script termine sin error no prueba que la aplicacion quedo en
+      # pie: los contenedores pueden levantar y morir en el arranque. Esto lo
+      # comprueba desde fuera, como lo haria alguien abriendo la URL.
+      - name: Comprobar que la aplicacion responde
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          echo "Placeholder: aqui iria el despliegue real (rsync/scp de la imagen + restart del servicio via SSH, o push a un registro y pull desde el VPS)."
-          echo "Todavia no existe el VPS/servicio de hosting ni la infraestructura de destino, asi que no se implementa el despliegue real."
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null --max-time 10 "http://$VPS_HOST/"; then
+              echo "La aplicacion responde en http://$VPS_HOST/"
+              echo "### Desplegado: http://$VPS_HOST/" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "intento $i/30: todavia no responde"
+            sleep 10
+          done
+          echo "::error::La aplicacion no respondio tras cinco minutos. Revisar: docker compose -f /opt/docrecord/docker-compose.prod.yml logs"
+          exit 1

@@ -3,9 +3,18 @@
 name: CI
 
 on:
+  # Invocable desde deploy.yml. Hace falta porque `workflow_run` -- la forma
+  # habitual de encadenar "despliega cuando CI pase" -- SOLO se dispara si el
+  # archivo que lo declara esta en la rama por defecto del repositorio, que
+  # aqui es `main`. Con el despliegue viviendo en dev-naun nunca habria
+  # corrido, y sin dar ningun error: simplemente no pasaria nada.
+  workflow_call:
+
   push:
     branches:
-      - dev-naun
+      # dev-naun no aparece aqui porque deploy.yml llama a este workflow en
+      # cada push a esa rama. Dejarlo en ambos sitios lo haria correr dos veces
+      # por push, con el mismo resultado.
       - dev
   pull_request:
     branches:
