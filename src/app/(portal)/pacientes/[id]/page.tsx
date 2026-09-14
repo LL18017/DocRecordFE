@@ -34,6 +34,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { IconName, Patient } from '@/types'
 import { Badge } from '@/components/ui/Badge'
+import { EvolucionSignosVitales } from '@/components/clinico/EvolucionSignosVitales'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { ApiError } from '@/lib/api'
@@ -49,6 +50,7 @@ import {
 import {
   nombreDeEnfermera,
   tensionArterial,
+  listarTomas,
   ultimaToma,
   type SignosVitalesDto,
 } from '@/services/signosVitales'
@@ -171,6 +173,11 @@ export default function ExpedienteDetailPage() {
   // de `errorVitales`, que significa que no se pudo saber. La tarjeta dice
   // cosas diferentes en cada caso: un hueco no es una falla.
   const [ultimosVitales, setUltimosVitales] = useState<SignosVitalesDto | null>(null)
+  // El histórico completo, para la gráfica de evolución (HU-18). Va aparte
+  // de `ultimosVitales`: la tarjeta necesita la última toma y la gráfica
+  // necesita la serie, y pedir la serie para sacar de ella la última haría
+  // que la tarjeta dependiera de que la petición grande llegue.
+  const [historicoVitales, setHistoricoVitales] = useState<SignosVitalesDto[]>([])
   const [errorVitales, setErrorVitales] = useState<string | null>(null)
 
   const cargarPaciente = useCallback(async () => {
@@ -197,10 +204,15 @@ export default function ExpedienteDetailPage() {
   // que no se sabe si sigue siendo cierto—.
   const cargarHistorial = useCallback(async () => {
     const id = Number(patientId)
-    const [resConsultas, resRecetas, resVitales] = await Promise.allSettled([
+    const [resConsultas, resRecetas, resVitales, resHistorico] = await Promise.allSettled([
       listarConsultas(id),
       listarPrescripcionesDePaciente(id),
       ultimaToma(id),
+      // 60 tomas: con una medición semanal cubre algo más de un año, que es el
+      // rango más amplio que ofrece la gráfica. Pedir todas sin límite haría
+      // que un paciente con años de seguimiento cargara el expediente entero
+      // para dibujar doce puntos.
+      listarTomas(id, 60),
     ])
 
     if (resConsultas.status === 'fulfilled') {
@@ -226,6 +238,12 @@ export default function ExpedienteDetailPage() {
       setUltimosVitales(null)
       setErrorVitales(describir('No se pudieron cargar los signos vitales', resVitales.reason))
     }
+
+    // La gráfica se trata aparte y sin mensaje de error propio: si falla, la
+    // tarjeta de la última toma puede haber llegado bien, y llenar la pantalla
+    // de errores por una gráfica que no se pudo dibujar es ruido. Sin datos,
+    // el propio componente explica que no hay suficientes.
+    setHistoricoVitales(resHistorico.status === 'fulfilled' ? resHistorico.value : [])
 
     setCargandoHistorial(false)
   }, [patientId])
@@ -774,6 +792,18 @@ export default function ExpedienteDetailPage() {
                 </p>
               </>
             )}
+          </div>
+
+          {/* La evolución va DEBAJO de la última toma y no en su lugar: son dos
+              preguntas distintas. «¿Cómo está hoy?» la responde la tarjeta de
+              arriba; «¿hacia dónde va?» sólo se ve en la serie, y es lo que el
+              médico viene a mirar en un paciente crónico (HU-18).
+
+              Se monta aunque no haya datos suficientes: el propio componente
+              explica cuántas tomas faltan, que es más útil que hacerlo
+              desaparecer y dejar al médico preguntándose si existe. */}
+          <div className="mt-6">
+            <EvolucionSignosVitales tomas={historicoVitales} />
           </div>
         </div>
       </div>

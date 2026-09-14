@@ -54,6 +54,21 @@ export interface SignosVitalesDto {
   frecuenciaRespRpm: number | null
   saturacionPct: number | null
   observaciones: string | null
+  /**
+   * IMC = peso / talla², con un decimal. Lo calcula el backend al leer.
+   *
+   * `null` cuando falta el peso o la talla: un IMC calculado con uno de los dos
+   * ausente no es aproximado, es inventado.
+   */
+  imc: number | null
+  /**
+   * La clasificación de la OMS, o el aviso de que no aplica.
+   *
+   * En menores de 18 años NO dice «Normal» ni «Sobrepeso»: dice que hay que
+   * interpretarlo por percentiles. La tabla de adultos aplicada a un niño da
+   * una etiqueta sin sentido, y una etiqueta equivocada orienta decisiones.
+   */
+  clasificacionImc: string | null
 }
 
 /** Cuerpo de `POST /signos-vitales`. Sin `enfermeraId`: sale del token. */

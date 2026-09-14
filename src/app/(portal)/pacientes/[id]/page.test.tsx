@@ -166,6 +166,8 @@ const TOMA: SignosVitalesDto = {
   frecuenciaRespRpm: 18,
   saturacionPct: 97,
   observaciones: 'Refiere cefalea leve desde ayer.',
+  imc: null,
+  clasificacionImc: null,
 }
 
 beforeEach(() => {
