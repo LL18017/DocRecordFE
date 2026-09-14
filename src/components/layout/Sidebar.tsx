@@ -3,70 +3,15 @@
 import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Role, IconName } from '@/types'
 import { Icon } from '@/components/ui/Icon'
 import { useAppContext, useUsuarioAutenticado } from '@/context/AppContext'
 import { etiquetaDeRoles } from '@/lib/roles'
+import { RUTAS_DEL_PORTAL } from '@/lib/rutas'
 
-interface NavItem {
-  href: string
-  label: string
-  icon: IconName
-  roles: Role[]
-}
+// La tabla de rutas y roles vive en `lib/rutas.ts`, compartida con la guarda
+// del portal: dos copias mantenidas a mano acaban divergiendo, y entonces el
+// menú esconde una pantalla que la URL directa sí abre.
 
-// Quién ve cada opción. La regla es que el menú NO ofrezca una pantalla que el
-// servidor va a rechazar: ofrecerla convierte un permiso que falta en un error
-// 403 en la cara del usuario, y quien lo recibe no tiene forma de saber que el
-// problema es su rol y no el sistema.
-//
-// Los permisos de abajo son los del backend, no una preferencia de la
-// interfaz: `/user` es `hasRole('ADMIN')`, mientras que `/pacientes`,
-// `/personas` y `/clinics` admiten ADMIN además de MEDICO y ENFERMERA.
-//
-// 'Administrador' aparece también en Dashboard, Pacientes y Clínicas porque
-// `/pacientes`, `/personas` y `/clinics` admiten ADMIN además de MEDICO y
-// ENFERMERA en el backend. La sesión ya lleva TODOS los roles de la cuenta
-// (ver `mapearRoles` en services/auth.ts), así que un administrador puro
-// también ve esas tres pantallas, y uno que además sea médico ve estas MÁS
-// las suyas de médico — el filtro de abajo es un `.some(...)`, no un `===`.
-//
-// Consultas, Prescripciones y Agenda siguen sin 'Administrador' a propósito:
-// un administrador puro no tiene fila en la tabla `medicos`, así que
-// `ConsultaService` le respondería 403 igual que a cualquier otra cuenta sin
-// esa fila. Ofrecer el enlace ahí sería prometer una pantalla que revienta al
-// pulsarla. Una cuenta ADMIN+MEDICO sigue viéndolas: las gana por su rol de
-// médico, no por el de administrador.
-const navItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', roles: ['medico', 'enfermera', 'Administrador'] },
-  { href: '/pacientes', label: 'Pacientes', icon: 'patients', roles: ['medico', 'enfermera', 'Administrador'] },
-  { href: '/consultas', label: 'Consultas Médicas', icon: 'consultas', roles: ['medico'] },
-  // «Signos vitales» y no «Registro Enfermería»: el menú nombra lo que se hace
-  // ahí, no el departamento que lo hace. Quien entra busca dónde anotar la
-  // presión y el pulso, y el resto de la aplicación ya llama a eso signos
-  // vitales -la tarjeta del expediente, el módulo del backend-.
-  // Visible también para el MÉDICO y el ADMIN, no solo para enfermería.
-  //
-  // Estaba restringido a 'enfermera' por confundir dos cosas: quién REGISTRA
-  // una toma (solo enfermería) y quién puede LEERLA (ADMIN, MÉDICO y
-  // ENFERMERA, así lo permite el backend). El médico necesita esas constantes
-  // ANTES de diagnosticar —es la razón de ser del módulo—, y esconderle la
-  // pantalla lo dejaba viendo únicamente la última toma en la ficha del
-  // paciente, sin acceso al histórico.
-  //
-  // La pantalla ya se encarga del resto: a quien no es enfermería no le ofrece
-  // el botón de registrar, porque el backend le respondería 403.
-  {
-    href: '/enfermeria',
-    label: 'Signos vitales',
-    icon: 'enfermeria',
-    roles: ['medico', 'enfermera', 'Administrador'],
-  },
-  { href: '/prescripciones', label: 'Prescripciones', icon: 'prescripciones', roles: ['medico'] },
-  { href: '/agenda', label: 'Agenda de Citas', icon: 'agenda', roles: ['medico', 'enfermera'] },
-  { href: '/clinicas', label: 'Clínicas', icon: 'clinicas', roles: ['medico', 'enfermera', 'Administrador'] },
-  { href: '/usuarios', label: 'Usuarios y Roles', icon: 'usuarios', roles: ['Administrador'] },
-]
 
 interface SidebarProps {
   sidebarOpen: boolean
@@ -80,7 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen })
 
   // `.some(...)`, no `.includes(user.role)`: el usuario puede tener varios
   // roles a la vez y una entrada se ofrece si CUALQUIERA de ellos la permite.
-  const visibleItems = navItems.filter((i) => i.roles.some((rol) => user.roles.includes(rol)))
+  const visibleItems = RUTAS_DEL_PORTAL.filter((i) => i.roles.some((rol) => user.roles.includes(rol)))
 
   const userInitials = user.name
     .split(' ')
