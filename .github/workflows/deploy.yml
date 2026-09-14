@@ -19,7 +19,8 @@ name: Deploy
 # corrido, y sin error visible.
 #
 # -- Que secretos necesita -----------------------------------------------
-# Solo los tres de acceso SSH. Los secretos de la APLICACION (contrasena de
+# Solo los tres de acceso SSH, como secretos de REPOSITORIO
+# (Settings > Secrets and variables > Actions). Los secretos de la APLICACION (contrasena de
 # PostgreSQL, JWT_SECRET, credenciales de correo, el administrador inicial) NO
 # viajan desde aqui: viven en /opt/docrecord/.env, se generaron dentro de la
 # propia instancia con openssl y nunca han salido de ella. Tenerlos ademas en
@@ -51,7 +52,17 @@ jobs:
     needs: pruebas
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: production
+    # Sin `environment:` a proposito. Un Environment permitiria acotar los
+    # secretos a este job y exigir aprobacion manual, pero crearlo requiere
+    # permiso de ADMINISTRADOR sobre el repositorio, y quien mantiene este
+    # despliegue es colaborador. Los secretos viven a nivel de repositorio
+    # (Settings > Secrets and variables > Actions), que es lo que un
+    # colaborador si puede gestionar.
+    #
+    # El riesgo que se acepta: un secreto de repositorio esta disponible para
+    # cualquier workflow del repositorio. Aqui es tolerable porque los unicos
+    # que pueden disparar workflows con secretos son los colaboradores -- las
+    # peticiones desde un fork NO los reciben --, y son tres personas conocidas.
 
     steps:
       # Antes de tocar la red: si falta un secreto, morir aqui con el nombre
@@ -81,7 +92,7 @@ jobs:
           {
             echo "## Despliegue detenido: faltan secretos"
             echo
-            echo "Crear en Settings > Environments > production > Environment secrets:"
+            echo "Crear en Settings > Secrets and variables > Actions > New repository secret:"
             echo
             for F in "${FALTANTES[@]}"; do echo "- \`$F\`"; done
           } >> "$GITHUB_STEP_SUMMARY"
