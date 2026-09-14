@@ -218,6 +218,76 @@ export async function asignarRol(userId: number, roleId: number): Promise<Usuari
 }
 
 /**
+ * Quita un rol.
+ *
+ * El backend se niega en dos casos, y los dos protegen del mismo accidente
+ * —dejar el sistema sin nadie que pueda administrarlo—: quitarse uno mismo el
+ * rol de administrador, y retirar el último administrador que queda. Los dos
+ * responden 409 con el motivo; de ese estado no hay vuelta atrás desde la
+ * aplicación, habría que arreglarlo en la base.
+ *
+ * Quitar ENFERMERA marca su ficha de enfermería inactiva, no la borra: sus
+ * tomas de signos vitales la referencian y una corrección de permisos no puede
+ * reescribir el historial clínico.
+ *
+ * 404 si la cuenta no tenía ese rol: quitar algo que no estaba puesto no es un
+ * éxito silencioso, porque quien lo pide cree haber cambiado algo.
+ */
+export async function quitarRol(userId: number, roleId: number): Promise<UsuarioDto> {
+  return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}`, { method: 'DELETE' })
+}
+
+/**
+ * Le da acceso a una sede SIN volverlo su dueño.
+ *
+ * Por qué hace falta: `clinicas.user_id` significa quién REGISTRÓ la clínica, y
+ * de ahí salía todo lo que `/clinics/mias` devolvía. Para un médico que da de
+ * alta su consultorio alcanza; para enfermería no, porque una enfermera nunca
+ * registra una sede —trabaja en la que otro registró—, así que su lista salía
+ * vacía y la pantalla de selección de clínica la dejaba encallada antes de
+ * poder hacer nada.
+ *
+ * Reasignar al dueño no era la salida: se la quitaría al médico que la creó.
+ * Trabajar en un sitio y ser su dueño se guardan por separado.
+ *
+ * Respuestas del backend: 409 si ya la tenía asignada, 404 si el usuario o la
+ * clínica no existen.
+ */
+export async function asignarClinica(userId: number, clinicaId: number): Promise<UsuarioDto> {
+  return apiFetch<UsuarioDto>(`/user/${userId}/clinica/${clinicaId}`, { method: 'POST' })
+}
+
+/**
+ * Retira la asignación. No borra la clínica ni afecta a su dueño.
+ *
+ * 404 si el usuario no la tenía asignada: quitar algo que no estaba puesto no
+ * es un éxito silencioso, porque quien lo pide cree haber cambiado algo.
+ */
+export async function quitarClinica(userId: number, clinicaId: number): Promise<UsuarioDto> {
+  return apiFetch<UsuarioDto>(`/user/${userId}/clinica/${clinicaId}`, { method: 'DELETE' })
+}
+
+/**
+ * Las clínicas ASIGNADAS a un usuario, no las que registró él mismo.
+ *
+ * Va aparte y no dentro de `UsuarioDto` porque en el backend la colección es
+ * perezosa y el mapeador de usuario se usa desde rutas sin transacción:
+ * meterla en el DTO compartido las rompería. Solo la paga quien la pide, que
+ * es esta pantalla al abrir el modal de sedes.
+ */
+export async function clinicasAsignadas(userId: number): Promise<ClinicaAsignadaDto[]> {
+  return apiFetch<ClinicaAsignadaDto[]>(`/user/${userId}/clinicas`)
+}
+
+/** Espejo de `ClinicasResponseDto`, tal como lo devuelve `/user/{id}/clinicas`. */
+export interface ClinicaAsignadaDto {
+  clinicaId: number
+  name: string
+  latitud: number | null
+  longitud: number | null
+}
+
+/**
  * Lista el catálogo completo de roles. Se llama sin restricción propia en el
  * controller, pero en la práctica solo la pide esta pantalla, que ya exige
  * ADMIN antes de montarse.

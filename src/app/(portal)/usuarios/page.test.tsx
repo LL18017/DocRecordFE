@@ -29,6 +29,7 @@ const crearUsuario = vi.fn<(payload: CrearUsuarioPayload) => Promise<AltaUsuario
 const asignarRol = vi.fn<(userId: number, roleId: number) => Promise<UsuarioDto>>()
 const asignarContrasena = vi.fn<(userId: number, password: string) => Promise<UsuarioDto>>()
 const listarRoles = vi.fn<() => Promise<RolDto[]>>()
+const quitarRol = vi.fn<(userId: number, roleId: number) => Promise<UsuarioDto>>()
 
 vi.mock('@/services/usuarios', () => ({
   listarUsuarios: () => listarUsuarios(),
@@ -36,6 +37,7 @@ vi.mock('@/services/usuarios', () => ({
   asignarRol: (userId: number, roleId: number) => asignarRol(userId, roleId),
   asignarContrasena: (userId: number, password: string) => asignarContrasena(userId, password),
   listarRoles: () => listarRoles(),
+  quitarRol: (userId: number, roleId: number) => quitarRol(userId, roleId),
 }))
 
 let sesion: User
@@ -81,6 +83,7 @@ beforeEach(() => {
   asignarRol.mockReset()
   asignarContrasena.mockReset()
   listarRoles.mockReset()
+  quitarRol.mockReset()
   listarUsuarios.mockResolvedValue(DEL_API)
   listarRoles.mockResolvedValue([
     { id: 1, name: 'ADMIN' },
@@ -542,23 +545,44 @@ describe('asignar contraseña', () => {
 })
 
 describe('asignar rol', () => {
-  it('nunca ofrece quitar un rol: solo radios que añaden, con la advertencia siempre visible', async () => {
+  it('ofrece quitar los roles que la cuenta ya tiene', async () => {
+    // Antes esta prueba exigía lo contrario —«nunca ofrece quitar un rol»—
+    // porque el backend no tenía inverso: un rol mal asignado solo se
+    // corregía entrando a la base. Ya existe `DELETE /user/{id}/role/{id}`,
+    // así que lo que hay que vigilar ahora es que la opción esté.
     const user = montar()
-    await screen.findByText('Cuenta Sin Rol')
+    await screen.findByText('Naun Enrique Flores Menjivar')
 
-    await user.click(screen.getByRole('button', { name: /sin rol asignado — asignar ahora/i }))
+    const fila = screen.getByText('Naun Enrique Flores Menjivar').closest('tr')!
+    await user.click(within(fila).getByRole('button', { name: /^rol$/i }))
 
-    // Advertencia visible ANTES de elegir nada, no como letra pequeña después.
-    expect(
-      await screen.findByText(/solo añade el rol elegido; no reemplaza ni quita ninguno/i),
-    ).toBeVisible()
-
-    // Nunca una casilla que sugiera que se puede desmarcar: solo radios.
-    expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
-    expect(screen.getAllByRole('radio').length).toBeGreaterThan(0)
+    const modal = await screen.findByRole('dialog')
+    // Naun es Administrador y Médico: dos roles, y para cada uno su acción.
+    expect(within(modal).getByText(/roles actuales/i)).toBeVisible()
+    expect(within(modal).getAllByRole('button', { name: /^quitar$/i }).length).toBeGreaterThan(0)
 
     // Esta pantalla administra personal, no pacientes.
-    expect(screen.queryByText(/^paciente$/i)).toBeNull()
+    expect(within(modal).queryByRole('radio', { name: /^paciente$/i })).toBeNull()
+  })
+
+  it('no deja que un administrador se quite a sí mismo el acceso', async () => {
+    // Quedarse sin ningún administrador no tiene arreglo desde la aplicación:
+    // AdminBootstrap solo actúa si NO existe ninguno y además se niega a
+    // promover cuentas que ya existen. El backend lo rechaza con 409; aquí ni
+    // se ofrece, y se dice por qué en vez de esconder el botón sin motivo.
+    const user = montar()
+    await screen.findByText('Naun Enrique Flores Menjivar')
+
+    const fila = screen.getByText('Naun Enrique Flores Menjivar').closest('tr')!
+    await user.click(within(fila).getByRole('button', { name: /^rol$/i }))
+
+    const modal = await screen.findByRole('dialog')
+    // La sesión es la de Naun (ADMIN), y la fila es la suya.
+    expect(
+      within(modal).getByText(/no puede quitarse su propio acceso de administrador/i),
+    ).toBeVisible()
+    // Médico sí se le puede quitar: la guarda es solo para ADMIN.
+    expect(within(modal).getAllByRole('button', { name: /^quitar$/i })).toHaveLength(1)
   })
 
   it('descarta del selector los roles que la cuenta ya tiene, para no ni siquiera ofrecer el 409', async () => {
@@ -569,15 +593,14 @@ describe('asignar rol', () => {
     const fila = screen.getByText('Naun Enrique Flores Menjivar').closest('tr')!
     await user.click(within(fila).getByRole('button', { name: /^rol$/i }))
 
-    await screen.findByText(/solo añade el rol elegido/i)
-    // Acotado al modal: la TABLA sigue montada detrás (`Modal` no la
-    // desmonta) y la fila de Naun ya pinta insignias «Administrador» y
-    // «Médico» — buscar sin acotar encuentra esas y no dice nada del
-    // selector, que es lo que esta prueba tiene que comprobar.
-    const modal = screen.getByRole('dialog')
-    expect(within(modal).queryByText(/^administrador$/i)).toBeNull()
-    expect(within(modal).queryByText(/^médico$/i)).toBeNull()
-    expect(within(modal).getByText(/^enfermera$/i)).toBeVisible()
+    const modal = await screen.findByRole('dialog')
+    // Se miran los RADIOS, no el texto suelto: el modal ahora pinta también
+    // los roles actuales como insignias, así que buscar «Administrador» por
+    // texto lo encuentra ahí y no dice nada del selector, que es lo que esta
+    // prueba tiene que comprobar.
+    expect(within(modal).queryByRole('radio', { name: /^administrador$/i })).toBeNull()
+    expect(within(modal).queryByRole('radio', { name: /^médico$/i })).toBeNull()
+    expect(within(modal).getByRole('radio', { name: /^enfermera$/i })).toBeVisible()
   })
 
   it('manda el userId y roleId correctos al confirmar, y refresca la fila', async () => {

@@ -10,15 +10,20 @@ import { ApiError } from '@/lib/api'
 import { useUsuarioAutenticado } from '@/context/AppContext'
 import { etiquetaDeRoles } from '@/lib/roles'
 import {
+  asignarClinica,
   asignarContrasena,
   asignarRol,
+  clinicasAsignadas,
   crearUsuario,
   listarRoles,
   listarUsuarios,
+  quitarClinica,
+  quitarRol,
   type AltaUsuarioDto,
   type RolDto,
   type UsuarioDto,
 } from '@/services/usuarios'
+import { listarTodasLasClinicas, type ClinicaDto } from '@/services/clinicas'
 
 // Esta pantalla ya no es de solo lectura: sabe listar, dar de alta personal,
 // asignar un rol inicial y asignar/reestablecer contraseña. Lo que SIGUE sin
@@ -176,6 +181,7 @@ export default function UsuariosPage() {
   const [mostrarNuevoUsuario, setMostrarNuevoUsuario] = useState(false)
   const [usuarioParaRol, setUsuarioParaRol] = useState<UsuarioDto | null>(null)
   const [usuarioParaContrasena, setUsuarioParaContrasena] = useState<UsuarioDto | null>(null)
+  const [usuarioParaClinicas, setUsuarioParaClinicas] = useState<UsuarioDto | null>(null)
 
   // Ningún setState antes del primer await (regla react-hooks/set-state-in-effect);
   // `cargando` ya arranca en true, así que la carga inicial no se anuncia.
@@ -297,6 +303,18 @@ export default function UsuariosPage() {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-doc-blue bg-doc-blue/10 hover:bg-doc-blue/20 transition-colors cursor-pointer"
             >
               <Icon name="shield" size={13} /> Rol
+            </button>
+            {/* Sedes va junto a Rol porque es la misma decisión: qué puede
+                hacer esta cuenta y DÓNDE. Sin esto, enfermería no podía pasar
+                de la pantalla de selección de clínica: `clinicas.user_id` es
+                quien REGISTRÓ la sede, y una enfermera no registra ninguna. */}
+            <button
+              type="button"
+              onClick={() => setUsuarioParaClinicas(u)}
+              title="Asignar las sedes donde trabaja esta cuenta"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-doc-teal bg-doc-teal/10 hover:bg-doc-teal/20 transition-colors cursor-pointer"
+            >
+              <Icon name="clinicas" size={13} /> Sedes
             </button>
             {puedeAsignarContrasena ? (
               <button
@@ -429,6 +447,13 @@ export default function UsuariosPage() {
               actualizarEnLista(actualizado)
               setUsuarioParaRol(null)
             }}
+            onQuitado={(actualizado) => {
+              actualizarEnLista(actualizado)
+              // El modal sigue abierto, pero apuntando a la versión nueva de la
+              // cuenta: si no, la lista de roles de dentro seguiría mostrando
+              // el que se acaba de quitar.
+              setUsuarioParaRol(actualizado)
+            }}
             onCancel={() => setUsuarioParaRol(null)}
           />
         )}
@@ -453,6 +478,160 @@ export default function UsuariosPage() {
           />
         )}
       </Modal>
+
+      {/* Modal: sedes donde trabaja la cuenta */}
+      <Modal
+        isOpen={usuarioParaClinicas !== null}
+        onClose={() => setUsuarioParaClinicas(null)}
+        title="Sedes asignadas"
+        subtitle="Dónde puede operar esta cuenta, sin volverla dueña de la clínica"
+        icon="clinicas"
+        headerGradient="bg-gradient-to-r from-doc-teal to-teal-700"
+      >
+        {usuarioParaClinicas && (
+          <FormularioDeSedes
+            usuario={usuarioParaClinicas}
+            onCerrar={() => setUsuarioParaClinicas(null)}
+          />
+        )}
+      </Modal>
+    </div>
+  )
+}
+
+// ─── Sedes asignadas ────────────────────────────────────────────────────────
+
+interface FormularioDeSedesProps {
+  usuario: UsuarioDto
+  onCerrar: () => void
+}
+
+/**
+ * Asigna y retira sedes, una a una y confirmando contra el servidor.
+ *
+ * NO acumula cambios para guardarlos al final: cada casilla es una llamada que
+ * se marca solo cuando el backend la confirma. En una lista de permisos, una
+ * casilla marcada que todavía no se guardó dice que alguien tiene un acceso
+ * que no tiene.
+ *
+ * `/clinics` trae TODAS las sedes -no `/clinics/mias`-, porque para asignar
+ * hace falta ver también las que registró otro: es justo el caso de enfermería,
+ * que va a trabajar en la clínica de un médico.
+ */
+const FormularioDeSedes: React.FC<FormularioDeSedesProps> = ({ usuario, onCerrar }) => {
+  const [todas, setTodas] = useState<ClinicaDto[]>([])
+  const [asignadas, setAsignadas] = useState<number[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [enCurso, setEnCurso] = useState<number | null>(null)
+
+  const cargar = useCallback(async () => {
+    const [resTodas, resAsignadas] = await Promise.allSettled([
+      listarTodasLasClinicas(),
+      clinicasAsignadas(usuario.userId),
+    ])
+
+    if (resTodas.status === 'fulfilled') setTodas(resTodas.value)
+    if (resAsignadas.status === 'fulfilled') {
+      setAsignadas(resAsignadas.value.map((c) => c.clinicaId))
+    }
+
+    const fallo = [resTodas, resAsignadas].find((r) => r.status === 'rejected')
+    setError(
+      fallo && fallo.status === 'rejected'
+        ? fallo.reason instanceof Error && fallo.reason.message
+          ? fallo.reason.message
+          : 'No se pudieron cargar las sedes.'
+        : null,
+    )
+    setCargando(false)
+  }, [usuario.userId])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga remota al montar; ver (portal)/consultas/page.tsx
+    void cargar()
+  }, [cargar])
+
+  const alternar = async (clinicaId: number, estaAsignada: boolean) => {
+    setEnCurso(clinicaId)
+    setError(null)
+    try {
+      if (estaAsignada) {
+        await quitarClinica(usuario.userId, clinicaId)
+        setAsignadas((prev) => prev.filter((id) => id !== clinicaId))
+      } else {
+        await asignarClinica(usuario.userId, clinicaId)
+        setAsignadas((prev) => [...prev, clinicaId])
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message ? err.message : 'No se pudo cambiar la asignación.',
+      )
+    } finally {
+      setEnCurso(null)
+    }
+  }
+
+  if (cargando) {
+    return <p className="py-8 text-center text-sm text-slate-500">Cargando sedes…</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-500">
+        Marca las sedes donde <span className="font-semibold text-slate-700">{usuario.userName}</span>{' '}
+        puede trabajar. Esto no la convierte en dueña de la clínica: quien la registró sigue
+        siéndolo.
+      </p>
+
+      {error && (
+        <p
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-relaxed text-red-800"
+        >
+          {error}
+        </p>
+      )}
+
+      {todas.length === 0 ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+          No hay ninguna clínica registrada todavía. Un médico o un administrador tiene que dar de
+          alta al menos una sede antes de poder asignarla.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {todas.map((c) => {
+            const estaAsignada = asignadas.includes(c.clinicaId)
+            return (
+              <li key={c.clinicaId}>
+                <label className="flex items-center gap-3 rounded-xl border-2 border-slate-100 px-4 py-3 hover:border-slate-200 transition-colors cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={estaAsignada}
+                    disabled={enCurso === c.clinicaId}
+                    onChange={() => void alternar(c.clinicaId, estaAsignada)}
+                    className="w-4 h-4 accent-doc-teal cursor-pointer disabled:cursor-not-allowed"
+                  />
+                  <span className="flex-1 text-sm font-medium text-slate-700">{c.name}</span>
+                  {enCurso === c.clinicaId && (
+                    <span className="text-xs text-slate-400">Guardando…</span>
+                  )}
+                </label>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      <div className="flex pt-4 border-t border-slate-100">
+        <button
+          type="button"
+          onClick={onCerrar}
+          className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 hover:border-slate-300 transition-colors cursor-pointer"
+        >
+          Cerrar
+        </button>
+      </div>
     </div>
   )
 }
@@ -659,13 +838,22 @@ const FormularioNuevoUsuario: React.FC<FormularioNuevoUsuarioProps> = ({
 
 interface FormularioAsignarRolProps {
   usuario: UsuarioDto
+  /** Añadir un rol SÍ cierra el modal: es una acción y se acabó. */
   onAsignado: (usuario: UsuarioDto) => void
+  /**
+   * Quitar un rol NO cierra el modal: quien administra permisos suele tocar
+   * varios roles de la misma cuenta seguidos, y cerrarlo al primero le
+   * obligaría a reabrirlo. Refresca la lista con lo que devolvió el servidor,
+   * así que lo que se ve es lo que quedó guardado.
+   */
+  onQuitado: (usuario: UsuarioDto) => void
   onCancel: () => void
 }
 
 const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   usuario,
   onAsignado,
+  onQuitado,
   onCancel,
 }) => {
   const [roles, setRoles] = useState<RolDto[] | null>(null)
@@ -673,6 +861,8 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   const [rolSeleccionadoId, setRolSeleccionadoId] = useState<number | null>(null)
   const [asignando, setAsignando] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [quitandoId, setQuitandoId] = useState<number | null>(null)
+  const usuarioEnSesion = useUsuarioAutenticado()
 
   const cargarRoles = useCallback(async () => {
     try {
@@ -723,21 +913,87 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
     }
   }
 
+  /**
+   * Quita un rol.
+   *
+   * El modal NO se cierra: quien administra permisos suele tocar varios roles
+   * de la misma cuenta seguidos, y cerrarlo al primero le obligaría a volver a
+   * abrirlo. La lista de arriba se actualiza con lo que devuelve el servidor,
+   * así que lo que se ve es lo que quedó guardado, no lo que se pidió.
+   */
+  const handleQuitar = async (roleId: number) => {
+    setQuitandoId(roleId)
+    setError(null)
+    try {
+      onQuitado(await quitarRol(usuario.userId, roleId))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo quitar el rol.')
+    } finally {
+      setQuitandoId(null)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-500">
         Cuenta: <strong className="text-slate-700">{usuario.userName}</strong> ({usuario.email})
       </p>
 
-      {/* Advertencia SIEMPRE visible, antes de elegir nada y no como letra
-          pequeña después de confirmar: el backend no tiene inverso para esta
-          operación, así que una interfaz que sugiera que se puede deshacer
-          —una casilla que se marca y desmarca, por ejemplo— induciría a un
-          error que solo se corrige entrando a la base de datos. */}
-      <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-        Esta acción SOLO añade el rol elegido; no reemplaza ni quita ninguno. No
-        existe la operación inversa en esta pantalla: si es un error, hay que
-        corregirlo por otra vía.
+      {/* Aquí vivía un aviso diciendo que NO existía la operación inversa y que
+          un error solo se corregía «por otra vía» —es decir, entrando a la base
+          de datos—. Ya no es cierto: `DELETE /user/{id}/role/{id}` existe y esta
+          pantalla lo usa, así que mantener el aviso mentiría en el sentido
+          contrario y seguiría asustando de algo reversible. */}
+
+      {/* Roles actuales, con su botón de quitar */}
+      <div>
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+          Roles actuales
+        </p>
+        {usuario.roles.length === 0 ? (
+          <p className="text-sm text-slate-400">Sin rol asignado.</p>
+        ) : (
+          <ul className="space-y-2">
+            {usuario.roles.map((rol) => {
+              const clave = normalizarNombreDeRol(rol.name)
+              // Quitarse el ADMIN a uno mismo deja el sistema sin quien lo
+              // administre y no tiene vuelta atrás desde la aplicación. El
+              // backend lo rechaza con 409; aquí ni se ofrece, y se dice por
+              // qué en vez de esconder el botón sin motivo.
+              const esPropioAdmin = clave === 'ADMIN' && usuario.email === usuarioEnSesion.email
+              return (
+                <li
+                  key={`${rol.id}-${rol.name}`}
+                  className="flex items-center justify-between gap-3 rounded-xl border-2 border-slate-100 px-4 py-2.5"
+                >
+                  <Badge color={colorDeRol(rol.name)}>{etiquetaDeRol(rol.name)}</Badge>
+                  {rol.id === null ? (
+                    <span className="text-xs text-slate-400">Sin id: no se puede quitar</span>
+                  ) : esPropioAdmin ? (
+                    <span className="text-xs text-slate-400">
+                      No puede quitarse su propio acceso de administrador
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handleQuitar(rol.id as number)}
+                      disabled={quitandoId !== null}
+                      className="text-xs font-semibold text-red-600 hover:text-red-700 disabled:text-slate-300 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      {quitandoId === rol.id ? 'Quitando…' : 'Quitar'}
+                    </button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+
+      <div className="pt-3 border-t border-slate-100">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+          Añadir un rol
+        </p>
       </div>
 
       {errorCarga && (

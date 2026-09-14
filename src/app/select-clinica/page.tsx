@@ -49,6 +49,13 @@ export default function SelectClinicaPage() {
 
   if (!user) return null
 
+  // Quién puede dar de alta una sede. Espeja el hasAnyRole('ADMIN','MEDICO')
+  // del backend: ofrecer el botón a quien va a recibir un 403 no es un detalle
+  // estético, es mandarlo a una pared sin decírselo.
+  const puedeRegistrarClinicas = user.roles.some(
+    (rol) => rol === 'medico' || rol === 'Administrador',
+  )
+
   const reintentar = () => {
     setCargando(true)
     setError(null)
@@ -109,18 +116,40 @@ export default function SelectClinicaPage() {
                del login y no había forma de saber que el problema era no tener
                ninguna clínica registrada. */
             <div className="rounded-2xl border-2 border-white/12 bg-white/6 px-6 py-10 text-center backdrop-blur-xs">
-              <p className="text-white font-bold text-lg font-outfit mb-2">
-                Todavía no tienes clínicas registradas
-              </p>
-              <p className="text-blue-200 text-sm mb-6">
-                Para empezar a atender pacientes, registra primero la sede donde vas a trabajar.
-              </p>
-              <Link
-                href="/clinicas"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-doc-amber hover:opacity-90 shadow-sm transition-all"
-              >
-                <Icon name="add" size={16} color="white" /> Registrar una clínica
-              </Link>
+              {/* El vacío significa dos cosas distintas según quién mire, y
+                  ofrecer «Registrar una clínica» a todo el mundo era ofrecerle
+                  a enfermería un botón que el backend le contesta con 403:
+                  crear sedes es hasAnyRole('ADMIN','MEDICO'). Una enfermera no
+                  registra clínicas, trabaja en la que otro registró, así que lo
+                  que le falta no es dar de alta una sede sino que alguien se la
+                  asigne. Decirle que la registre la manda a una pared. */}
+              {puedeRegistrarClinicas ? (
+                <>
+                  <p className="text-white font-bold text-lg font-outfit mb-2">
+                    Todavía no tienes clínicas registradas
+                  </p>
+                  <p className="text-blue-200 text-sm mb-6">
+                    Para empezar a atender pacientes, registra primero la sede donde vas a
+                    trabajar.
+                  </p>
+                  <Link
+                    href="/clinicas"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-doc-amber hover:opacity-90 shadow-sm transition-all"
+                  >
+                    <Icon name="add" size={16} color="white" /> Registrar una clínica
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <p className="text-white font-bold text-lg font-outfit mb-2">
+                    Todavía no tienes ninguna clínica asignada
+                  </p>
+                  <p className="text-blue-200 text-sm">
+                    Pídele a un administrador que te asigne la sede donde vas a trabajar. Lo hace
+                    desde <span className="text-white font-semibold">Usuarios y Roles</span>.
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div className="grid gap-4">
@@ -170,15 +199,19 @@ export default function SelectClinicaPage() {
             </div>
           )}
 
-          <p className="text-center text-blue-300 text-sm mt-8">
-            ¿Deseas gestionar las sedes?{' '}
-            <Link
-              href="/clinicas"
-              className="text-doc-amber font-semibold hover:text-amber-300 transition-colors"
-            >
-              Gestionar clínicas
-            </Link>
-          </p>
+          {/* Mismo motivo que el bloque de arriba: /clinicas es una pantalla de
+              administración de sedes, y enfermería no administra sedes. */}
+          {puedeRegistrarClinicas && (
+            <p className="text-center text-blue-300 text-sm mt-8">
+              ¿Deseas gestionar las sedes?{' '}
+              <Link
+                href="/clinicas"
+                className="text-doc-amber font-semibold hover:text-amber-300 transition-colors"
+              >
+                Gestionar clínicas
+              </Link>
+            </p>
+          )}
         </div>
       </div>
     </div>

@@ -46,9 +46,29 @@ export interface GuardarClinicaPayload {
 /** Longitud máxima de `name` según `@Size(max = 100)` del backend. */
 export const MAX_LARGO_NOMBRE_CLINICA = 100
 
-/** Clínicas del usuario autenticado. Lista vacía si no tiene ninguna. */
+/**
+ * Clínicas en las que el usuario autenticado puede operar: las que registró
+ * MÁS aquellas a las que se le asignó como personal.
+ *
+ * Los dos conjuntos hacen falta. Antes solo devolvía las propias, y eso dejaba
+ * fuera a enfermería por completo: una enfermera no da de alta sedes, trabaja
+ * en la que registró un médico, así que su lista salía vacía y no podía pasar
+ * de la pantalla de selección de clínica.
+ *
+ * Lista vacía si no tiene ninguna por ninguna de las dos vías.
+ */
 export async function listarMisClinicas(): Promise<ClinicaDto[]> {
   return apiFetch<ClinicaDto[]>('/clinics/mias')
+}
+
+/**
+ * El catálogo COMPLETO de clínicas, sin filtrar por dueño. Solo ADMIN.
+ *
+ * Lo necesita quien asigna personal a una sede: para poder asignar hay que ver
+ * las sedes ajenas, que es justo lo que `/clinics/mias` no devuelve.
+ */
+export async function listarTodasLasClinicas(): Promise<ClinicaDto[]> {
+  return apiFetch<ClinicaDto[]>('/clinics')
 }
 
 /** Registra una clínica a nombre del usuario autenticado. */
