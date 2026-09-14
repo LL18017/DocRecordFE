@@ -147,3 +147,48 @@ export async function registrar(
 export function logout(): void {
   clearTokens()
 }
+
+// ─── Recuperación de contraseña (HU-04) ──────────────────────────────────────
+
+/** Lo que responden los dos endpoints: un mensaje para mostrar tal cual. */
+export interface RecuperacionResponseDto {
+  mensaje: string
+}
+
+/**
+ * Pide el enlace de restablecimiento.
+ *
+ * Responde siempre `202` con el mismo mensaje, exista o no la cuenta. Eso es
+ * deliberado del backend —criterio 4: no revelar qué correos están
+ * registrados— y la pantalla debe respetarlo: no hay forma, ni debe haberla,
+ * de que el usuario distinga un correo registrado de uno que no lo está.
+ */
+export async function solicitarRecuperacion(email: string): Promise<RecuperacionResponseDto> {
+  return apiFetch<RecuperacionResponseDto>('/auth/password/forgot', {
+    method: 'POST',
+    auth: false,
+    body: { email },
+  })
+}
+
+/**
+ * Canjea el enlace por una contraseña nueva.
+ *
+ * `auth: false` no es un descuido: quien restablece su contraseña, por
+ * definición, no tiene sesión. Y si quedara un token viejo en sessionStorage,
+ * mandarlo solo podría confundir al backend sobre de quién es la petición: la
+ * cuenta la decide el token del enlace, que va en el cuerpo.
+ *
+ * Un enlace inexistente, vencido o ya usado responde `400` con el mismo
+ * mensaje para los tres casos, también a propósito.
+ */
+export async function restablecerContrasena(
+  token: string,
+  password: string,
+): Promise<RecuperacionResponseDto> {
+  return apiFetch<RecuperacionResponseDto>('/auth/password/reset', {
+    method: 'POST',
+    auth: false,
+    body: { token, password },
+  })
+}

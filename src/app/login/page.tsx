@@ -139,6 +139,17 @@ export default function LoginPage() {
               {enviando ? 'Ingresando…' : 'Ingresar al sistema'}
             </button>
 
+            {/* Debajo del botón y no encima del campo: se busca cuando ya se
+                intentó entrar y no se pudo, no antes. */}
+            <p className="text-center text-sm mt-4">
+              <Link
+                href="/recuperar"
+                className="text-slate-500 hover:text-doc-blue hover:underline cursor-pointer"
+              >
+                ¿Olvidaste tu contraseña?
+              </Link>
+            </p>
+
             <p className="text-center text-sm text-slate-500 mt-5">
               ¿Sin cuenta?{' '}
               <Link
