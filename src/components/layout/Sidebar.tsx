@@ -41,7 +41,27 @@ const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', roles: ['medico', 'enfermera', 'Administrador'] },
   { href: '/pacientes', label: 'Pacientes', icon: 'patients', roles: ['medico', 'enfermera', 'Administrador'] },
   { href: '/consultas', label: 'Consultas Médicas', icon: 'consultas', roles: ['medico'] },
-  { href: '/enfermeria', label: 'Registro Enfermería', icon: 'enfermeria', roles: ['enfermera'] },
+  // «Signos vitales» y no «Registro Enfermería»: el menú nombra lo que se hace
+  // ahí, no el departamento que lo hace. Quien entra busca dónde anotar la
+  // presión y el pulso, y el resto de la aplicación ya llama a eso signos
+  // vitales -la tarjeta del expediente, el módulo del backend-.
+  // Visible también para el MÉDICO y el ADMIN, no solo para enfermería.
+  //
+  // Estaba restringido a 'enfermera' por confundir dos cosas: quién REGISTRA
+  // una toma (solo enfermería) y quién puede LEERLA (ADMIN, MÉDICO y
+  // ENFERMERA, así lo permite el backend). El médico necesita esas constantes
+  // ANTES de diagnosticar —es la razón de ser del módulo—, y esconderle la
+  // pantalla lo dejaba viendo únicamente la última toma en la ficha del
+  // paciente, sin acceso al histórico.
+  //
+  // La pantalla ya se encarga del resto: a quien no es enfermería no le ofrece
+  // el botón de registrar, porque el backend le respondería 403.
+  {
+    href: '/enfermeria',
+    label: 'Signos vitales',
+    icon: 'enfermeria',
+    roles: ['medico', 'enfermera', 'Administrador'],
+  },
   { href: '/prescripciones', label: 'Prescripciones', icon: 'prescripciones', roles: ['medico'] },
   { href: '/agenda', label: 'Agenda de Citas', icon: 'agenda', roles: ['medico', 'enfermera'] },
   { href: '/clinicas', label: 'Clínicas', icon: 'clinicas', roles: ['medico', 'enfermera', 'Administrador'] },

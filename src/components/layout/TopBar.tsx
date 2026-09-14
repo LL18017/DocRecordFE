@@ -17,7 +17,7 @@ const routeTitles: Record<string, string> = {
   '/dashboard': 'Dashboard General',
   '/pacientes': 'Administración de Pacientes',
   '/consultas': 'Consultas Médicas',
-  '/enfermeria': 'Registro de Enfermería',
+  '/enfermeria': 'Signos vitales',
   '/prescripciones': 'Prescripción de Medicamentos',
   '/clinicas': 'Gestión de Clínicas',
   '/agenda': 'Agenda de Citas',

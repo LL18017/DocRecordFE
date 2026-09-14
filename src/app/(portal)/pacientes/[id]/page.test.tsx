@@ -25,12 +25,14 @@ import type { Clinica, User } from '@/types'
 import type { ConsultaDto, CrearConsultaPayload } from '@/services/consultas'
 import type { PrescripcionDto } from '@/services/prescripciones'
 import type { PacienteDto } from '@/services/pacientes'
+import type { SignosVitalesDto } from '@/services/signosVitales'
 import ExpedienteDetailPage from './page'
 
 const obtenerPaciente = vi.fn<(personaId: number) => Promise<PacienteDto>>()
 const listarConsultas = vi.fn<(pacienteId?: number) => Promise<ConsultaDto[]>>()
 const listarPrescripcionesDePaciente = vi.fn<(pacienteId: number) => Promise<PrescripcionDto[]>>()
 const crearConsulta = vi.fn<(p: CrearConsultaPayload) => Promise<ConsultaDto>>()
+const ultimaToma = vi.fn<(pacienteId: number) => Promise<SignosVitalesDto | null>>()
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ id: '42' }),
@@ -57,6 +59,17 @@ vi.mock('@/services/prescripciones', async (importarOriginal) => {
     ...real,
     listarPrescripcionesDePaciente: (pacienteId: number) =>
       listarPrescripcionesDePaciente(pacienteId),
+  }
+})
+
+vi.mock('@/services/signosVitales', async (importarOriginal) => {
+  // `tensionArterial` y `nombreDeEnfermera` se dejan reales por lo mismo que
+  // `textoOpcional` de consultas: son justo lo que esta pantalla tiene que
+  // usar bien al pintar la toma.
+  const real = await importarOriginal<typeof import('@/services/signosVitales')>()
+  return {
+    ...real,
+    ultimaToma: (pacienteId: number) => ultimaToma(pacienteId),
   }
 })
 
@@ -128,15 +141,45 @@ function recetaEmitida(cambios: Partial<PrescripcionDto> = {}): PrescripcionDto 
   }
 }
 
+/**
+ * Una toma de constantes registrada de verdad.
+ *
+ * NINGÚN valor coincide con `vitals` de `@/data/mockData`, por lo mismo que
+ * `consultaRegistrada`: la prueba que exige «los datos de la maqueta no están»
+ * perdería todo su valor si el dato real y el inventado se pintaran igual. La
+ * maqueta trae 120/80 mmHg, 36.8°C, 72 kg, 175 cm, 78 bpm, 16 rpm y 98%; ésta
+ * no repite ninguno.
+ */
+const TOMA: SignosVitalesDto = {
+  signosVitalesId: 11,
+  tomadoEn: '2026-09-02T07:45:00',
+  paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
+  enfermera: { personaId: 10, nombres: 'Marta Lucía', apellidos: 'Guevara Mejía' },
+  consultaId: null,
+  pesoKg: 68.4,
+  estaturaCm: 162,
+  temperaturaC: 37.2,
+  presionSistolica: 132,
+  presionDiastolica: 84,
+  pulsoLpm: 74,
+  frecuenciaRespRpm: 18,
+  saturacionPct: 97,
+  observaciones: 'Refiere cefalea leve desde ayer.',
+}
+
 beforeEach(() => {
   obtenerPaciente.mockReset()
   listarConsultas.mockReset()
   listarPrescripcionesDePaciente.mockReset()
   crearConsulta.mockReset()
+  ultimaToma.mockReset()
   obtenerPaciente.mockResolvedValue(PACIENTE)
   listarConsultas.mockResolvedValue([])
   listarPrescripcionesDePaciente.mockResolvedValue([])
   crearConsulta.mockResolvedValue(consultaRegistrada())
+  // Sin tomas por defecto: es el estado de un paciente recién registrado, y
+  // deja que cada prueba que necesite constantes las ponga explícitamente.
+  ultimaToma.mockResolvedValue(null)
 })
 
 /** Monta la pantalla y espera a que el expediente termine de cargar. */
@@ -169,6 +212,21 @@ async function desplegarTodo(user: ReturnType<typeof userEvent.setup>) {
   for (const titulo of SECCIONES_SIN_BACKEND) {
     await user.click(screen.getByRole('button', { name: titulo }))
   }
+}
+
+/**
+ * La tarjeta «Últimos Signos Vitales».
+ *
+ * Las consultas sobre constantes se acotan aquí y no al documento entero: los
+ * valores son números cortos («74», «97») que aparecen en otras partes de la
+ * pantalla —contadores, edades— y una consulta global encontraría el elemento
+ * equivocado y daría verde por el motivo incorrecto.
+ */
+function tarjetaDeVitales(): HTMLElement {
+  const titulo = screen.getByText('Últimos Signos Vitales')
+  const tarjeta = titulo.parentElement
+  if (!tarjeta) throw new Error('El título «Últimos Signos Vitales» no está dentro de una tarjeta.')
+  return tarjeta
 }
 
 /** Fila de la tabla de consultas en la posición indicada (0 = la primera). */
@@ -292,15 +350,70 @@ describe('expediente · ninguna sección inventa datos del paciente', () => {
       'No hay enfermedades crónicas registradas.',
       'No hay antecedentes hereditarios registrados.',
       'No hay hábitos registrados.',
-      'No hay signos vitales registrados.',
     ]) {
       expect(screen.getByText(vacio)).toBeVisible()
     }
 
-    // Cinco avisos: los cuatro plegables más el de signos vitales. Un «No hay
-    // alergias registradas» a secas se lee como «esta paciente no tiene
-    // alergias», que es otra afirmación que nadie ha comprobado.
-    expect(screen.getAllByText(/no lo lea como «no tiene»/i)).toHaveLength(5)
+    // CUATRO avisos, no cinco: signos vitales SALIÓ de este grupo al aparecer
+    // `GET /signos-vitales/ultima` (migración V9). El aviso dice «el sistema
+    // todavía no guarda esto», y para las constantes eso ya es falso: aquí un
+    // vacío sí significa que a este paciente nadie le ha tomado nada, que es
+    // información de verdad y no una laguna de la aplicación. Mantener el
+    // aviso haría desconfiar de un dato fiable, que es el mismo error de la
+    // maqueta al revés.
+    expect(screen.getAllByText(/no lo lea como «no tiene»/i)).toHaveLength(4)
+
+    // Y el vacío de constantes dice por qué está vacío, sin afirmar que el
+    // paciente «no tiene» nada.
+    expect(
+      screen.getByText(/No hay signos vitales registrados\./, { exact: false }),
+    ).toBeVisible()
+  })
+
+  it('muestra las constantes que tomó enfermería, con quién y cuándo', async () => {
+    // Ésta es la razón de ser del módulo: el médico necesita leer la última
+    // toma ANTES de diagnosticar. Se comprueba el dato, la unidad y la firma
+    // -una constante sin responsable ni hora no sirve para decidir nada-.
+    ultimaToma.mockResolvedValue(TOMA)
+
+    const user = await montar()
+    await desplegarTodo(user)
+
+    expect(ultimaToma).toHaveBeenCalledWith(42)
+
+    const tarjeta = tarjetaDeVitales()
+
+    // Valor y unidad se consultan por separado porque van en elementos
+    // distintos: Testing Library solo mira los nodos de texto DIRECTOS de cada
+    // elemento, así que el `<span>` de la unidad no entra en el texto del `<p>`.
+    //
+    // La tensión se compone «132/84»: es como se escribe en una historia
+    // clínica, y el backend manda los dos números por separado.
+    expect(within(tarjeta).getByText('132/84')).toBeVisible()
+    expect(within(tarjeta).getByText('mmHg')).toBeVisible()
+    expect(within(tarjeta).getByText('74')).toBeVisible()
+    expect(within(tarjeta).getByText('37.2')).toBeVisible()
+    expect(within(tarjeta).getByText('97')).toBeVisible()
+    expect(within(tarjeta).getByText(/Marta Lucía Guevara Mejía/)).toBeVisible()
+    expect(within(tarjeta).getByText(TOMA.observaciones as string)).toBeVisible()
+  })
+
+  it('una medida que no se tomó se pinta «—», nunca cero', async () => {
+    // La distinción no es cosmética: una saturación de 0 sería una urgencia,
+    // mientras que «no se tomó» es un hueco. Pintar el nulo como 0 convierte
+    // un hueco en una emergencia inexistente.
+    ultimaToma.mockResolvedValue({ ...TOMA, saturacionPct: null, pesoKg: null })
+
+    const user = await montar()
+    await desplegarTodo(user)
+
+    // Acotado a la tarjeta: fuera de ella la pantalla pinta contadores que
+    // legítimamente valen 0 («0 consultas»), y un `queryAllByText('0')` global
+    // los recogería y daría una prueba verde por el motivo equivocado.
+    const tarjeta = tarjetaDeVitales()
+    expect(within(tarjeta).queryAllByText('0')).toHaveLength(0)
+    // Dos medidas ausentes, dos guiones.
+    expect(within(tarjeta).getAllByText('—')).toHaveLength(2)
   })
 
   it('ninguna sección sin backend ofrece un botón que no guardaría nada', async () => {

@@ -11,10 +11,31 @@ export interface Column<T> {
   headerClassName?: string
 }
 
+/**
+ * Dispara la acción de la fila, salvo que el clic saliera de un control propio
+ * de la celda.
+ *
+ * Sin esta guarda, pulsar el botón «Eliminar» de una fila haría DOS cosas: la
+ * del botón y la de la fila, porque el evento sube. En una tabla que abre un
+ * detalle al hacer clic eso es un modal encima de un borrado, y en una que
+ * borra es peor.
+ */
+function activarFila(evento: React.SyntheticEvent, accion: () => void) {
+  const origen = evento.target as HTMLElement
+  if (origen.closest('button, a, input, select, textarea, label')) return
+  accion()
+}
+
 interface DataTableProps<T> {
   data: T[]
   columns: Column<T>[]
   keyExtractor: (item: T, index: number) => string | number
+  /**
+   * Qué hacer al pulsar una fila. Sin él la tabla se comporta como antes: sin
+   * cursor de mano, sin foco de teclado y sin rol, porque anunciar como
+   * pulsable algo que no hace nada es peor que no anunciarlo.
+   */
+  onRowClick?: (item: T) => void
   searchable?: boolean
   searchPlaceholder?: string
   searchFilter?: (item: T, query: string) => boolean
@@ -29,6 +50,7 @@ export function DataTable<T>({
   data,
   columns,
   keyExtractor,
+  onRowClick,
   searchable = false,
   searchPlaceholder = 'Buscar...',
   searchFilter,
@@ -112,7 +134,30 @@ export function DataTable<T>({
               </tr>
             ) : (
               paginatedData.map((item, rowIdx) => (
-                <tr key={keyExtractor(item, rowIdx)} className="hover:bg-slate-50/70 transition-colors">
+                <tr
+                  key={keyExtractor(item, rowIdx)}
+                  className={`hover:bg-slate-50/70 transition-colors ${
+                    onRowClick ? 'cursor-pointer' : ''
+                  }`}
+                  // Con teclado la fila tiene que ser alcanzable y activable:
+                  // una fila que solo responde al ratón deja fuera a quien
+                  // navega con tabulador, y aquí detrás hay un expediente
+                  // clínico. Enter y Espacio son lo que activa cualquier otro
+                  // control, así que se respetan los dos.
+                  tabIndex={onRowClick ? 0 : undefined}
+                  role={onRowClick ? 'button' : undefined}
+                  onClick={onRowClick ? (e) => activarFila(e, () => onRowClick(item)) : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (e) => {
+                          if (e.key !== 'Enter' && e.key !== ' ') return
+                          // El espacio hace scroll si no se frena.
+                          e.preventDefault()
+                          activarFila(e, () => onRowClick(item))
+                        }
+                      : undefined
+                  }
+                >
                   {columns.map((col, colIdx) => (
                     <td key={colIdx} className={`px-5 py-4 text-sm ${col.className || ''}`}>
                       {col.cell

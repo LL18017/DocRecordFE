@@ -134,14 +134,17 @@ describe('el resto del menú', () => {
     expect(opciones).toContain('Consultas Médicas')
     expect(opciones).toContain('Prescripciones')
     expect(opciones).toContain('Pacientes')
-    expect(opciones).not.toContain('Registro Enfermería')
+    // Signos vitales SÍ le toca: el médico necesita leer las constantes antes
+    // de diagnosticar. Quien no puede es registrarlas, y de eso se encarga la
+    // propia pantalla, que no le ofrece el botón.
+    expect(opciones).toContain('Signos vitales')
   })
 
   it('no le quita a la enfermera ninguna de sus pantallas', () => {
     montar('enfermera')
 
     const opciones = opcionesDelMenu()
-    expect(opciones).toContain('Registro Enfermería')
+    expect(opciones).toContain('Signos vitales')
     expect(opciones).toContain('Pacientes')
     expect(opciones).not.toContain('Consultas Médicas')
   })
