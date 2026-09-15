@@ -1,7 +1,7 @@
 'use client'
 
-import { Clinica, User } from '@/types'
-import React, { createContext, useContext, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { User, Clinica } from '@/types'
 interface AppContextType {
   user: User
   setUser: (user: User) => void

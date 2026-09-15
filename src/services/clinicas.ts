@@ -1,0 +1,227 @@
+// ─── Servicio de clínicas ─────────────────────────────────────────────────
+// CRUD de las clínicas bajo `/clinics`. El propietario nunca viaja en el
+// cuerpo: el backend lo saca del JWT, así que `POST /clinics` crea siempre
+// para el usuario autenticado y `GET /clinics/mias` devuelve solo las suyas.
+//
+// Todos los endpoints exigen rol ADMIN o MEDICO. Además, al editar o eliminar,
+// un MEDICO solo puede tocar las clínicas de las que es dueño; un ADMIN puede
+// con cualquiera. Ambas negativas llegan como 403.
+
+import { ApiError, apiFetch } from '@/lib/api'
+import type { Clinica } from '@/types'
+
+/**
+ * Espejo de `ClinicasResponseDto`.
+ *
+ * `latitud` y `longitud` se declaran anulables porque las columnas `latitud` y
+ * `longitud` de la tabla `clinicas` admiten NULL: hay filas —creadas antes de
+ * que el request exigiera coordenadas, o cargadas a mano— que no las tienen.
+ * El DTO de Java no lo dice (son `Double`, que también acepta null), así que
+ * es aquí donde el tipo tiene que obligar a manejarlo. Declararlas `number` a
+ * secas compila igual y revienta en pantalla, que es exactamente el fallo que
+ * ya ocurrió con `PersonaDto.dui`.
+ */
+export interface ClinicaDto {
+  clinicaId: number
+  name: string
+  latitud: number | null
+  longitud: number | null
+  /**
+   * Los cinco datos de dirección que añadió HU-26.
+   *
+   * Admiten `null` porque las clínicas registradas antes de la migración V16 no
+   * los tienen, y no se puede inventar la dirección de una sede que ya existe.
+   * Las nuevas los exigen todos.
+   */
+  departamento: string | null
+  municipio: string | null
+  direccion: string | null
+  telefono: string | null
+  horario: string | null
+  /** `ACTIVA` o `INACTIVA`. Una clínica inactiva deja de ofrecerse para atender. */
+  estado: 'ACTIVA' | 'INACTIVA'
+}
+
+/**
+ * Espejo de `ClinicasRequestDto`, que se usa tanto para crear como para
+ * editar. Ojo con la asimetría respecto a la respuesta: aquí `latitud` y
+ * `longitud` son obligatorias (`@NotNull` en el backend, 400 si faltan)
+ * aunque la columna las admita nulas. Se puede leer una clínica sin
+ * coordenadas, pero no guardar una nueva sin ellas.
+ *
+ * `name` no puede pasar de 100 caracteres (`@Size(max = 100)`).
+ */
+export interface GuardarClinicaPayload {
+  name: string
+  latitud: number
+  longitud: number
+  departamento: string
+  municipio: string
+  direccion: string
+  telefono: string
+  horario: string
+}
+
+/** Longitud máxima de `name` según `@Size(max = 100)` del backend. */
+export const MAX_LARGO_NOMBRE_CLINICA = 100
+
+/**
+ * Clínicas en las que el usuario autenticado puede operar: las que registró
+ * MÁS aquellas a las que se le asignó como personal.
+ *
+ * Los dos conjuntos hacen falta. Antes solo devolvía las propias, y eso dejaba
+ * fuera a enfermería por completo: una enfermera no da de alta sedes, trabaja
+ * en la que registró un médico, así que su lista salía vacía y no podía pasar
+ * de la pantalla de selección de clínica.
+ *
+ * Lista vacía si no tiene ninguna por ninguna de las dos vías.
+ */
+export async function listarMisClinicas(): Promise<ClinicaDto[]> {
+  return apiFetch<ClinicaDto[]>('/clinics/mias')
+}
+
+/**
+ * El catálogo COMPLETO de clínicas, sin filtrar por dueño. Solo ADMIN.
+ *
+ * Lo necesita quien asigna personal a una sede: para poder asignar hay que ver
+ * las sedes ajenas, que es justo lo que `/clinics/mias` no devuelve.
+ */
+export async function listarTodasLasClinicas(): Promise<ClinicaDto[]> {
+  return apiFetch<ClinicaDto[]>('/clinics')
+}
+
+/** Registra una clínica a nombre del usuario autenticado. */
+export async function crearClinica(payload: GuardarClinicaPayload): Promise<ClinicaDto> {
+  try {
+    return await apiFetch<ClinicaDto>('/clinics', { method: 'POST', body: payload })
+  } catch (error) {
+    throw traducirError(error, 'crear')
+  }
+}
+
+/**
+ * Actualiza una clínica.
+ *
+ * A diferencia de `PUT /pacientes/{id}`, este endpoint reemplaza: el backend
+ * asigna nombre, latitud y longitud tal cual vienen. Por eso el payload es
+ * completo y no parcial; enviar solo el campo que cambió borraría los demás.
+ */
+export async function actualizarClinica(
+  clinicaId: number,
+  payload: GuardarClinicaPayload,
+): Promise<ClinicaDto> {
+  try {
+    return await apiFetch<ClinicaDto>(`/clinics/${clinicaId}`, {
+      method: 'PUT',
+      body: payload,
+    })
+  } catch (error) {
+    throw traducirError(error, 'editar')
+  }
+}
+
+/** Elimina una clínica. Responde 204 sin cuerpo. */
+export async function eliminarClinica(clinicaId: number): Promise<void> {
+  try {
+    await apiFetch<void>(`/clinics/${clinicaId}`, { method: 'DELETE' })
+  } catch (error) {
+    throw traducirError(error, 'eliminar')
+  }
+}
+
+/**
+ * Adapta el DTO al tipo `Clinica` que consumen las pantallas y el
+ * `activeClinic` del contexto. Las coordenadas viajan tal cual, nulos
+ * incluidos: sustituirlas aquí por un 0 o por un punto por defecto pondría a
+ * la clínica en medio del Atlántico sin que nadie se enterara.
+ *
+ * Vive en el servicio y no en `lib/` —donde está `pacienteAdapter`— porque
+ * las dos pantallas de clínicas lo necesitan y no debe haber dos copias de la
+ * regla de nulos.
+ */
+export function clinicaDtoAClinica(dto: ClinicaDto): Clinica {
+  return {
+    id: dto.clinicaId,
+    name: dto.name,
+    lat: dto.latitud,
+    lng: dto.longitud,
+    departamento: dto.departamento,
+    municipio: dto.municipio,
+    direccion: dto.direccion,
+    telefono: dto.telefono,
+    horario: dto.horario,
+    estado: dto.estado,
+  }
+}
+
+/**
+ * Formatea las coordenadas para mostrarlas, o `null` si la clínica no tiene
+ * ubicación registrada. Se devuelve `null` en vez de un texto ya redactado
+ * para que cada pantalla escriba el aviso con sus palabras, pero que la
+ * decisión de «esto no se puede mostrar» se tome en un solo sitio.
+ *
+ * Una sola coordenada no ubica nada, así que basta con que falte una para
+ * considerar que no hay ubicación.
+ */
+export function formatearCoordenadas(
+  lat: number | null,
+  lng: number | null,
+): string | null {
+  if (lat === null || lng === null) return null
+  return `${lat.toFixed(4)}, ${lng.toFixed(4)}`
+}
+
+/**
+ * Traduce al usuario los códigos del backend que llegan sin una explicación
+ * utilizable, y SOLO esos.
+ *
+ * `lib/api.ts` ya hace el trabajo grueso: prefiere `message` sobre `error`,
+ * así que un fallo de negocio llega con su motivo y no con la categoría
+ * («Error», «Recurso no encontrado»), y además sabe leer el mapa
+ * `{ campo: mensaje }` de las validaciones de Spring y concatenar sus textos
+ * («La latitud es obligatoria.»). Lo que queda por traducir aquí es lo que el
+ * backend explica mal: el 403 responde «El usuario no tiene permiso para
+ * modificar esta clínica» incluso cuando lo que se intentó fue eliminarla, y
+ * no dice quién sí puede; el 404 llega como «Recurso no encontrado», sin el
+ * «puede que alguien la haya eliminado» que le dice al usuario qué pasó; y el
+ * 409 de borrado trae la restricción de integridad en crudo, que a un médico
+ * no le dice nada.
+ *
+ * La regla para agregar un caso nuevo: sustituir el mensaje del backend solo
+ * cuando el que se escriba aquí sea MÁS preciso. Cambiar un texto concreto
+ * por uno genérico le quita al usuario justo el dato que necesitaba.
+ */
+function traducirError(error: unknown, accion: 'crear' | 'editar' | 'eliminar'): Error {
+  if (!(error instanceof ApiError)) {
+    return error instanceof Error ? error : new Error('No se pudo completar la operación.')
+  }
+
+  switch (error.status) {
+    // El 400 se deja pasar a propósito: la validación de Spring nombra el
+    // campo que falla y `lib/api.ts` ya lo entrega redactado. Antes se
+    // reemplazaba por una frase fija sobre nombre y coordenadas que tapaba
+    // ese detalle y, encima, afirmaba de más: se mostraba entera aunque lo
+    // único mal fuera el largo del nombre. En el peor caso —un 400 sin cuerpo
+    // aprovechable— queda el genérico de api.ts: vago, pero no falso.
+    case 403:
+      return new ApiError(
+        403,
+        `No tienes permiso para ${accion} esta clínica: solo su propietario o un administrador puede hacerlo.`,
+      )
+    case 404:
+      return new ApiError(404, 'Esta clínica ya no existe; puede que alguien la haya eliminado.')
+    case 409:
+      // Este texto solo es cierto al eliminar. Si crear o editar devolvieran
+      // 409 alguna vez (un nombre duplicado, por ejemplo), hablaría de
+      // eliminar algo que nadie está eliminando; ahí es mejor el mensaje del
+      // backend, que al menos describirá lo que de verdad pasó.
+      return accion === 'eliminar'
+        ? new ApiError(
+            409,
+            'No se puede eliminar la clínica porque tiene información asociada.',
+          )
+        : error
+    default:
+      return error
+  }
+}

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useId, useState } from 'react'
 import { Patient, Appointment } from '@/types'
 
 interface AppointmentFormProps {
@@ -10,13 +10,38 @@ interface AppointmentFormProps {
   onCancel: () => void
 }
 
+// Clases de los controles. Lo único que se agrega a las que ya había es
+// `focus-visible:ring-*`, que acompaña al `focus:outline-none`: quitar el
+// contorno del navegador sin reponer nada deja a quien navega con teclado sin
+// saber dónde está parado.
+const campoBase =
+  'w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm bg-white focus:outline-none focus:border-doc-amber focus-visible:ring-2 focus-visible:ring-doc-amber/40'
+const textareaClass = `${campoBase} resize-none h-20`
+const labelClass =
+  'block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide'
+
+/** El asterisco es decoración: lo obligatorio ya lo dice el atributo `required`. */
+const Obligatorio = () => <span aria-hidden="true"> *</span>
+
 export const AppointmentForm: React.FC<AppointmentFormProps> = ({
   patients,
   defaultDoctor = 'Dr. Juan Guerra',
   onSubmit,
   onCancel,
 }) => {
-  const [patient, setPatient] = useState(patients[0]?.name || '')
+  // Un prefijo por instancia: este formulario es un componente reutilizable y
+  // nada impide montarlo dos veces en la misma pantalla (agendar y reagendar,
+  // por ejemplo). Con ids fijos, la etiqueta del segundo apuntaría al campo
+  // del primero y el clic enfocaría el que no es.
+  const uid = useId()
+  const id = (nombre: string) => `${uid}-${nombre}`
+
+  // SIN paciente preseleccionado, igual que en consultas, prescripciones y
+  // signos vitales. Arrancaba en `patients[0]` —quien el catálogo pusiera
+  // primero—, y ese valor por defecto es el que acaba agendando la cita a otra
+  // persona: se abre el modal, se pone fecha y hora, y se guarda sin releer un
+  // campo que ya venía relleno.
+  const [patient, setPatient] = useState('')
   const [date, setDate] = useState('2026-08-20')
   const [time, setTime] = useState('09:00')
   const [type, setType] = useState('Consulta médica')
@@ -38,14 +63,19 @@ export const AppointmentForm: React.FC<AppointmentFormProps> = ({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-          Paciente *
+        <label htmlFor={id('paciente')} className={labelClass}>
+          Paciente<Obligatorio />
         </label>
         <select
+          id={id('paciente')}
+          required
           value={patient}
           onChange={(e) => setPatient(e.target.value)}
-          className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-doc-amber bg-white"
+          className={campoBase}
         >
+          {/* La opción vacía obliga a elegir a conciencia; con `required` el
+              navegador no deja enviar mientras siga puesta. */}
+          <option value="">Selecciona un paciente…</option>
           {patients.map((p) => (
             <option key={p.id} value={p.name}>
               {p.name} ({p.id_num})
@@ -56,39 +86,42 @@ export const AppointmentForm: React.FC<AppointmentFormProps> = ({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-            Fecha *
+          <label htmlFor={id('fecha')} className={labelClass}>
+            Fecha<Obligatorio />
           </label>
           <input
+            id={id('fecha')}
             type="date"
             required
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-doc-amber bg-white"
+            className={campoBase}
           />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-            Hora *
+          <label htmlFor={id('hora')} className={labelClass}>
+            Hora<Obligatorio />
           </label>
           <input
+            id={id('hora')}
             type="time"
             required
             value={time}
             onChange={(e) => setTime(e.target.value)}
-            className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-doc-amber bg-white"
+            className={campoBase}
           />
         </div>
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+        <label htmlFor={id('tipo')} className={labelClass}>
           Tipo de cita
         </label>
         <select
+          id={id('tipo')}
           value={type}
           onChange={(e) => setType(e.target.value)}
-          className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-doc-amber bg-white"
+          className={campoBase}
         >
           {['Consulta médica', 'Control rutinario', 'Seguimiento', 'Pediatría', 'Urgencia'].map((t) => (
             <option key={t} value={t}>
@@ -99,14 +132,15 @@ export const AppointmentForm: React.FC<AppointmentFormProps> = ({
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+        <label htmlFor={id('notas')} className={labelClass}>
           Notas u observaciones
         </label>
         <textarea
+          id={id('notas')}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Motivo preliminar o notas para el médico..."
-          className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-doc-amber resize-none h-20 bg-white"
+          className={textareaClass}
         />
       </div>
 

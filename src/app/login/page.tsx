@@ -58,7 +58,7 @@ export default function LoginPage() {
 
               <form onSubmit={handleLogin} className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
                 {/* Role selector */}
-                <div className="mb-6">
+                {/* <div className="mb-6">
                   <label className="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">
                     Rol de acceso
                   </label>
@@ -83,7 +83,7 @@ export default function LoginPage() {
                       </button>
                     ))}
                   </div>
-                </div>
+                </div> */}
 
                 {/* Form fields */}
                 <div className="space-y-4 mb-6">

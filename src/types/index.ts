@@ -38,6 +38,15 @@ export interface LoginResponse {
   };
 }
 
+/**
+ * Usuario en sesión con TODOS sus roles, no uno solo.
+ *
+ * Una cuenta puede tener varios roles del backend a la vez (ADMIN + MEDICO es
+ * el caso normal: ADMIN se otorga sobre una cuenta ya existente). No hay
+ * jerarquía real entre ellos —son capacidades distintas, no niveles de lo
+ * mismo—, así que colapsar a un solo `role` le esconde pantallas a quien sí
+ * puede usarlas. Ver `services/auth.ts` (`mapearRoles`).
+ */
 export interface User {
   userID?: number
   name: string
@@ -56,6 +65,20 @@ export interface UserRegister {
   userType: number
 }
 
+/**
+ * Clínica tal como la usan las pantallas. Refleja `ClinicasResponseDto` del
+ * backend, que solo devuelve id, nombre y coordenadas.
+ *
+ * `lat` y `lng` son anulables porque esas columnas admiten NULL en la base:
+ * hay clínicas registradas sin ubicación. Quien las pinte debe decidir qué
+ * mostrar en ese caso; el tipo obliga a hacerlo en vez de dejar que reviente
+ * un `.toFixed()` sobre null en tiempo de ejecución.
+ *
+ * `address`, `phone` y `patients` venían de los datos de maqueta y el backend
+ * no los devuelve. Quedan opcionales, no eliminados, para no romper lo que
+ * todavía los escribe; en cuanto el API los ofrezca (o se retire el
+ * formulario que los inventa) deben desaparecer de aquí.
+ */
 export interface Clinica {
   clinicaId: number
   name: string
@@ -70,7 +93,19 @@ export interface Patient {
   phone: string
   age: number
   sex: string
-  consultations: number
+  /**
+   * Cuántas consultas tiene el paciente, o `null` cuando no se pudo
+   * averiguar.
+   *
+   * Es anulable a propósito. `GET /pacientes` NO trae este conteo, así que el
+   * adaptador lo dejaba en 0 fijo y la lista mostraba un cero para todos: un
+   * paciente con dos consultas seguía apareciendo con cero. Ese cero no es un
+   * dato ausente, es una afirmación clínica —«nunca ha venido»— y encima
+   * falsa. El tipo obliga a distinguir «tiene cero consultas» de «no se sabe
+   * cuántas tiene», que es justo lo que se estaba confundiendo; el conteo real
+   * sale de `GET /consultas` (ver `lib/resumenPanel.ts`).
+   */
+  consultations: number | null
   status: string
   blood: string
   email: string

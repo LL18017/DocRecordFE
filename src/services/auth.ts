@@ -2,7 +2,7 @@
 // Traduce entre los DTO del backend (`ues.edu.sv.education.model.dto.auth`) y
 // los tipos que usa la interfaz.
 
-import { ApiError, apiFetch, clearTokens, getRefreshToken, setTokens } from '@/lib/api'
+import { ApiError, apiFetch, clearTokens, setTokens } from '@/lib/api'
 import type { Role, User } from '@/types'
 
 /** Espejo de `LoginResponseDto` del backend. */
@@ -14,27 +14,52 @@ interface LoginResponseDto {
   roles: { id: number | null; name: string }[]
 }
 
-/** Espejo de `UserResponseDto` del backend. */
-interface UserResponseDto {
+/**
+ * Espejo de `RegistroMedicoResponseDto` del backend.
+ *
+ * (No confundir con el `UserResponseDto` del backend, que es otro DTO —el de
+ * la gestión de usuarios— con `userName` y `RoleDto[]`. Este endpoint nunca
+ * devolvió eso.)
+ */
+export interface RegistroMedicoResponseDto {
   userId: number
   email: string
-  userName: string
-  roles: { id: number | null; name: string }[]
-  type: string
+  nombres: string
+  apellidos: string
+  /** El backend asigna el rol (MEDICO) por su cuenta; el cliente no lo envía. */
+  roles: string[]
+  especialidad: { especialidadId: number; nombre: string; activa: boolean }
+  /**
+   * `false` cuando la cuenta se creó pero el correo de confirmación NO salió.
+   *
+   * El envío ya no tumba el alta: si Gmail falla, el backend registra el fallo
+   * y responde 201 igual, con este campo en `false`. Es lo único que distingue
+   * «revisa tu bandeja» de «no te va a llegar nada», así que la interfaz tiene
+   * que leerlo; darlo por sentado deja a alguien esperando un correo que nunca
+   * existió, con una cuenta que no puede activar.
+   */
+  correoDeVerificacionEnviado: boolean
 }
 
 export interface RegistroPayload {
+  nombres: string
+  apellidos: string
   email: string
-  userName: string
   password: string
-  /** IDs de la tabla `role`. Hoy solo existe ADMIN (1). */
-  roles: number[]
-  /** ID de `user_type`: 1=DOCTOR, 2=ENFERMERA, 3=EMPLEADO. */
-  userType: number
+  especialidadId: number
 }
 
 /**
- * Convierte los roles del backend al tipo `Role` de la interfaz.
+ * Convierte los roles del backend a la lista COMPLETA de `Role` de la
+ * interfaz — ya no a uno solo.
+ *
+ * Antes esta función devolvía un único `Role`, con ADMIN ganando por
+ * prioridad sobre los demás. Eso colapsaba la sesión de una cuenta
+ * ADMIN+MEDICO a solo 'Administrador' y le escondía el menú de médico
+ * (Consultas, Prescripciones, Agenda) en cuanto ganaba el rol de
+ * administrador. No hay jerarquía real entre ADMIN y MEDICO —son capacidades
+ * distintas, no niveles de lo mismo—, así que la sesión debe llevarlos todos
+ * y quien pinte el menú decide con `.some(...)`, no con `===`.
  *
  * Limitación conocida: `LoginResponseDto` no incluye `userType`, que es el
  * campo que realmente distingue DOCTOR de ENFERMERA. Con la tabla `role`
@@ -42,15 +67,24 @@ export interface RegistroPayload {
  * por `porDefecto`. Se resolverá cuando el backend agregue `userType` a la
  * respuesta de login.
  */
-export function mapearRol(
+export function mapearRoles(
   roles: { name: string }[],
   porDefecto: Role = 'medico',
-): Role {
-  const nombres = roles.map(r => r.name.replace(/^ROLE_/, '').toUpperCase())
-  if (nombres.includes('ADMIN')) return 'Administrador'
-  if (nombres.includes('ENFERMERA')) return 'enfermera'
-  if (nombres.includes('MEDICO') || nombres.includes('DOCTOR')) return 'medico'
-  return porDefecto
+): Role[] {
+  // El orden importa: primero a mayúsculas y después quitar el prefijo. Al
+  // revés, `/^ROLE_/` (sin bandera `i`) no reconocía 'role_admin', quedaba
+  // 'ROLE_ADMIN' y no coincidía con ningún rol conocido, así que un
+  // administrador caía al rol por defecto en silencio —sin error, solo un
+  // menú incompleto— con que el backend cambiara el case de sus authorities.
+  const nombres = roles.map(r => r.name.toUpperCase().replace(/^ROLE_/, ''))
+  const encontrados = new Set<Role>()
+  if (nombres.includes('ADMIN')) encontrados.add('Administrador')
+  if (nombres.includes('ENFERMERA')) encontrados.add('enfermera')
+  if (nombres.includes('MEDICO') || nombres.includes('DOCTOR')) encontrados.add('medico')
+  // Ningún rol reconocido (lista vacía o solo nombres desconocidos): se cae al
+  // rol por defecto, igual que antes.
+  if (encontrados.size === 0) encontrados.add(porDefecto)
+  return Array.from(encontrados)
 }
 
 /**
@@ -86,7 +120,7 @@ export async function login(
   return {
     name: datos.userName,
     email: datos.userName,
-    role: mapearRol(datos.roles, rolPorDefecto),
+    roles: mapearRoles(datos.roles, rolPorDefecto),
   }
 }
 
@@ -95,36 +129,66 @@ export async function login(
  *
  * El usuario queda **deshabilitado** hasta que abra el enlace de confirmación
  * que el backend envía por correo; intentar iniciar sesión antes falla.
+ *
+ * Que el alta responda 201 no garantiza que ese correo se haya enviado: eso lo
+ * dice `correoDeVerificacionEnviado` en la respuesta.
  */
-export async function registrar(payload: RegistroPayload): Promise<UserResponseDto> {
-  return apiFetch<UserResponseDto>('/auth/register', {
+export async function registrar(
+  payload: RegistroPayload,
+): Promise<RegistroMedicoResponseDto> {
+  return apiFetch<RegistroMedicoResponseDto>('/auth/register', {
     method: 'POST',
     auth: false,
     body: payload,
   })
 }
 
-/**
- * Renueva el access token con `POST /auth/refresh`. El backend espera el
- * refresh token en la cabecera `Authorization`, no en el cuerpo.
- *
- * El access token dura 15 minutos y el refresh 30, así que una sesión larga
- * necesita llamar a esto; todavía no hay renovación automática.
- */
-export async function refrescarSesion(): Promise<void> {
-  const refreshToken = getRefreshToken()
-  if (!refreshToken) throw new Error('No hay refresh token almacenado')
-
-  const datos = await apiFetch<LoginResponseDto>('/auth/refresh', {
-    method: 'POST',
-    auth: false,
-    headers: { Authorization: `Bearer ${refreshToken}` },
-  })
-
-  setTokens(datos.token, datos.refreshToken)
-}
-
 /** Cierra la sesión en el cliente. El backend no expone revocación de tokens. */
 export function logout(): void {
   clearTokens()
+}
+
+// ─── Recuperación de contraseña (HU-04) ──────────────────────────────────────
+
+/** Lo que responden los dos endpoints: un mensaje para mostrar tal cual. */
+export interface RecuperacionResponseDto {
+  mensaje: string
+}
+
+/**
+ * Pide el enlace de restablecimiento.
+ *
+ * Responde siempre `202` con el mismo mensaje, exista o no la cuenta. Eso es
+ * deliberado del backend —criterio 4: no revelar qué correos están
+ * registrados— y la pantalla debe respetarlo: no hay forma, ni debe haberla,
+ * de que el usuario distinga un correo registrado de uno que no lo está.
+ */
+export async function solicitarRecuperacion(email: string): Promise<RecuperacionResponseDto> {
+  return apiFetch<RecuperacionResponseDto>('/auth/password/forgot', {
+    method: 'POST',
+    auth: false,
+    body: { email },
+  })
+}
+
+/**
+ * Canjea el enlace por una contraseña nueva.
+ *
+ * `auth: false` no es un descuido: quien restablece su contraseña, por
+ * definición, no tiene sesión. Y si quedara un token viejo en sessionStorage,
+ * mandarlo solo podría confundir al backend sobre de quién es la petición: la
+ * cuenta la decide el token del enlace, que va en el cuerpo.
+ *
+ * Un enlace inexistente, vencido o ya usado responde `400` con el mismo
+ * mensaje para los tres casos, también a propósito.
+ */
+export async function restablecerContrasena(
+  token: string,
+  password: string,
+): Promise<RecuperacionResponseDto> {
+  return apiFetch<RecuperacionResponseDto>('/auth/password/reset', {
+    method: 'POST',
+    auth: false,
+    body: { token, password },
+  })
 }

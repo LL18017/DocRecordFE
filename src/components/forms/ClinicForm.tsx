@@ -1,12 +1,37 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useId, useState } from 'react'
 import { Clinica } from '@/types'
 
 interface ClinicFormProps {
   onSubmit: (clinic: Clinica) => void
   onCancel: () => void
 }
+
+// Clases de los controles. Lo único que se agrega a las que ya había es
+// `focus-visible:ring-*`, que acompaña al `focus:outline-none`: quitar el
+// contorno del navegador sin reponer nada deja a quien navega con teclado sin
+// saber dónde está parado.
+const inputClass =
+  'w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm bg-white focus:outline-none focus:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500/40 transition-colors'
+const labelClass =
+  'block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide'
+
+/** El asterisco es decoración: lo obligatorio ya lo dice el atributo `required`. */
+const Obligatorio = () => <span aria-hidden="true"> *</span>
+
+/**
+ * Rótulo visible, clave del estado, ejemplo y si el backend lo exige. El
+ * asterisco ya no vive dentro del rótulo: se pinta aparte y oculto al lector
+ * de pantalla, que se entera por `required`.
+ */
+const CAMPOS: { rotulo: string; campo: 'name' | 'address' | 'phone' | 'lat' | 'lng'; ejemplo: string; obligatorio: boolean }[] = [
+  { rotulo: 'Nombre de la clínica', campo: 'name', ejemplo: 'Clínica Familiar Escalón', obligatorio: true },
+  { rotulo: 'Dirección', campo: 'address', ejemplo: 'Paseo General Escalón, San Salvador', obligatorio: true },
+  { rotulo: 'Teléfono', campo: 'phone', ejemplo: '2245-0000', obligatorio: false },
+  { rotulo: 'Latitud', campo: 'lat', ejemplo: '13.7053', obligatorio: false },
+  { rotulo: 'Longitud', campo: 'lng', ejemplo: '-89.2182', obligatorio: false },
+]
 
 export const ClinicForm: React.FC<ClinicFormProps> = ({ onSubmit, onCancel }) => {
   const [form, setForm] = useState<Clinica>({

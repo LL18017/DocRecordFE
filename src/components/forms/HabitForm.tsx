@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useId, useState } from 'react'
 import { Habito } from '@/types'
 
 interface HabitFormProps {
@@ -8,7 +8,27 @@ interface HabitFormProps {
   onCancel: () => void
 }
 
+// Clases compartidas de los controles. Lo único que se agrega a las que ya
+// había es `focus-visible:ring-*`, que acompaña al `focus:outline-none`:
+// quitar el contorno del navegador sin reponer nada deja a quien navega con
+// teclado sin saber dónde está parado.
+const campoBase =
+  'w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm bg-white focus:outline-none focus:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-400/40'
+const textareaClass = `${campoBase} resize-none h-20`
+const labelClass =
+  'block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide'
+
+/** El asterisco es decoración: lo obligatorio ya lo dice el atributo `required`. */
+const Obligatorio = () => <span aria-hidden="true"> *</span>
+
 export const HabitForm: React.FC<HabitFormProps> = ({ onSubmit, onCancel }) => {
+  // Un prefijo por instancia: este formulario es un componente reutilizable y
+  // nada impide montarlo dos veces en la misma pantalla. Con ids fijos, la
+  // etiqueta del segundo apuntaría al campo del primero y el clic enfocaría el
+  // que no es.
+  const uid = useId()
+  const id = (nombre: string) => `${uid}-${nombre}`
+
   const [tipo, setTipo] = useState('Actividad física')
   const [descripcion, setDescripcion] = useState('')
   const [nivel, setNivel] = useState('Moderado')
@@ -27,13 +47,15 @@ export const HabitForm: React.FC<HabitFormProps> = ({ onSubmit, onCancel }) => {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-          Tipo de hábito *
+        <label htmlFor={id('tipo')} className={labelClass}>
+          Tipo de hábito<Obligatorio />
         </label>
         <select
+          id={id('tipo')}
+          required
           value={tipo}
           onChange={(e) => setTipo(e.target.value)}
-          className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-400 bg-white"
+          className={campoBase}
         >
           {[
             'Actividad física',
@@ -51,25 +73,27 @@ export const HabitForm: React.FC<HabitFormProps> = ({ onSubmit, onCancel }) => {
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+        <label htmlFor={id('descripcion')} className={labelClass}>
           Descripción del hábito
         </label>
         <textarea
+          id={id('descripcion')}
           value={descripcion}
           onChange={(e) => setDescripcion(e.target.value)}
           placeholder="Ej: Camina 30 min diarios, 4 veces por semana. Dieta baja en sodio..."
-          className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-400 resize-none h-20 bg-white"
+          className={textareaClass}
         />
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+        <label htmlFor={id('nivel')} className={labelClass}>
           Nivel / Frecuencia
         </label>
         <select
+          id={id('nivel')}
           value={nivel}
           onChange={(e) => setNivel(e.target.value)}
-          className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-400 bg-white"
+          className={campoBase}
         >
           {['Bajo', 'Moderado', 'Alto'].map((n) => (
             <option key={n} value={n}>{n}</option>

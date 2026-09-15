@@ -4,7 +4,8 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { Icon } from '@/components/ui/Icon'
-import { useAppContext } from '@/context/AppContext'
+import { useAppContext, useUsuarioAutenticado } from '@/context/AppContext'
+import { etiquetaDeRoles } from '@/lib/roles'
 import { authService } from '@/services/auth.service'
 
 interface TopBarProps {
@@ -17,7 +18,7 @@ const routeTitles: Record<string, string> = {
   '/dashboard': 'Dashboard General',
   '/pacientes': 'Administración de Pacientes',
   '/consultas': 'Consultas Médicas',
-  '/enfermeria': 'Registro de Enfermería',
+  '/enfermeria': 'Signos vitales',
   '/prescripciones': 'Prescripción de Medicamentos',
   '/clinicas': 'Gestión de Clínicas',
   '/agenda': 'Agenda de Citas',
@@ -65,8 +66,8 @@ export const TopBar: React.FC<TopBarProps> = ({
             href="/clinicas"
             className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100/80 transition-colors"
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
-            <span className="text-xs font-semibold text-amber-900 max-w-[160px] truncate">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+            <span className="text-xs font-semibold text-amber-900 max-w-40 truncate">
               {activeClinic.name}
             </span>
             <Icon name="chevron_down" size={13} color="#92400e" />
@@ -93,7 +94,8 @@ export const TopBar: React.FC<TopBarProps> = ({
           <div className="absolute top-12 right-0 bg-white rounded-2xl shadow-xl border border-slate-100 w-60 py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
             <div className="px-4 py-3 border-b border-slate-100">
               <p className="font-semibold text-slate-800 text-sm truncate">{user.name}</p>
-              <p className="text-xs text-slate-500 capitalize">
+              <p className="text-xs text-slate-500">
+                {etiquetaDeRoles(user.roles)}
                 {user.specialty ? ` · ${user.specialty}` : ''}
               </p>
               {activeClinic && (

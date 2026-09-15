@@ -42,3 +42,16 @@ next-env.d.ts
 
 # La plantilla si se versiona; los valores reales no.
 !.env.example
+
+# Pruebas end-to-end (Playwright)
+# La PLANTILLA si se versiona: sin ella nadie sabe que variables definir. La
+# excepcion va antes que el resto porque una regla `.env*` de mas arriba ya la
+# estaba excluyendo en silencio.
+!.env.e2e.example
+# `.env.e2e` lleva credenciales reales del entorno de desarrollo: una
+# contraseña committeada sigue en el historial de git aunque se borre despues.
+.env.e2e
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

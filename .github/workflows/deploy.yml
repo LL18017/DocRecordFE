@@ -1,0 +1,172 @@
+name: Deploy
+
+# Despliegue a produccion (EC2, us-east-2).
+#
+# -- Cuando corre --------------------------------------------------------
+# En cada push a dev-naun, pero SOLO despues de que las pruebas pasen: el job
+# `pruebas` invoca el workflow CI de este mismo repositorio y `desplegar`
+# depende de el. Si CI falla, el despliegue no se ejecuta y el servidor se
+# queda con la version anterior en pie.
+#
+# Que las pruebas vayan por delante no es ceremonia. El 13 de septiembre llego
+# a dev-naun un commit que no compilaba, y con un despliegue atado solo al push
+# el build habria muerto en el servidor despues de detener lo que ya estaba
+# funcionando.
+#
+# Se llama a CI con `uses:` en vez de encadenarlo con `workflow_run` porque
+# `workflow_run` solo se dispara cuando el archivo que lo declara esta en la
+# rama por defecto -- aqui `main` --, de modo que desde dev-naun nunca habria
+# corrido, y sin error visible.
+#
+# -- Que secretos necesita -----------------------------------------------
+# Solo los tres de acceso SSH, como secretos de REPOSITORIO
+# (Settings > Secrets and variables > Actions). Los secretos de la APLICACION (contrasena de
+# PostgreSQL, JWT_SECRET, credenciales de correo, el administrador inicial) NO
+# viajan desde aqui: viven en /opt/docrecord/.env, se generaron dentro de la
+# propia instancia con openssl y nunca han salido de ella. Tenerlos ademas en
+# GitHub significaria dos copias que se desincronizan y un segundo lugar del
+# que se pueden filtrar, a cambio de nada.
+on:
+  push:
+    branches: [dev-naun]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Los dos repositorios despliegan en la MISMA maquina y corren el mismo script.
+# Esto evita que dos ejecuciones de este repositorio se pisen; el cruce entre
+# repositorios lo resuelve un flock dentro de desplegar.sh, porque los grupos
+# de concurrencia de GitHub no cruzan repositorios.
+concurrency:
+  group: despliegue-produccion
+  cancel-in-progress: false
+
+jobs:
+  pruebas:
+    name: Pruebas
+    uses: ./.github/workflows/ci.yml
+
+  desplegar:
+    name: Desplegar a produccion
+    needs: pruebas
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Sin `environment:` a proposito. Un Environment permitiria acotar los
+    # secretos a este job y exigir aprobacion manual, pero crearlo requiere
+    # permiso de ADMINISTRADOR sobre el repositorio, y quien mantiene este
+    # despliegue es colaborador. Los secretos viven a nivel de repositorio
+    # (Settings > Secrets and variables > Actions), que es lo que un
+    # colaborador si puede gestionar.
+    #
+    # El riesgo que se acepta: un secreto de repositorio esta disponible para
+    # cualquier workflow del repositorio. Aqui es tolerable porque los unicos
+    # que pueden disparar workflows con secretos son los colaboradores -- las
+    # peticiones desde un fork NO los reciben --, y son tres personas conocidas.
+
+    steps:
+      # Antes de tocar la red: si falta un secreto, morir aqui con el nombre
+      # exacto que hay que crear, en vez de a mitad de camino con un error de
+      # SSH que no dice nada.
+      - name: Validar que los secretos de despliegue esten configurados
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          FALTANTES=()
+          registrar_si_falta() {
+            [ -z "$1" ] && FALTANTES+=("$2 — $3")
+            return 0
+          }
+
+          registrar_si_falta "$VPS_HOST" "VPS_HOST" "IP o host publico de la instancia EC2"
+          registrar_si_falta "$VPS_USER" "VPS_USER" "usuario SSH en la instancia (ubuntu)"
+          registrar_si_falta "$VPS_SSH_KEY" "VPS_SSH_KEY" "clave privada SSH completa, con las lineas BEGIN y END"
+
+          if [ "${#FALTANTES[@]}" -eq 0 ]; then
+            echo "Los tres secretos de despliegue estan configurados."
+            exit 0
+          fi
+
+          {
+            echo "## Despliegue detenido: faltan secretos"
+            echo
+            echo "Crear en Settings > Secrets and variables > Actions > New repository secret:"
+            echo
+            for F in "${FALTANTES[@]}"; do echo "- \`$F\`"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for F in "${FALTANTES[@]}"; do echo "::error::Falta el secreto $F"; done
+          exit 1
+
+      - name: Desplegar por SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+
+          # tr -d '\r': una clave copiada desde Windows llega con CRLF y ssh la
+          # rechaza sin decir por que. Y el \n final de printf porque OpenSSH
+          # exige que el archivo TERMINE en salto de linea, que es justo lo que
+          # se pierde al pegar en el formulario de secretos de GitHub.
+          printf '%s\n' "$VPS_SSH_KEY" | tr -d '\r' > ~/.ssh/despliegue
+          chmod 600 ~/.ssh/despliegue
+
+          # La clave se valida ANTES de intentar conectarse. Sin esto, una mal
+          # pegada produce un fallo de cinco segundos que parece un problema de
+          # red o del servidor, y en el servidor no aparece ni un intento
+          # rechazado -- porque nunca llego ninguno.
+          if ! ssh-keygen -y -f ~/.ssh/despliegue >/dev/null 2>&1; then
+            echo "::error::El secreto VPS_SSH_KEY no es una clave privada valida."
+            echo "::error::Copiarla COMPLETA, incluidas las lineas BEGIN y END."
+            echo "::error::Obtenerla con: ssh -i <llave.pem> $VPS_USER@$VPS_HOST 'cat ~/.ssh/despliegue_actions'"
+            exit 1
+          fi
+          echo "Clave privada valida. Huella: $(ssh-keygen -lf ~/.ssh/despliegue | cut -d' ' -f2)"
+
+          # Que el puerto conteste, antes de hablar de autenticacion. Si la
+          # instancia se apago y la IP ya no es esta, o si cambio el Security
+          # Group, el error de ssh no lo dice.
+          if ! timeout 10 bash -c "echo > /dev/tcp/$VPS_HOST/22" 2>/dev/null; then
+            echo "::error::Sin respuesta en $VPS_HOST:22. Revisar que la instancia este encendida y que VPS_HOST siga siendo su IP: cambia cada vez que se apaga."
+            exit 1
+          fi
+
+          # La IP publica cambia en cada apagado (no hay Elastic IP), asi que la
+          # huella del host no se puede fijar de antemano y se acepta la que
+          # responda.
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          if [ -s ~/.ssh/known_hosts ]; then
+            OPCIONES_HOST=""
+          else
+            echo "::warning::ssh-keyscan no devolvio nada; se acepta la clave del host al primer uso."
+            OPCIONES_HOST="-o StrictHostKeyChecking=accept-new"
+          fi
+
+          # desplegar.sh trae AMBOS repositorios desde GitHub y reconstruye; no
+          # se le envia codigo desde aqui. Este paso solo dispara el despliegue.
+          ssh -i ~/.ssh/despliegue -o BatchMode=yes $OPCIONES_HOST \
+              "$VPS_USER@$VPS_HOST" \
+              "cd /opt/docrecord && ./desplegar.sh dev-naun"
+
+      # Que el script termine sin error no prueba que la aplicacion quedo en
+      # pie: los contenedores pueden levantar y morir en el arranque. Esto lo
+      # comprueba desde fuera, como lo haria alguien abriendo la URL.
+      - name: Comprobar que la aplicacion responde
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null --max-time 10 "http://$VPS_HOST/"; then
+              echo "La aplicacion responde en http://$VPS_HOST/"
+              echo "### Desplegado: http://$VPS_HOST/" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "intento $i/30: todavia no responde"
+            sleep 10
+          done
+          echo "::error::La aplicacion no respondio tras cinco minutos. Revisar: docker compose -f /opt/docrecord/docker-compose.prod.yml logs"
+          exit 1

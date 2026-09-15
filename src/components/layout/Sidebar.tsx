@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Role, IconName } from '@/types'
 import { Icon } from '@/components/ui/Icon'
-import { useAppContext, useUsuarioAutenticado } from '@/context/AppContext'
+import { useAppContext } from '@/context/AppContext'
 
 interface NavItem {
   href: string
@@ -32,8 +32,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen }) => {
   const pathname = usePathname()
-  const { activeClinic } = useAppContext()
-  const user = useUsuarioAutenticado()
+  const { user, activeClinic } = useAppContext()
 
   const visibleItems = navItems.filter((i) => i.roles.some((r) => 
       user.roles.some((ur) => ur.roleId === r.roleId)

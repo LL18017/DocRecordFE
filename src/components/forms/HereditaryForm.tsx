@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useId, useState } from 'react'
 import { Hereditaria } from '@/types'
 
 interface HereditaryFormProps {
@@ -8,7 +8,28 @@ interface HereditaryFormProps {
   onCancel: () => void
 }
 
+// Clases compartidas de los controles. Lo único que se agrega a las que ya
+// había es `focus-visible:ring-*`, que acompaña al `focus:outline-none`:
+// quitar el contorno del navegador sin reponer nada deja a quien navega con
+// teclado sin saber dónde está parado.
+const campoBase =
+  'w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm bg-white focus:outline-none focus:border-purple-400 focus-visible:ring-2 focus-visible:ring-purple-400/40'
+const inputClass = `${campoBase} transition-colors`
+const textareaClass = `${campoBase} resize-none h-20`
+const labelClass =
+  'block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide'
+
+/** El asterisco es decoración: lo obligatorio ya lo dice el atributo `required`. */
+const Obligatorio = () => <span aria-hidden="true"> *</span>
+
 export const HereditaryForm: React.FC<HereditaryFormProps> = ({ onSubmit, onCancel }) => {
+  // Un prefijo por instancia: este formulario es un componente reutilizable y
+  // nada impide montarlo dos veces en la misma pantalla. Con ids fijos, la
+  // etiqueta del segundo apuntaría al campo del primero y el clic enfocaría el
+  // que no es.
+  const uid = useId()
+  const id = (nombre: string) => `${uid}-${nombre}`
+
   const [condicion, setCondicion] = useState('')
   const [parentesco, setParentesco] = useState('Padre')
   const [observaciones, setObservaciones] = useState('')
@@ -27,26 +48,28 @@ export const HereditaryForm: React.FC<HereditaryFormProps> = ({ onSubmit, onCanc
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
-          Condición hereditaria *
+        <label htmlFor={id('condicion')} className={labelClass}>
+          Condición hereditaria<Obligatorio />
         </label>
         <input
+          id={id('condicion')}
           required
           value={condicion}
           onChange={(e) => setCondicion(e.target.value)}
           placeholder="Ej: Cáncer de colon, Diabetes tipo 2, Cardiopatía..."
-          className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-purple-400 transition-colors bg-white"
+          className={inputClass}
         />
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+        <label htmlFor={id('parentesco')} className={labelClass}>
           Parentesco
         </label>
         <select
+          id={id('parentesco')}
           value={parentesco}
           onChange={(e) => setParentesco(e.target.value)}
-          className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-purple-400 bg-white"
+          className={campoBase}
         >
           {[
             'Padre',
@@ -65,14 +88,15 @@ export const HereditaryForm: React.FC<HereditaryFormProps> = ({ onSubmit, onCanc
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+        <label htmlFor={id('observaciones')} className={labelClass}>
           Observaciones
         </label>
         <textarea
+          id={id('observaciones')}
           value={observaciones}
           onChange={(e) => setObservaciones(e.target.value)}
           placeholder="Detalles sobre edad de diagnóstico, tratamiento o evolución..."
-          className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-purple-400 resize-none h-20 bg-white"
+          className={textareaClass}
         />
       </div>
 
