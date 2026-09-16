@@ -9,7 +9,6 @@ import { Modal } from '@/components/ui/Modal'
 import { ConsultationForm, type OpcionPaciente } from '@/components/forms/ConsultationForm'
 import { listarPacientes } from '@/services/pacientes'
 import {
-  eliminarConsulta,
   formatearFechaHora,
   listarConsultas,
   nombreDeClinica,
@@ -85,16 +84,11 @@ export default function ConsultasPage() {
     void cargar()
   }
 
-  const handleEliminar = async (consultaId: number) => {
-    // Optimista no: en un expediente clínico la fila desaparece solo cuando el
-    // servidor confirmó la baja.
-    try {
-      await eliminarConsulta(consultaId)
-      setConsultas((prev) => prev.filter((c) => c.consultaId !== consultaId))
-    } catch (err) {
-      setError(mensajeDe(err, 'No se pudo eliminar la consulta.'))
-    }
-  }
+  // Aquí estaba `handleEliminar`, y con él un botón de papelera en cada fila.
+  // Los dos se retiraron: HU-21 exige que una consulta equivocada se ANULE con
+  // su motivo, no que desaparezca del expediente llevándose sus recetas.
+  // Mientras la anulación no exista, no ofrecer nada es mejor que ofrecer lo
+  // que no debería hacerse.
 
   const handleRegistrada = (consulta: ConsultaDto) => {
     setConsultas((prev) => [consulta, ...prev])
@@ -186,14 +180,6 @@ export default function ConsultasPage() {
               className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
             >
               <Icon name="edit" size={14} />
-            </button>
-            <button
-              onClick={() => handleEliminar(c.consultaId)}
-              aria-label={`Eliminar la consulta de ${nombreDePaciente(c)}`}
-              title="Eliminar consulta"
-              className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors cursor-pointer"
-            >
-              <Icon name="delete" size={14} />
             </button>
           </div>
         ),

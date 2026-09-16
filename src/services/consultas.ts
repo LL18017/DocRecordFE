@@ -184,14 +184,18 @@ export async function actualizarConsulta(
   }
 }
 
-/** Elimina una consulta. Responde 204 sin cuerpo. */
-export async function eliminarConsulta(consultaId: number): Promise<void> {
-  try {
-    await apiFetch<void>(`/consultas/${consultaId}`, { method: 'DELETE' })
-  } catch (error) {
-    throw traducirError(error, 'eliminar')
-  }
-}
+// Aquí vivía `eliminarConsulta`. Se retiró junto con el endpoint del backend.
+//
+// HU-21 (DRS-91) no deja margen: «el sistema nunca ejecuta un DELETE sobre una
+// consulta. Anular es un cambio de estado, y esa distinción es la que hace
+// defendible el expediente ante una auditoría».
+//
+// Lo que había borraba de verdad y, por el `ON DELETE CASCADE`, se llevaba las
+// recetas emitidas. Una consulta equivocada ocurrió: quedó constancia, y puede
+// haberse entregado una receta a partir de ella. Hacerla desaparecer no corrige
+// el error, lo esconde.
+//
+// La operación que corresponde —anular con motivo— llega con HU-21.
 
 // ─── Ayudas de presentación ────────────────────────────────────────────────
 
