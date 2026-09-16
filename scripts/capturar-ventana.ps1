@@ -19,7 +19,12 @@
 # ----------------------------------------------------------------------------
 param(
     [Parameter(Mandatory = $true)][string]$PerfilDir,
-    [Parameter(Mandatory = $true)][string]$Salida
+    [Parameter(Mandatory = $true)][string]$Salida,
+    # Trae la ventana al frente antes de disparar. Algunas paginas -Jira entre
+    # ellas- se dibujan atenuadas mientras la ventana no tiene el foco, y
+    # PrintWindow fotografia ese estado: la captura sale con un velo gris.
+    # Roba el foco un instante, asi que solo se pide donde hace falta.
+    [switch]$AlFrente
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,6 +39,7 @@ public class CapturaDeVentana {
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 
     // Sin esto Windows miente sobre el tamaño de la ventana. PowerShell arranca
@@ -41,6 +47,8 @@ public class CapturaDeVentana {
     // devuelve la mitad de los píxeles reales: la captura sale a 700x440 en vez
     // de 1400x880 y se pierde medio contenido. Hay que llamarlo ANTES de medir.
     public static void ActivarPPP() { SetProcessDPIAware(); }
+
+    public static bool AlFrente(IntPtr handle) { return SetForegroundWindow(handle); }
 
     public static string Tomar(IntPtr handle, string ruta) {
         RECT r;
@@ -85,6 +93,11 @@ if (-not $ventana) {
 
 $carpeta = Split-Path -Parent $Salida
 if ($carpeta -and -not (Test-Path $carpeta)) { New-Item -ItemType Directory -Force -Path $carpeta | Out-Null }
+
+if ($AlFrente) {
+    [CapturaDeVentana]::AlFrente($ventana.MainWindowHandle) | Out-Null
+    Start-Sleep -Milliseconds 600
+}
 
 $resultado = [CapturaDeVentana]::Tomar($ventana.MainWindowHandle, $Salida)
 if ($resultado.StartsWith('ok:')) {
