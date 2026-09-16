@@ -19,6 +19,7 @@ import {
 import { listarConsultas } from '@/services/consultas'
 import { pacienteDtoAPatient } from '@/lib/pacienteAdapter'
 import { contarConsultasPorPaciente } from '@/lib/resumenPanel'
+import { sinTildes } from '@/lib/texto'
 
 export default function PacientesPage() {
   // La lista sale de GET /pacientes. Antes se sembraba con los datos de la
@@ -317,7 +318,7 @@ export default function PacientesPage() {
         searchable
         searchPlaceholder="Buscar por nombre, teléfono o expediente..."
         searchFilter={(p, q) =>
-          p.name.toLowerCase().includes(q) ||
+          sinTildes(p.name).includes(q) ||
           p.phone.includes(q) ||
           p.id_num.includes(q)
         }

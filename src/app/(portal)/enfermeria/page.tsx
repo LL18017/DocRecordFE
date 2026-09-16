@@ -23,6 +23,7 @@ import { useRouter } from 'next/navigation'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
+import { sinTildes } from '@/lib/texto'
 import { Modal } from '@/components/ui/Modal'
 import { VitalsForm, type PacienteParaToma } from '@/components/forms/VitalsForm'
 import { listarPacientes } from '@/services/pacientes'
@@ -267,8 +268,8 @@ export default function EnfermeriaPage() {
         searchable
         searchPlaceholder="Buscar por paciente o enfermera..."
         searchFilter={(t, q) =>
-          `${t.paciente.nombres} ${t.paciente.apellidos}`.toLowerCase().includes(q) ||
-          nombreDeEnfermera(t).toLowerCase().includes(q)
+          sinTildes(`${t.paciente.nombres} ${t.paciente.apellidos}`).includes(q) ||
+          sinTildes(nombreDeEnfermera(t)).includes(q)
         }
         pageSize={10}
         emptyMessage={

@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react'
 import { Icon } from './Icon'
+import { sinTildes } from '@/lib/texto'
 
 export interface Column<T> {
   header: string
@@ -64,9 +65,14 @@ export function DataTable<T>({
   const [currentPage, setCurrentPage] = useState(1)
 
   // Filtered data based on search
+  //
+  // La consulta llega a `searchFilter` ya normalizada —sin tildes y en
+  // minúsculas—, no solo en minúsculas. Cada filtro debe normalizar también
+  // sus propios campos con `sinTildes`, o la comparación queda coja de un
+  // lado: «Martinez» no encontraría a «Martínez» (HU-08, criterio 2).
   const filteredData = useMemo(() => {
     if (!search || !searchFilter) return data
-    return data.filter((item) => searchFilter(item, search.toLowerCase()))
+    return data.filter((item) => searchFilter(item, sinTildes(search)))
   }, [data, search, searchFilter])
 
   // Total pages

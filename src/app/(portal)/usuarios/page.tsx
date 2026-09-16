@@ -5,6 +5,7 @@ import { Role } from '@/types'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
+import { sinTildes } from '@/lib/texto'
 import { Modal } from '@/components/ui/Modal'
 import { ApiError } from '@/lib/api'
 import { useUsuarioAutenticado } from '@/context/AppContext'
@@ -477,9 +478,9 @@ export default function UsuariosPage() {
               searchable
               searchPlaceholder="Buscar por nombre, correo o rol..."
               searchFilter={(u, q) =>
-                u.userName.toLowerCase().includes(q) ||
-                u.email.toLowerCase().includes(q) ||
-                u.roles.some((rol) => etiquetaDeRol(rol.name).toLowerCase().includes(q))
+                sinTildes(u.userName).includes(q) ||
+                sinTildes(u.email).includes(q) ||
+                u.roles.some((rol) => sinTildes(etiquetaDeRol(rol.name)).includes(q))
               }
               // `DataTable` usa el mismo texto para «no hay nada» y para «la
               // búsqueda no encontró nada», así que tiene que ser cierto en los
