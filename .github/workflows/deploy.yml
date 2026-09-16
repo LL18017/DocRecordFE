@@ -106,6 +106,27 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
+          # Un secreto pegado con espacios o un salto de linea NO esta vacio,
+          # asi que la comprobacion -z del paso anterior lo deja pasar y el fallo
+          # aparece mas abajo, en /dev/tcp, como "sin respuesta" -- un mensaje que
+          # senala al servidor cuando el problema es el valor del secreto.
+          #
+          # Paso exactamente eso el 14 de septiembre: VPS_HOST llego con espacios
+          # al inicio, la redireccion quedo como `> /dev/tcp/` sin host y fallo en
+          # 0 segundos. El cronometro es lo que distingue este caso de un bloqueo
+          # de red: un Security Group descarta los paquetes en silencio y el
+          # timeout tarda sus 10 segundos completos antes de rendirse.
+          VPS_HOST="$(printf '%s' "$VPS_HOST" | tr -d '[:space:]')"
+          VPS_USER="$(printf '%s' "$VPS_USER" | tr -d '[:space:]')"
+
+          # Los corchetes hacen visible el espacio que de otro modo no se ve. El
+          # valor sale enmascarado por GitHub, pero la posicion de los corchetes
+          # basta para reconocer el problema.
+          if ! printf '%s' "$VPS_HOST" | grep -qE '^[A-Za-z0-9.-]+$'; then
+            echo "::error::VPS_HOST no parece un host valido: [$VPS_HOST]"
+            exit 1
+          fi
+
           install -m 700 -d ~/.ssh
 
           # tr -d '\r': una clave copiada desde Windows llega con CRLF y ssh la
