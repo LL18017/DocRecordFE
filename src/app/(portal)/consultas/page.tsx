@@ -287,19 +287,11 @@ export default function ConsultasPage() {
 }
 
 /**
- * Mensaje que verá el usuario ante un fallo.
+ * Mensaje que verá el usuario ante un fallo, diciendo QUÉ se estaba haciendo.
  *
  * Se conserva SIEMPRE el motivo del error: `lib/api.ts` ya extrae el del
  * backend y `services/consultas.ts` solo lo sustituye cuando puede ser más
- * preciso. El texto de respaldo es para lo que no llega como `Error` con
- * mensaje.
- */
-function mensajeDe(causa: unknown, respaldo: string): string {
-  return causa instanceof Error && causa.message ? causa.message : respaldo
-}
-
-/**
- * Igual que `mensajeDe`, pero anteponiendo QUÉ se estaba haciendo.
+ * preciso.
  *
  * Aquí conviven dos peticiones y el aviso puede juntar las dos: «Error del
  * servidor (500).» a secas no dice si lo que se cayó fueron las consultas o el
