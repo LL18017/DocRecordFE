@@ -7,6 +7,7 @@ import { Role, IconName } from '@/types'
 import { Icon } from '@/components/ui/Icon'
 import { useAppContext } from '@/context/AppContext'
 import { ApiError } from '@/lib/api'
+import { rutaPorDefecto } from '@/lib/rutas'
 
 const features: { icon: IconName; text: string }[] = [
   { icon: 'history', text: 'Historial clínico completo' },
@@ -54,8 +55,16 @@ function FormularioDeLogin() {
     setEnviando(true)
 
     try {
-      await iniciarSesion(email, password, ROL_POR_DEFECTO)
-      router.push('/select-clinica')
+      const usuario = await iniciarSesion(email, password, ROL_POR_DEFECTO)
+      // Elegir sede es para quien OPERA en una sede. Mandar ahí a un paciente
+      // lo dejaba encallado: esa pantalla se llena con GET /clinics/mias, que
+      // es hasAnyRole('ADMIN','MEDICO','ENFERMERA'), así que le respondía 403 y
+      // la selección se quedaba vacía sin decir por qué. Un paciente no
+      // trabaja en ninguna clínica; va directo a lo suyo.
+      const operaEnUnaSede = usuario.roles.some(
+        (rol) => rol === 'medico' || rol === 'enfermera' || rol === 'Administrador',
+      )
+      router.push(operaEnUnaSede ? '/select-clinica' : rutaPorDefecto(usuario.roles))
     } catch (err) {
       setError(
         err instanceof ApiError

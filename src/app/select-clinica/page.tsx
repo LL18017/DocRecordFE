@@ -7,6 +7,7 @@ import { Clinica } from '@/types'
 import { Icon } from '@/components/ui/Icon'
 import { useAppContext } from '@/context/AppContext'
 import { ApiError } from '@/lib/api'
+import { rutaPorDefecto } from '@/lib/rutas'
 import { clinicaDtoAClinica, formatearCoordenadas, listarMisClinicas } from '@/services/clinicas'
 
 export default function SelectClinicaPage() {
@@ -20,11 +21,28 @@ export default function SelectClinicaPage() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Quién opera en una sede. Espeja el hasAnyRole('ADMIN','MEDICO','ENFERMERA')
+  // de GET /clinics/mias, que es de dónde salen las clínicas de abajo.
+  const operaEnUnaSede =
+    user?.roles.some((rol) => rol === 'medico' || rol === 'enfermera' || rol === 'Administrador') ??
+    false
+
   // Esta pantalla es el paso siguiente al login, así que sin sesión no tiene
   // nada que mostrar.
+  //
+  // Y para un paciente tampoco: el login ya no lo manda aquí, pero puede
+  // llegar por el historial del navegador o por un marcador. Sin este desvío
+  // vería la pantalla pintada y vacía para siempre, porque la petición que la
+  // llena le responde 403 y «no tienes sedes» es una explicación falsa de por
+  // qué. No trabaja en ninguna clínica: no es una sede que le falte.
   useEffect(() => {
-    if (!cargandoSesion && !user) router.replace('/login')
-  }, [cargandoSesion, user, router])
+    if (cargandoSesion) return
+    if (!user) {
+      router.replace('/login')
+      return
+    }
+    if (!operaEnUnaSede) router.replace(rutaPorDefecto(user.roles))
+  }, [cargandoSesion, user, operaEnUnaSede, router])
 
   const cargarClinicas = useCallback(async () => {
     try {
@@ -42,10 +60,14 @@ export default function SelectClinicaPage() {
   // caso que react-hooks/set-state-in-effect no puede modelar; el setState
   // ocurre al llegar la respuesta, no durante el render.
   useEffect(() => {
-    if (!user) return
+    // `operaEnUnaSede` ademas de `user`: sin el, un paciente que llega aqui
+    // dispara una peticion que el servidor ya va a rechazar con 403, y el
+    // desvio de arriba ocurre despues. Pedir algo que se sabe negado solo
+    // ensucia el registro del servidor y la consola del navegador.
+    if (!user || !operaEnUnaSede) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ver comentario arriba
     void cargarClinicas()
-  }, [user, cargarClinicas])
+  }, [user, operaEnUnaSede, cargarClinicas])
 
   if (!user) return null
 

@@ -13,6 +13,7 @@ const ETIQUETAS: Record<Role, string> = {
   medico: 'Médico',
   enfermera: 'Enfermera',
   Administrador: 'Administrador',
+  paciente: 'Paciente',
 }
 
 /**
