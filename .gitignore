@@ -55,3 +55,8 @@ next-env.d.ts
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Capturas del Laboratorio 2 (scripts/capturas-lab2.mjs)
+# Misma regla que las e2e: la plantilla se versiona, los valores reales no.
+!.env.capturas.example
+.env.capturas
