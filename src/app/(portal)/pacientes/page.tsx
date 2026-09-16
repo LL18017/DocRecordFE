@@ -264,7 +264,7 @@ export default function PacientesPage() {
           <button
             onClick={() => setBajaConfirm(p)}
             className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors cursor-pointer"
-            title="Eliminar paciente"
+            title="Desactivar paciente"
           >
             <Icon name="delete" size={14} />
           </button>
@@ -389,7 +389,7 @@ export default function PacientesPage() {
       <Modal
         isOpen={bajaConfirm !== null}
         onClose={() => setBajaConfirm(null)}
-        title="Dar de baja al paciente"
+        title="Desactivar paciente"
         subtitle="El expediente se conserva"
         icon="delete"
         headerGradient="bg-gradient-to-r from-amber-500 to-amber-600"
@@ -397,7 +397,7 @@ export default function PacientesPage() {
       >
         {bajaConfirm && (
           <div className="text-center py-2">
-            <p className="text-slate-500 text-sm mb-1">¿Dar de baja a</p>
+            <p className="text-slate-500 text-sm mb-1">¿Desactivar a</p>
             <p className="font-semibold text-slate-800 mb-4 font-outfit">
               &ldquo;{bajaConfirm.name}&rdquo;?
             </p>
@@ -421,7 +421,7 @@ export default function PacientesPage() {
                 disabled={dandoDeBaja}
                 className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {dandoDeBaja ? 'Dando de baja…' : 'Dar de baja'}
+                {dandoDeBaja ? 'Desactivando…' : 'Desactivar'}
               </button>
             </div>
           </div>

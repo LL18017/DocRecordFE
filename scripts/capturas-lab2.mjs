@@ -395,14 +395,14 @@ const ESCENAS = [
       // logica- y no deja huerfana ninguna de las otras capturas.
       const fila = page.locator('table tbody tr').filter({ hasText: PACIENTE_DE_BAJA }).first()
       if (await fila.count()) {
-        await fila.locator('button[title="Eliminar paciente"]').click()
+        await fila.locator('button[title="Desactivar paciente"]').click()
         // Desde HU-10 criterio 1 la baja pide confirmacion, asi que el boton ya
         // no da de baja: abre un dialogo. Sin este paso la fila nunca se va y
         // la captura sale con el listado intacto, mostrando lo contrario de lo
         // que dice demostrar.
         const dialogo = page.locator('[role=dialog]')
         await dialogo.waitFor({ state: 'visible', timeout: 20_000 })
-        await dialogo.getByRole('button', { name: /^dar de baja$/i }).click()
+        await dialogo.getByRole('button', { name: /^desactivar$/i }).click()
         await fila.waitFor({ state: 'detached', timeout: 30_000 })
       }
       await page.waitForTimeout(1200)
@@ -431,7 +431,7 @@ const ESCENAS = [
       // Se abre el diálogo y NO se confirma: la captura que pide el laboratorio
       // es la confirmación en pantalla, y confirmarla borraría una clínica de
       // verdad -- el backend hace `repository.delete`, no un cambio de estado.
-      const boton = page.locator('button[title="Eliminar clínica"]').first()
+      const boton = page.locator('button[title="Desactivar clínica"]').first()
       await boton.waitFor({ state: 'visible', timeout: 20_000 })
       await boton.click()
       await page.getByText(/eliminar/i).first().waitFor({ state: 'visible', timeout: 20_000 })

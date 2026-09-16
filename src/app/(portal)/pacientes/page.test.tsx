@@ -169,11 +169,11 @@ const abrirConfirmacion = async () => {
   const user = userEvent.setup()
   render(<PacientesPage />)
   await screen.findByText(/Carlos/)
-  await user.click(screen.getAllByTitle('Eliminar paciente')[0])
+  await user.click(screen.getAllByTitle('Desactivar paciente')[0])
   return user
 }
 
-const botonDarDeBaja = () => screen.getByRole('button', { name: 'Dar de baja' })
+const botonDesactivar = () => screen.getByRole('button', { name: 'Desactivar' })
 
 /** Buscar dentro de la tabla y no en toda la pantalla: con el diálogo abierto
  *  el nombre del paciente sale dos veces, y solo una de ellas es la fila. */
@@ -222,7 +222,7 @@ describe('pacientes · confirmación antes de dar de baja', () => {
   it('al confirmar sí se aplica la baja y la fila sale del listado', async () => {
     const user = await abrirConfirmacion()
 
-    await user.click(botonDarDeBaja())
+    await user.click(botonDesactivar())
 
     await waitFor(() => expect(eliminarPaciente).toHaveBeenCalledWith(1))
     expect(eliminarPaciente).toHaveBeenCalledTimes(1)
@@ -235,7 +235,7 @@ describe('pacientes · confirmación antes de dar de baja', () => {
     eliminarPaciente.mockRejectedValue(new ApiError(409, 'El paciente tiene consultas abiertas'))
 
     const user = await abrirConfirmacion()
-    await user.click(botonDarDeBaja())
+    await user.click(botonDesactivar())
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/consultas abiertas/i)
     // Nada de optimismo: la fila solo desaparece cuando el servidor confirma.

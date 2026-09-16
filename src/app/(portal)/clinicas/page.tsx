@@ -278,7 +278,7 @@ export default function ClinicasPage() {
                   <button
                     onClick={() => setDeleteConfirm(c)}
                     className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors cursor-pointer"
-                    title="Eliminar clínica"
+                    title="Desactivar clínica"
                   >
                     <Icon name="delete" size={14} />
                   </button>
@@ -411,20 +411,33 @@ export default function ClinicasPage() {
         )}
       </Modal>
 
-      {/* Modal: Confirmar eliminación */}
+      {/*
+        Modal: confirmar la baja.
+
+        Decía «Esta acción no se puede deshacer» y desde que la baja de clínica
+        es lógica eso es FALSO: la sede queda INACTIVA, conserva su historial de
+        consultas y recetas, y se puede reactivar. Una advertencia falsa no
+        protege de nada y enseña a no leer las advertencias —la próxima, la que
+        sí sea cierta, se saltará igual—.
+
+        Por lo mismo la cabecera deja de ser roja: ese rojo anuncia destrucción.
+      */}
       <Modal
         isOpen={deleteConfirm !== null}
         onClose={() => setDeleteConfirm(null)}
-        title="Eliminar clínica"
+        title="Dar de baja la clínica"
         icon="delete"
-        headerGradient="bg-gradient-to-r from-red-500 to-red-600"
+        headerGradient="bg-gradient-to-r from-amber-500 to-amber-600"
         maxWidth="sm"
       >
         {deleteConfirm && (
           <div className="text-center py-2">
-            <p className="text-slate-500 text-sm mb-1">¿Estás seguro de eliminar</p>
+            <p className="text-slate-500 text-sm mb-1">¿Dar de baja a</p>
             <p className="font-semibold text-slate-800 mb-4 font-outfit">&ldquo;{deleteConfirm.name}&rdquo;?</p>
-            <p className="text-xs text-red-500 mb-6">Esta acción no se puede deshacer.</p>
+            <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+              No se borra nada: conserva su historial de consultas y recetas. Deja de
+              ofrecerse para trabajar en ella y puede volver a activarse.
+            </p>
 
             <div className="flex gap-3">
               <button
@@ -439,7 +452,7 @@ export default function ClinicasPage() {
                 disabled={eliminando}
                 className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-500 hover:bg-red-600 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {eliminando ? 'Eliminando…' : 'Eliminar'}
+                {eliminando ? 'Dando de baja…' : 'Dar de baja'}
               </button>
             </div>
           </div>
