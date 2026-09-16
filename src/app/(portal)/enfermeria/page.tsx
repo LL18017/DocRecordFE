@@ -268,8 +268,8 @@ export default function EnfermeriaPage() {
         searchable
         searchPlaceholder="Buscar por paciente o enfermera..."
         searchFilter={(t, q) =>
-          sinTildes(`${t.paciente.nombres} ${t.paciente.apellidos}`).includes(q) ||
-          sinTildes(nombreDeEnfermera(t)).includes(q)
+          sinTildes(`${t.paciente.nombres} ${t.paciente.apellidos}`).includes(sinTildes(q)) ||
+          sinTildes(nombreDeEnfermera(t)).includes(sinTildes(q))
         }
         pageSize={10}
         emptyMessage={

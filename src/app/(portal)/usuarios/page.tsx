@@ -478,9 +478,9 @@ export default function UsuariosPage() {
               searchable
               searchPlaceholder="Buscar por nombre, correo o rol..."
               searchFilter={(u, q) =>
-                sinTildes(u.userName).includes(q) ||
-                sinTildes(u.email).includes(q) ||
-                u.roles.some((rol) => sinTildes(etiquetaDeRol(rol.name)).includes(q))
+                sinTildes(u.userName).includes(sinTildes(q)) ||
+                sinTildes(u.email).includes(sinTildes(q)) ||
+                u.roles.some((rol) => sinTildes(etiquetaDeRol(rol.name)).includes(sinTildes(q)))
               }
               // `DataTable` usa el mismo texto para «no hay nada» y para «la
               // búsqueda no encontró nada», así que tiene que ser cierto en los

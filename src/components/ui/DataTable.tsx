@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo } from 'react'
 import { Icon } from './Icon'
-import { sinTildes } from '@/lib/texto'
 
 export interface Column<T> {
   header: string
@@ -66,13 +65,18 @@ export function DataTable<T>({
 
   // Filtered data based on search
   //
-  // La consulta llega a `searchFilter` ya normalizada —sin tildes y en
-  // minúsculas—, no solo en minúsculas. Cada filtro debe normalizar también
-  // sus propios campos con `sinTildes`, o la comparación queda coja de un
-  // lado: «Martinez» no encontraría a «Martínez» (HU-08, criterio 2).
+  // La consulta se pasa SOLO en minúsculas, deliberadamente. Quitarle además
+  // las tildes aquí parecía el sitio natural para arreglar HU-08 criterio 2,
+  // pero cambia el contrato por debajo de cada `searchFilter`: los que
+  // comparan contra campos sin normalizar dejan de encontrar lo que sí está
+  // —«Martínez» con tilde en el dato y sin ella en la consulta—, y lo hacen en
+  // silencio, sin que nada en esta firma lo advierta.
+  //
+  // La normalización vive en cada filtro, que es quien sabe qué campos mira y
+  // puede normalizar LAS DOS MITADES de la comparación con `sinTildes`.
   const filteredData = useMemo(() => {
     if (!search || !searchFilter) return data
-    return data.filter((item) => searchFilter(item, sinTildes(search)))
+    return data.filter((item) => searchFilter(item, search.toLowerCase()))
   }, [data, search, searchFilter])
 
   // Total pages

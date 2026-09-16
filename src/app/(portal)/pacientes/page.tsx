@@ -318,7 +318,7 @@ export default function PacientesPage() {
         searchable
         searchPlaceholder="Buscar por nombre, teléfono o expediente..."
         searchFilter={(p, q) =>
-          sinTildes(p.name).includes(q) ||
+          sinTildes(p.name).includes(sinTildes(q)) ||
           p.phone.includes(q) ||
           p.id_num.includes(q)
         }
