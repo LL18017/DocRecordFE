@@ -47,7 +47,14 @@ export default function SelectClinicaPage() {
   const cargarClinicas = useCallback(async () => {
     try {
       const misClinicas = await listarMisClinicas()
-      setClinicas(misClinicas.map(clinicaDtoAClinica))
+      // Las sedes dadas de baja no se ofrecen: esta pantalla pregunta dónde se
+      // va a trabajar HOY, y en una clínica cerrada no se atiende. El endpoint
+      // las sigue devolviendo a propósito —la administración de clínicas usa el
+      // mismo listado y es desde donde se reactivan—, así que el descarte va
+      // aquí, que es la única pantalla que necesita la distinción.
+      setClinicas(
+        misClinicas.filter((c) => c.estado !== 'INACTIVA').map(clinicaDtoAClinica),
+      )
       setError(null)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudieron cargar tus clínicas.')

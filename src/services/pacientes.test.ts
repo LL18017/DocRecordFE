@@ -271,6 +271,38 @@ describe('listarPacientes · búsqueda', () => {
     expect(String(fetchMock.mock.calls[0][0])).toBe('http://localhost:8080/pacientes')
   })
 
+  // HU-08, criterio 4 · el listado por omisión es el de trabajo diario.
+  it('no pide inactivos salvo que se los pida explícitamente', async () => {
+    fetchMock.mockResolvedValueOnce(respuesta(200, []))
+
+    await listarPacientes('Martinez')
+
+    // Sin el parámetro el backend ya filtra a los INACTIVO: mandarlo en
+    // `false` sería ruido, pero que aparezca en `true` por descuido dejaría a
+    // los dados de baja en el listado de todos los días.
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('incluirInactivos')
+  })
+
+  it('pide los inactivos cuando se activa el filtro', async () => {
+    fetchMock.mockResolvedValueOnce(respuesta(200, []))
+
+    await listarPacientes('Martinez', true)
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      'http://localhost:8080/pacientes?buscar=Martinez&incluirInactivos=true',
+    )
+  })
+
+  it('pide los inactivos también sin texto de búsqueda', async () => {
+    fetchMock.mockResolvedValueOnce(respuesta(200, []))
+
+    await listarPacientes(undefined, true)
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      'http://localhost:8080/pacientes?incluirInactivos=true',
+    )
+  })
+
   it('tampoco lo manda con una búsqueda vacía', async () => {
     fetchMock.mockResolvedValueOnce(respuesta(200, []))
 

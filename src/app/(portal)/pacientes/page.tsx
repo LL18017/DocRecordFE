@@ -31,6 +31,12 @@ export default function PacientesPage() {
   const [editando, setEditando] = useState<PacienteDto | null>(null)
   const [cargandoEdicion, setCargandoEdicion] = useState(false)
 
+  // HU-08, criterio 4. Arranca apagado a propósito: el listado que se abre por
+  // omisión es el de trabajo diario, y quien ya no está en seguimiento estorba
+  // ahí. Ver a los dados de baja es una consulta deliberada, no el estado por
+  // defecto de la pantalla.
+  const [incluirInactivos, setIncluirInactivos] = useState(false)
+
   // Ningún setState ocurre antes del primer await: hacerlo de forma síncrona
   // dentro del efecto provoca renders en cascada y lo prohíbe la regla
   // react-hooks/set-state-in-effect. `cargando` ya arranca en true, así que la
@@ -45,7 +51,10 @@ export default function PacientesPage() {
   // cero que afirmaría que nadie ha venido nunca.
   const cargarPacientes = useCallback(async () => {
     const [resPacientes, resConsultas] = await Promise.allSettled([
-      listarPacientes(),
+      // El filtro lo resuelve el servidor: traer a todos y esconder a los
+      // inactivos en el cliente haría que el buscador de la tabla siguiera
+      // encontrándolos.
+      listarPacientes(undefined, incluirInactivos),
       listarConsultas(),
     ])
 
@@ -79,7 +88,7 @@ export default function PacientesPage() {
         : null,
     )
     setCargando(false)
-  }, [])
+  }, [incluirInactivos])
 
   // La regla react-hooks/set-state-in-effect rastrea dentro de la función
   // llamada y marca los setState que ocurren tras el await. Aquí no hay render
@@ -103,9 +112,18 @@ export default function PacientesPage() {
   const handleDelete = async (id: string) => {
     // Optimista no: en un expediente clinico conviene que la fila desaparezca
     // solo cuando el servidor confirmo la baja.
+    //
+    // La baja es logica: el paciente queda INACTIVO y su expediente intacto.
+    // Por eso la fila no se quita cuando el filtro de inactivos esta encendido
+    // -se recarga para que aparezca con su estado nuevo-, y solo desaparece del
+    // listado de trabajo diario.
     try {
       await eliminarPaciente(Number(id))
-      setPatientsList((prev) => prev.filter((p) => p.id !== id))
+      if (incluirInactivos) {
+        await cargarPacientes()
+      } else {
+        setPatientsList((prev) => prev.filter((p) => p.id !== id))
+      }
     } catch (err) {
       setError(
         err instanceof ApiError ? err.message : 'No se pudo dar de baja al paciente.',
@@ -248,12 +266,27 @@ export default function PacientesPage() {
             Directorio y registro centralizado de pacientes ambulatorios
           </p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold bg-doc-blue hover:opacity-90 shadow-sm transition-all cursor-pointer"
-        >
-          <Icon name="add" size={16} color="white" /> Nuevo Paciente
-        </button>
+        <div className="flex items-center gap-4">
+          {/* HU-08, criterio 4: el paciente dado de baja vuelve a verse desde aquí. */}
+          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={incluirInactivos}
+              onChange={(e) => {
+                setCargando(true)
+                setIncluirInactivos(e.target.checked)
+              }}
+              className="w-4 h-4 rounded border-slate-300 text-doc-blue focus-visible:ring-2 focus-visible:ring-doc-blue/40 cursor-pointer"
+            />
+            Incluir inactivos
+          </label>
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold bg-doc-blue hover:opacity-90 shadow-sm transition-all cursor-pointer"
+          >
+            <Icon name="add" size={16} color="white" /> Nuevo Paciente
+          </button>
+        </div>
       </div>
 
       {error && (
