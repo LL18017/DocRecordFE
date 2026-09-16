@@ -58,6 +58,16 @@ const VENTANA = { ancho: 1400, alto: 880 }
 // depende de los datos del entorno, no del código.
 const EXPEDIENTE_CON_EVOLUCION = process.env.CAP_EXPEDIENTE ?? '/pacientes/2'
 
+// El paciente sobre el que se demuestra la baja logica (17a y 17b). Se elige
+// uno SIN consultas ni recetas: la baja es reversible, pero aun asi no tiene
+// sentido sacar del listado a quien sostiene otras capturas.
+const PACIENTE_DE_BAJA = process.env.CAP_PACIENTE_DE_BAJA ?? 'Portillo Avilés'
+
+// Paciente y telefono de la captura 08. Distinto del de la baja: 17a lo deja
+// INACTIVO y entonces ya no sale en el listado por omision.
+const PACIENTE_A_EDITAR = process.env.CAP_PACIENTE_A_EDITAR ?? 'Hernández Cruz'
+const TELEFONO_NUEVO = process.env.CAP_TELEFONO_NUEVO ?? '2225-3080'
+
 const cuenta = (rol) => {
   const email = process.env[`CAP_${rol}_EMAIL`]
   const password = process.env[`CAP_${rol}_PASSWORD`]
@@ -351,16 +361,58 @@ const ESCENAS = [
     async run(page) {
       await page.goto(`${BASE}/pacientes`, { waitUntil: 'networkidle' })
       await page.locator('table tbody tr').first().waitFor({ timeout: 30_000 })
-      // Se edita un paciente sin consultas para no tocar los que sostienen
-      // las capturas 09, 10, 11, 20 y 21.
-      const fila = page.locator('table tbody tr').filter({ hasText: /Portillo Avilés/i }).first()
+
+      // Se edita un paciente sin consultas para no tocar los que sostienen las
+      // capturas 09, 10, 11, 20 y 21.
+      const fila = page.locator('table tbody tr').filter({ hasText: PACIENTE_A_EDITAR }).first()
       await fila.locator('button[title="Editar paciente"]').click()
       const dialogo = page.locator('[role=dialog]')
       await dialogo.waitFor({ state: 'visible', timeout: 30_000 })
-      await page.waitForTimeout(1500)
-      const telefono = dialogo.getByLabel(/teléfono/i).first()
-      await telefono.fill('2225-3080')
-      await page.waitForTimeout(800)
+      await page.waitForTimeout(1200)
+
+      // El criterio pide el cambio YA GUARDADO, no el formulario lleno: un
+      // campo escrito y sin enviar no demuestra que la edicion persista.
+      // El telefono es el dato que la tabla muestra, asi que es el unico que
+      // puede verse cambiado en la captura.
+      await dialogo.getByLabel(/teléfono/i).first().fill(TELEFONO_NUEVO)
+      await dialogo.getByRole('button', { name: /guardar|actualizar/i }).first().click()
+      await dialogo.waitFor({ state: 'hidden', timeout: 40_000 })
+
+      await page.locator('table tbody tr')
+        .filter({ hasText: TELEFONO_NUEVO })
+        .first().waitFor({ state: 'visible', timeout: 30_000 })
+      await page.waitForTimeout(1000)
+    },
+  },
+  {
+    id: '17a', nombre: '17a-HU-10-DRS-82-paciente-de-baja-fuera-del-listado', rol: 'admin',
+    desc: 'HU-10 · DRS-82 — el paciente dado de baja sale del listado de trabajo',
+    async run(page) {
+      await page.goto(`${BASE}/pacientes`, { waitUntil: 'networkidle' })
+      await page.locator('table tbody tr').first().waitFor({ timeout: 30_000 })
+
+      // Se da de baja a un paciente SIN consultas: es reversible -la baja es
+      // logica- y no deja huerfana ninguna de las otras capturas.
+      const fila = page.locator('table tbody tr').filter({ hasText: PACIENTE_DE_BAJA }).first()
+      if (await fila.count()) {
+        await fila.locator('button[title="Eliminar paciente"]').click()
+        await fila.waitFor({ state: 'detached', timeout: 30_000 })
+      }
+      await page.waitForTimeout(1200)
+    },
+  },
+  {
+    id: '17b', nombre: '17b-HU-10-DRS-82-filtro-lo-muestra-inactivo', rol: 'admin',
+    desc: 'HU-08 · DRS-80 criterio 4 — «Incluir inactivos» lo devuelve, marcado INACTIVO',
+    async run(page) {
+      await page.goto(`${BASE}/pacientes`, { waitUntil: 'networkidle' })
+      await page.locator('table tbody tr').first().waitFor({ timeout: 30_000 })
+      await page.getByLabel(/incluir inactivos/i).check()
+      // La casilla recarga pidiendole los inactivos al servidor; sin esperar a
+      // que vuelva la respuesta se fotografia la tabla anterior.
+      await page.locator('table tbody tr').filter({ hasText: PACIENTE_DE_BAJA })
+        .first().waitFor({ state: 'visible', timeout: 30_000 })
+      await page.waitForTimeout(1200)
     },
   },
   {
