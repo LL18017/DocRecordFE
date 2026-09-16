@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { sinTildes } from '@/lib/texto'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
@@ -238,9 +239,9 @@ export default function ConsultasPage() {
           // caía al teclear la primera letra, igual que ya ocurrió en la
           // búsqueda de pacientes con `dui`.
           searchFilter={(c, q) =>
-            nombreDePaciente(c).toLowerCase().includes(q) ||
-            (c.motivo?.toLowerCase().includes(q) ?? false) ||
-            (c.diagnostico?.toLowerCase().includes(q) ?? false)
+            sinTildes(nombreDePaciente(c)).includes(sinTildes(q)) ||
+            (c.motivo ? sinTildes(c.motivo).includes(sinTildes(q)) : false) ||
+            (c.diagnostico ? sinTildes(c.diagnostico).includes(sinTildes(q)) : false)
           }
           emptyMessage="Todavía no hay consultas registradas."
           pageSize={5}
