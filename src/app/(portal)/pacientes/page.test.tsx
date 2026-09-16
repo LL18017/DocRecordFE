@@ -12,6 +12,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { ApiError } from '@/lib/api'
 import type { PacienteDto } from '@/services/pacientes'
 import type { ConsultaDto } from '@/services/consultas'
@@ -149,5 +150,95 @@ describe('pacientes · la columna de consultas', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/base de datos caída/i)
     expect(screen.queryByText(/Carlos/)).toBeNull()
+  })
+})
+
+// ─── HU-10 criterio 1: la baja se confirma antes de aplicarse ───────────────
+//
+// EL FALLO: el icono de baja de la tabla llamaba al API en el mismo clic. Las
+// seis acciones de una fila caben en unos pocos píxeles y se repiten idénticas
+// en cada una, así que errar de fila —o de botón dentro de la fila— es cuestión
+// de tiempo; y el error no se veía venir ni se podía detener.
+//
+// Que la baja sea lógica no lo vuelve inocuo: el paciente desaparece del
+// listado de trabajo diario sin que nadie lo haya pedido, y quien lo atiende
+// mañana no lo encuentra. Estas guardas fijan las dos mitades del criterio: sin
+// confirmar no se da de baja a nadie, y al confirmar sí se aplica.
+
+const abrirConfirmacion = async () => {
+  const user = userEvent.setup()
+  render(<PacientesPage />)
+  await screen.findByText(/Carlos/)
+  await user.click(screen.getAllByTitle('Eliminar paciente')[0])
+  return user
+}
+
+const botonDarDeBaja = () => screen.getByRole('button', { name: 'Dar de baja' })
+
+/** Buscar dentro de la tabla y no en toda la pantalla: con el diálogo abierto
+ *  el nombre del paciente sale dos veces, y solo una de ellas es la fila. */
+const enTabla = () => within(screen.getByRole('table'))
+
+describe('pacientes · confirmación antes de dar de baja', () => {
+  it('el icono de la fila no da de baja: solo pide confirmación', async () => {
+    await abrirConfirmacion()
+
+    expect(eliminarPaciente).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    // La fila sigue donde estaba mientras nadie confirme.
+    expect(enTabla().getByText(/Carlos/)).toBeInTheDocument()
+  })
+
+  it('el diálogo nombra a quién se va a dar de baja', async () => {
+    // Un «¿estás seguro?» anónimo no distingue entre la fila que se quiso
+    // pulsar y la de al lado, así que ratifica el error en vez de atajarlo.
+    await abrirConfirmacion()
+
+    expect(within(screen.getByRole('dialog')).getByText(/Carlos/)).toBeInTheDocument()
+  })
+
+  it('dice la verdad sobre la baja: no promete un borrado que no ocurre', async () => {
+    // El diálogo de clínicas advierte que la acción no se puede deshacer. Aquí
+    // eso sería falso —el expediente y las consultas siguen ahí— y una
+    // advertencia falsa desgasta la credibilidad del resto.
+    await abrirConfirmacion()
+
+    const dialogo = screen.getByRole('dialog')
+    expect(dialogo).toHaveTextContent(/expediente/i)
+    expect(dialogo).toHaveTextContent(/incluir inactivos/i)
+    expect(dialogo).not.toHaveTextContent(/no se puede deshacer/i)
+  })
+
+  it('cancelar deja al paciente como estaba', async () => {
+    const user = await abrirConfirmacion()
+
+    await user.click(screen.getByRole('button', { name: /cancelar/i }))
+
+    expect(eliminarPaciente).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(enTabla().getByText(/Carlos/)).toBeInTheDocument()
+  })
+
+  it('al confirmar sí se aplica la baja y la fila sale del listado', async () => {
+    const user = await abrirConfirmacion()
+
+    await user.click(botonDarDeBaja())
+
+    await waitFor(() => expect(eliminarPaciente).toHaveBeenCalledWith(1))
+    expect(eliminarPaciente).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(enTabla().queryByText(/Carlos/)).toBeNull())
+    // Solo se va el confirmado: el de al lado no se toca.
+    expect(enTabla().getByText(/Elena/)).toBeInTheDocument()
+  })
+
+  it('si el servidor rechaza la baja, se avisa y el paciente se queda', async () => {
+    eliminarPaciente.mockRejectedValue(new ApiError(409, 'El paciente tiene consultas abiertas'))
+
+    const user = await abrirConfirmacion()
+    await user.click(botonDarDeBaja())
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/consultas abiertas/i)
+    // Nada de optimismo: la fila solo desaparece cuando el servidor confirma.
+    expect(enTabla().getByText(/Carlos/)).toBeInTheDocument()
   })
 })

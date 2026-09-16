@@ -32,6 +32,14 @@ export default function PacientesPage() {
   const [editando, setEditando] = useState<PacienteDto | null>(null)
   const [cargandoEdicion, setCargandoEdicion] = useState(false)
 
+  // HU-10 criterio 1. Se guarda el paciente pendiente de confirmar y no un
+  // booleano, porque el diálogo tiene que nombrar a quién se va a dar de baja:
+  // en una tabla donde cada fila repite el mismo icono, pulsar la de al lado es
+  // el error probable, y un «¿estás seguro?» anónimo lo ratifica en vez de
+  // atajarlo.
+  const [bajaConfirm, setBajaConfirm] = useState<Patient | null>(null)
+  const [dandoDeBaja, setDandoDeBaja] = useState(false)
+
   // HU-08, criterio 4. Arranca apagado a propósito: el listado que se abre por
   // omisión es el de trabajo diario, y quien ya no está en seguimiento estorba
   // ahí. Ver a los dados de baja es una consulta deliberada, no el estado por
@@ -110,7 +118,9 @@ export default function PacientesPage() {
     void cargarPacientes()
   }
 
-  const handleDelete = async (id: string) => {
+  // Solo se llega aquí desde el botón «Dar de baja» del diálogo: el icono de la
+  // tabla ya no ejecuta nada, únicamente abre la confirmación (HU-10 criterio 1).
+  const handleDarDeBaja = async (paciente: Patient) => {
     // Optimista no: en un expediente clinico conviene que la fila desaparezca
     // solo cuando el servidor confirmo la baja.
     //
@@ -118,17 +128,25 @@ export default function PacientesPage() {
     // Por eso la fila no se quita cuando el filtro de inactivos esta encendido
     // -se recarga para que aparezca con su estado nuevo-, y solo desaparece del
     // listado de trabajo diario.
+    setDandoDeBaja(true)
+    setError(null)
     try {
-      await eliminarPaciente(Number(id))
+      await eliminarPaciente(Number(paciente.id))
       if (incluirInactivos) {
         await cargarPacientes()
       } else {
-        setPatientsList((prev) => prev.filter((p) => p.id !== id))
+        setPatientsList((prev) => prev.filter((p) => p.id !== paciente.id))
       }
+      setBajaConfirm(null)
     } catch (err) {
       setError(
         err instanceof ApiError ? err.message : 'No se pudo dar de baja al paciente.',
       )
+      // El diálogo se cierra también al fallar: el aviso vive detrás de él, y
+      // dejarlo abierto sobre un error invisible invita a volver a pulsar.
+      setBajaConfirm(null)
+    } finally {
+      setDandoDeBaja(false)
     }
   }
 
@@ -244,7 +262,7 @@ export default function PacientesPage() {
             <Icon name="edit" size={14} />
           </button>
           <button
-            onClick={() => handleDelete(p.id)}
+            onClick={() => setBajaConfirm(p)}
             className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors cursor-pointer"
             title="Eliminar paciente"
           >
@@ -356,6 +374,57 @@ export default function PacientesPage() {
             onUpdated={handlePacienteActualizado}
             onCancel={() => setEditando(null)}
           />
+        )}
+      </Modal>
+
+      {/* Confirmar la baja (HU-10 criterio 1).
+          Mismo diálogo de confirmación que en Clínicas, con dos diferencias
+          deliberadas. El color es ámbar y no rojo porque el rojo de aquella
+          pantalla anuncia un borrado irreversible, y este no lo es. Y el texto
+          no repite su «esta acción no se puede deshacer»: en pacientes eso
+          sería sencillamente falso —la baja es lógica— y una advertencia falsa
+          gasta el crédito de todas las demás. En su lugar se explica la
+          consecuencia real, que es justo lo que uno se pregunta antes de
+          pulsar: si dar de baja pierde el historial clínico. No lo pierde. */}
+      <Modal
+        isOpen={bajaConfirm !== null}
+        onClose={() => setBajaConfirm(null)}
+        title="Dar de baja al paciente"
+        subtitle="El expediente se conserva"
+        icon="delete"
+        headerGradient="bg-gradient-to-r from-amber-500 to-amber-600"
+        maxWidth="sm"
+      >
+        {bajaConfirm && (
+          <div className="text-center py-2">
+            <p className="text-slate-500 text-sm mb-1">¿Dar de baja a</p>
+            <p className="font-semibold text-slate-800 mb-4 font-outfit">
+              &ldquo;{bajaConfirm.name}&rdquo;?
+            </p>
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 text-left mb-6">
+              No se borra nada: su expediente y sus consultas se conservan. El
+              paciente queda inactivo y deja de aparecer en el listado de
+              trabajo diario; se sigue viendo marcando «Incluir inactivos» y
+              puede volver a activarse.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setBajaConfirm(null)}
+                disabled={dandoDeBaja}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 hover:border-slate-300 transition-colors cursor-pointer disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => void handleDarDeBaja(bajaConfirm)}
+                disabled={dandoDeBaja}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {dandoDeBaja ? 'Dando de baja…' : 'Dar de baja'}
+              </button>
+            </div>
+          </div>
         )}
       </Modal>
     </div>
