@@ -74,6 +74,22 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
+          # Un secreto pegado con espacios o un salto de linea NO esta vacio, asi
+          # que la comprobacion -z de abajo lo dejaria pasar y el fallo apareceria
+          # despues, disfrazado de otra cosa: el 14 de septiembre VPS_HOST llego
+          # con espacios al inicio y el paso de SSH murio en "Sin respuesta en
+          # ***:22", que manda a revisar una instancia que estaba encendida y
+          # sirviendo. Al dia siguiente, ya saneado ahi, el fallo reaparecio en el
+          # ultimo paso como "curl: (3) URL rejected: Malformed input to a URL
+          # function" -- porque cada paso es un shell distinto y volvia a leer el
+          # secreto crudo.
+          #
+          # Por eso se limpia AQUI, una sola vez, y los pasos siguientes reciben
+          # el valor ya saneado por GITHUB_ENV. La clave SSH no se toca: es
+          # multilinea por naturaleza y su limpieza va en su propio paso.
+          VPS_HOST="$(printf '%s' "$VPS_HOST" | tr -d '[:space:]')"
+          VPS_USER="$(printf '%s' "$VPS_USER" | tr -d '[:space:]')"
+
           FALTANTES=()
           registrar_si_falta() {
             [ -z "$1" ] && FALTANTES+=("$2 — $3")
@@ -85,6 +101,22 @@ jobs:
           registrar_si_falta "$VPS_SSH_KEY" "VPS_SSH_KEY" "clave privada SSH completa, con las lineas BEGIN y END"
 
           if [ "${#FALTANTES[@]}" -eq 0 ]; then
+            # Los corchetes hacen visible lo que de otro modo no se ve: el valor
+            # sale enmascarado por GitHub, pero su posicion delata un espacio.
+            if ! printf '%s' "$VPS_HOST" | grep -qE '^[A-Za-z0-9.-]+$'; then
+              echo "::error::VPS_HOST no parece un host valido: [$VPS_HOST]"
+              exit 1
+            fi
+
+            # Ya sin espacios ni saltos de linea, asi que es seguro pasarlo por
+            # GITHUB_ENV, cuyo formato clave=valor se rompe con un salto de linea.
+            # Los pasos siguientes ya NO declaran estos dos en su `env:`: un `env:`
+            # de paso gana sobre GITHUB_ENV y volveria a meter el valor sin limpiar.
+            {
+              echo "VPS_HOST=$VPS_HOST"
+              echo "VPS_USER=$VPS_USER"
+            } >> "$GITHUB_ENV"
+
             echo "Los tres secretos de despliegue estan configurados."
             exit 0
           fi
@@ -102,31 +134,8 @@ jobs:
 
       - name: Desplegar por SSH
         env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
-          # Un secreto pegado con espacios o un salto de linea NO esta vacio,
-          # asi que la comprobacion -z del paso anterior lo deja pasar y el fallo
-          # aparece mas abajo, en /dev/tcp, como "sin respuesta" -- un mensaje que
-          # senala al servidor cuando el problema es el valor del secreto.
-          #
-          # Paso exactamente eso el 14 de septiembre: VPS_HOST llego con espacios
-          # al inicio, la redireccion quedo como `> /dev/tcp/` sin host y fallo en
-          # 0 segundos. El cronometro es lo que distingue este caso de un bloqueo
-          # de red: un Security Group descarta los paquetes en silencio y el
-          # timeout tarda sus 10 segundos completos antes de rendirse.
-          VPS_HOST="$(printf '%s' "$VPS_HOST" | tr -d '[:space:]')"
-          VPS_USER="$(printf '%s' "$VPS_USER" | tr -d '[:space:]')"
-
-          # Los corchetes hacen visible el espacio que de otro modo no se ve. El
-          # valor sale enmascarado por GitHub, pero la posicion de los corchetes
-          # basta para reconocer el problema.
-          if ! printf '%s' "$VPS_HOST" | grep -qE '^[A-Za-z0-9.-]+$'; then
-            echo "::error::VPS_HOST no parece un host valido: [$VPS_HOST]"
-            exit 1
-          fi
-
           install -m 700 -d ~/.ssh
 
           # tr -d '\r': una clave copiada desde Windows llega con CRLF y ssh la
@@ -177,8 +186,6 @@ jobs:
       # pie: los contenedores pueden levantar y morir en el arranque. Esto lo
       # comprueba desde fuera, como lo haria alguien abriendo la URL.
       - name: Comprobar que la aplicacion responde
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           for i in $(seq 1 30); do
             if curl -fsS -o /dev/null --max-time 10 "http://$VPS_HOST/"; then
