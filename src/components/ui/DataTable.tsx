@@ -64,6 +64,16 @@ export function DataTable<T>({
   const [currentPage, setCurrentPage] = useState(1)
 
   // Filtered data based on search
+  //
+  // La consulta se pasa SOLO en minúsculas, deliberadamente. Quitarle además
+  // las tildes aquí parecía el sitio natural para arreglar HU-08 criterio 2,
+  // pero cambia el contrato por debajo de cada `searchFilter`: los que
+  // comparan contra campos sin normalizar dejan de encontrar lo que sí está
+  // —«Martínez» con tilde en el dato y sin ella en la consulta—, y lo hacen en
+  // silencio, sin que nada en esta firma lo advierta.
+  //
+  // La normalización vive en cada filtro, que es quien sabe qué campos mira y
+  // puede normalizar LAS DOS MITADES de la comparación con `sinTildes`.
   const filteredData = useMemo(() => {
     if (!search || !searchFilter) return data
     return data.filter((item) => searchFilter(item, search.toLowerCase()))

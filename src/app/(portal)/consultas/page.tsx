@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { sinTildes } from '@/lib/texto'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
@@ -9,7 +10,6 @@ import { Modal } from '@/components/ui/Modal'
 import { ConsultationForm, type OpcionPaciente } from '@/components/forms/ConsultationForm'
 import { listarPacientes } from '@/services/pacientes'
 import {
-  eliminarConsulta,
   formatearFechaHora,
   listarConsultas,
   nombreDeClinica,
@@ -85,16 +85,11 @@ export default function ConsultasPage() {
     void cargar()
   }
 
-  const handleEliminar = async (consultaId: number) => {
-    // Optimista no: en un expediente clínico la fila desaparece solo cuando el
-    // servidor confirmó la baja.
-    try {
-      await eliminarConsulta(consultaId)
-      setConsultas((prev) => prev.filter((c) => c.consultaId !== consultaId))
-    } catch (err) {
-      setError(mensajeDe(err, 'No se pudo eliminar la consulta.'))
-    }
-  }
+  // Aquí estaba `handleEliminar`, y con él un botón de papelera en cada fila.
+  // Los dos se retiraron: HU-21 exige que una consulta equivocada se ANULE con
+  // su motivo, no que desaparezca del expediente llevándose sus recetas.
+  // Mientras la anulación no exista, no ofrecer nada es mejor que ofrecer lo
+  // que no debería hacerse.
 
   const handleRegistrada = (consulta: ConsultaDto) => {
     setConsultas((prev) => [consulta, ...prev])
@@ -187,14 +182,6 @@ export default function ConsultasPage() {
             >
               <Icon name="edit" size={14} />
             </button>
-            <button
-              onClick={() => handleEliminar(c.consultaId)}
-              aria-label={`Eliminar la consulta de ${nombreDePaciente(c)}`}
-              title="Eliminar consulta"
-              className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors cursor-pointer"
-            >
-              <Icon name="delete" size={14} />
-            </button>
           </div>
         ),
       },
@@ -252,9 +239,9 @@ export default function ConsultasPage() {
           // caía al teclear la primera letra, igual que ya ocurrió en la
           // búsqueda de pacientes con `dui`.
           searchFilter={(c, q) =>
-            nombreDePaciente(c).toLowerCase().includes(q) ||
-            (c.motivo?.toLowerCase().includes(q) ?? false) ||
-            (c.diagnostico?.toLowerCase().includes(q) ?? false)
+            sinTildes(nombreDePaciente(c)).includes(sinTildes(q)) ||
+            (c.motivo ? sinTildes(c.motivo).includes(sinTildes(q)) : false) ||
+            (c.diagnostico ? sinTildes(c.diagnostico).includes(sinTildes(q)) : false)
           }
           emptyMessage="Todavía no hay consultas registradas."
           pageSize={5}
@@ -300,19 +287,11 @@ export default function ConsultasPage() {
 }
 
 /**
- * Mensaje que verá el usuario ante un fallo.
+ * Mensaje que verá el usuario ante un fallo, diciendo QUÉ se estaba haciendo.
  *
  * Se conserva SIEMPRE el motivo del error: `lib/api.ts` ya extrae el del
  * backend y `services/consultas.ts` solo lo sustituye cuando puede ser más
- * preciso. El texto de respaldo es para lo que no llega como `Error` con
- * mensaje.
- */
-function mensajeDe(causa: unknown, respaldo: string): string {
-  return causa instanceof Error && causa.message ? causa.message : respaldo
-}
-
-/**
- * Igual que `mensajeDe`, pero anteponiendo QUÉ se estaba haciendo.
+ * preciso.
  *
  * Aquí conviven dos peticiones y el aviso puede juntar las dos: «Error del
  * servidor (500).» a secas no dice si lo que se cayó fueron las consultas o el

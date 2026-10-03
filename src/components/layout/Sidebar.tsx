@@ -3,27 +3,15 @@
 import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Role, IconName } from '@/types'
 import { Icon } from '@/components/ui/Icon'
-import { useAppContext } from '@/context/AppContext'
+import { useAppContext, useUsuarioAutenticado } from '@/context/AppContext'
+import { etiquetaDeRoles } from '@/lib/roles'
+import { RUTAS_DEL_PORTAL } from '@/lib/rutas'
 
-interface NavItem {
-  href: string
-  label: string
-  icon: IconName
-  roles: Role[]
-}
+// La tabla de rutas y roles vive en `lib/rutas.ts`, compartida con la guarda
+// del portal: dos copias mantenidas a mano acaban divergiendo, y entonces el
+// menú esconde una pantalla que la URL directa sí abre.
 
-const navItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', roles:  [{roleId: 1, name: 'Medico'}, {roleId: 2, name: 'Enfermera'}]},
-  { href: '/pacientes', label: 'Pacientes', icon: 'patients', roles: [{roleId: 1, name: 'Medico'}, {roleId: 2, name: 'Enfermera'}]},
-  { href: '/consultas', label: 'Consultas Médicas', icon: 'consultas', roles: [{roleId: 1, name: 'Medico'}] },
-  { href: '/enfermeria', label: 'Registro Enfermería', icon: 'enfermeria', roles: [{roleId: 2, name: 'Enfermera'}] },
-  { href: '/prescripciones', label: 'Prescripciones', icon: 'prescripciones', roles: [{roleId: 1, name: 'Medico'}] },
-  { href: '/agenda', label: 'Agenda de Citas', icon: 'agenda', roles: [{roleId: 1, name: 'Medico'}, {roleId: 2, name: 'Enfermera'}] },
-  { href: '/clinicas', label: 'Clínicas', icon: 'clinicas', roles: [{roleId: 1, name: 'Medico'}, {roleId: 2, name: 'Enfermera'}] },
-  { href: '/usuarios', label: 'Usuarios y Roles', icon: 'usuarios', roles: [{roleId: 1, name: 'Medico'}] },
-]
 
 interface SidebarProps {
   sidebarOpen: boolean
@@ -32,11 +20,12 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen }) => {
   const pathname = usePathname()
-  const { user, activeClinic } = useAppContext()
+  const { activeClinic } = useAppContext()
+  const user = useUsuarioAutenticado()
 
-  const visibleItems = navItems.filter((i) => i.roles.some((r) => 
-      user.roles.some((ur) => ur.roleId === r.roleId)
-  ))
+  // `.some(...)`, no `.includes(user.role)`: el usuario puede tener varios
+  // roles a la vez y una entrada se ofrece si CUALQUIERA de ellos la permite.
+  const visibleItems = RUTAS_DEL_PORTAL.filter((i) => i.roles.some((rol) => user.roles.includes(rol)))
 
   const userInitials = user.name
     .split(' ')
@@ -116,7 +105,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen })
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-medium truncate">{user.name}</p>
-              <p className="text-blue-300 text-xs capitalize">{user.roles[0].name}</p>
+              {/* Se listan TODOS los roles, no uno solo: no hay jerarquía real
+                  entre ADMIN y MEDICO (ver `lib/roles.ts`). */}
+              <p className="text-blue-300 text-xs">{etiquetaDeRoles(user.roles)}</p>
             </div>
           </div>
         </div>

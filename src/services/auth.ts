@@ -81,6 +81,13 @@ export function mapearRoles(
   if (nombres.includes('ADMIN')) encontrados.add('Administrador')
   if (nombres.includes('ENFERMERA')) encontrados.add('enfermera')
   if (nombres.includes('MEDICO') || nombres.includes('DOCTOR')) encontrados.add('medico')
+  // PACIENTE es el cuarto rol del backend y faltaba. Sin esta línea una cuenta
+  // de paciente no casaba con nada, caía al `porDefecto` —'medico'— y entraba
+  // con el menú completo de un médico: Consultas, Prescripciones, Agenda. No
+  // era solo cosmético, porque el servidor le responde 403 a todas (no tiene
+  // fila en `medicos`), así que el portal le ofrecía pantallas que existían
+  // únicamente para negárselas.
+  if (nombres.includes('PACIENTE')) encontrados.add('paciente')
   // Ningún rol reconocido (lista vacía o solo nombres desconocidos): se cae al
   // rol por defecto, igual que antes.
   if (encontrados.size === 0) encontrados.add(porDefecto)

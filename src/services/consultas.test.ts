@@ -15,7 +15,6 @@ import { ApiError } from '@/lib/api'
 import {
   actualizarConsulta,
   crearConsulta,
-  eliminarConsulta,
   formatearFechaHora,
   listarConsultas,
   nombreDeClinica,
@@ -93,12 +92,12 @@ describe('consultas · lo que viaja al backend', () => {
     })
   })
 
-  it('elimina con DELETE sobre el id', async () => {
-    apiFetch.mockResolvedValue(undefined)
-
-    await eliminarConsulta(7)
-
-    expect(apiFetch).toHaveBeenCalledWith('/consultas/7', { method: 'DELETE' })
+  it('el servicio NO expone forma de borrar una consulta', async () => {
+    // HU-21: «el sistema nunca ejecuta un DELETE sobre una consulta». Esta
+    // prueba está aquí para que el endpoint no reaparezca sin que nadie lo
+    // note: si alguien vuelve a exportar `eliminarConsulta`, falla.
+    const modulo = await import('./consultas')
+    expect('eliminarConsulta' in modulo).toBe(false)
   })
 })
 
@@ -235,18 +234,6 @@ describe('consultas · traducción de errores', () => {
 
     expect(error.message).toBe(
       'Esta consulta ya no existe; puede que alguien la haya eliminado.',
-    )
-  })
-
-  it('traduce el 409 al eliminar, donde el backend manda la restricción en crudo', async () => {
-    apiFetch.mockRejectedValue(
-      new ApiError(409, 'could not execute statement; constraint [fk_prescripciones_consulta]'),
-    )
-
-    const error = await errorDe(eliminarConsulta(7))
-
-    expect(error.message).toBe(
-      'No se puede eliminar la consulta porque tiene prescripciones u otra información asociada.',
     )
   })
 

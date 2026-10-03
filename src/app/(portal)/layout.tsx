@@ -6,7 +6,7 @@ import { AvisoDeInactividad } from '@/components/layout/AvisoDeInactividad'
 import { Shell } from '@/components/layout/Shell'
 import { haySesionEnElAlmacenamiento, useAppContext } from '@/context/AppContext'
 import { useExpiracionPorInactividad } from '@/hooks/useExpiracionPorInactividad'
-import { puedeVerRuta, RUTA_POR_DEFECTO } from '@/lib/rutas'
+import { puedeVerRuta, rutaPorDefecto } from '@/lib/rutas'
 
 /**
  * Guarda de acceso del portal: sin sesión va a /login, y sin el rol que la
@@ -76,7 +76,9 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       router.replace('/login')
       return
     }
-    if (!permitido) router.replace(RUTA_POR_DEFECTO)
+    // El destino depende del rol: un paciente no puede ver /dashboard, asi
+    // que mandarlo ahi lo rechazaria de nuevo y lo mandaria otra vez ahi.
+    if (!permitido) router.replace(rutaPorDefecto(user.roles))
   }, [cargandoSesion, user, permitido, router])
 
   // ── HU-06 criterio 4 · el botón «atrás» no debe enseñar expedientes ────

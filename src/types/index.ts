@@ -12,31 +12,25 @@ export type Page =
   | 'clinicas'
   | 'agenda'
   | 'usuarios'
+  | 'mi-panel'
 
-export interface Role {
-  roleId: number
-  name: string
-}
-
-export interface UserType {
-  userTypeID: number
-  name: string
-}
-
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface LoginResponse {
-  access: string;
-  refresh: string;
-  usuario: {
-    id: number;
-    username: string;
-    nombre: string;
-  };
-}
+/**
+ * Los roles de sesión.
+ *
+ * `paciente` es el cuarto del catálogo del backend (RolesEnum: ADMIN, MEDICO,
+ * ENFERMERA, PACIENTE) y estaba faltando aquí. La ausencia no se notaba como
+ * un error de compilación sino como algo peor: `mapearRoles` no lo reconocía,
+ * caía al rol por defecto —'medico'— y una cuenta de paciente entraba al
+ * portal con el menú de un médico. El backend le negaba cada pantalla con 403,
+ * porque no tiene fila en `medicos`, pero para entonces ya se le había
+ * ofrecido.
+ *
+ * Que exista aquí NO significa que haya portal del paciente: ese es HU-34, sin
+ * comprometer a un sprint. Hoy el rol se autentica y llega a `/mi-panel`, que
+ * es lo único que el backend le permite —ningún `@PreAuthorize` del servidor
+ * incluye PACIENTE—. Ver `app/(portal)/mi-panel/page.tsx`.
+ */
+export type Role = 'medico' | 'enfermera' | 'Administrador' | 'paciente'
 
 /**
  * Usuario en sesión con TODOS sus roles, no uno solo.
@@ -48,21 +42,12 @@ export interface LoginResponse {
  * puede usarlas. Ver `services/auth.ts` (`mapearRoles`).
  */
 export interface User {
-  userID?: number
+  id?: number
   name: string
-  email: string
+  email?: string
   roles: Role[]
   specialty?: string
-  password: string
-  enabled: true
-  userType: UserType
-}
-export interface UserRegister {
-  email: string
-  roles: number[]
-  userName: string
-  password: string
-  userType: number
+  status?: string
 }
 
 /**
@@ -80,11 +65,39 @@ export interface UserRegister {
  * formulario que los inventa) deben desaparecer de aquí.
  */
 export interface Clinica {
-  clinicaId: number
+  id: number
   name: string
-  latitud: number
-  longitud: number
-  userId: number
+  lat: number | null
+  lng: number | null
+  /**
+   * Dónde queda, de verdad (HU-26).
+   *
+   * `null` en las clínicas registradas antes de la migración V16: no se puede
+   * inventar la dirección de una sede que ya existe, así que se muestra el hueco
+   * y se completa a mano.
+   *
+   * ── Por qué opcionales aquí y obligatorios en `ClinicaDto` ─────────────
+   * Son dos contratos distintos. `ClinicaDto` espeja lo que devuelve la API, y
+   * el backend manda siempre las seis claves —con `null` cuando no las tiene—,
+   * así que ahí exigirlas es lo correcto: si alguna faltara, la respuesta no
+   * sería la que el backend promete.
+   *
+   * `Clinica` es el modelo que usan las pantallas, y lo construyen también la
+   * maqueta y el contexto de sesión, que no tienen dirección ninguna. Exigirlas
+   * ahí obligaría a inventar datos para que compilara, que es exactamente lo
+   * contrario de lo que se busca. Ausente y `null` se pintan igual: un guion.
+   */
+  departamento?: string | null
+  municipio?: string | null
+  direccion?: string | null
+  telefono?: string | null
+  horario?: string | null
+  estado?: 'ACTIVA' | 'INACTIVA'
+  /** @deprecated Restos de la maqueta; usar `direccion` y `telefono`. */
+  address?: string
+  /** @deprecated */
+  phone?: string
+  patients?: number
 }
 
 export interface Patient {

@@ -1,13 +1,13 @@
 'use client'
 
-import { Icon } from '@/components/ui/Icon'
-import Skeleton from '@/components/ui/Skeleton'
-import { useLoading } from '@/hooks/useLoading'
-import { authService } from '@/services/auth.service'
-import { IconName, LoginRequest, Role } from '@/types'
+import React, { Suspense, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import React, { useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Role, IconName } from '@/types'
+import { Icon } from '@/components/ui/Icon'
+import { useAppContext } from '@/context/AppContext'
+import { ApiError } from '@/lib/api'
+import { rutaPorDefecto } from '@/lib/rutas'
 
 const features: { icon: IconName; text: string }[] = [
   { icon: 'history', text: 'Historial clínico completo' },
@@ -15,27 +15,65 @@ const features: { icon: IconName; text: string }[] = [
   { icon: 'map', text: 'Geolocalización de clínicas' },
 ]
 
-export default function LoginPage() {
+// TODO: LoginResponseDto no distingue médico de enfermera todavía (la tabla
+// `role` solo tiene ADMIN), así que mapearRoles cae a este valor por defecto.
+// Eliminar este respaldo cuando el backend agregue el dato a la respuesta.
+const ROL_POR_DEFECTO: Role = 'medico'
+
+// Ids fijos, sin `useId()`: esta es una ruta con un solo formulario y no hay
+// forma de que se monte dos veces a la vez, así que no hay ids que puedan
+// chocar. Donde sí hace falta es en los formularios de components/forms, que
+// son componentes reutilizables.
+const ID_EMAIL = 'login-email'
+const ID_PASSWORD = 'login-password'
+const ID_ERROR = 'login-error'
+
+// Clases de los campos. Lo único que se agrega a las que ya había es
+// `focus-visible:ring-*`, que acompaña al `focus:outline-none`: quitar el
+// contorno del navegador sin reponer nada deja a quien navega con teclado sin
+// saber dónde está parado.
+const inputClass =
+  'w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm bg-white focus:outline-none focus:border-doc-blue focus-visible:ring-2 focus-visible:ring-doc-blue/40 transition-colors'
+const labelClass =
+  'block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider'
+
+function FormularioDeLogin() {
   const router = useRouter()
-  const { loading, startLoading, stopLoading } = useLoading(false)
-  const [role, setRole] = useState<Role>({
-    roleId: 2,
-    name: 'Enfermera',
-  })
-  const [user, setUser] = useState<LoginRequest>({
-    email: '',
-    password: '',
-  })
+  const { iniciarSesion } = useAppContext()
+  // HU-06 criterio 2: la sesión no expira en silencio. Sin esto, el médico
+  // vuelve, encuentra la pantalla de ingreso y no sabe si se cerró sola, si se
+  // cayó el sistema o si perdió lo que estaba escribiendo.
+  const expiroPorInactividad = useSearchParams().get('motivo') === 'inactividad'
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState(false)
 
-  async function handleLogin(e: React.SubmitEvent<HTMLFormElement>) {
-    startLoading()
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    setError(null)
+    setEnviando(true)
 
-    const res = await authService.login(user)
-    if (res.token)
-      router.push('/select-clinica')
-    else
-      stopLoading()
+    try {
+      const usuario = await iniciarSesion(email, password, ROL_POR_DEFECTO)
+      // Elegir sede es para quien OPERA en una sede. Mandar ahí a un paciente
+      // lo dejaba encallado: esa pantalla se llena con GET /clinics/mias, que
+      // es hasAnyRole('ADMIN','MEDICO','ENFERMERA'), así que le respondía 403 y
+      // la selección se quedaba vacía sin decir por qué. Un paciente no
+      // trabaja en ninguna clínica; va directo a lo suyo.
+      const operaEnUnaSede = usuario.roles.some(
+        (rol) => rol === 'medico' || rol === 'enfermera' || rol === 'Administrador',
+      )
+      router.push(operaEnUnaSede ? '/select-clinica' : rutaPorDefecto(usuario.roles))
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'Ocurrió un error inesperado al iniciar sesión.',
+      )
+    } finally {
+      setEnviando(false)
+    }
   }
 
   return (
@@ -43,98 +81,108 @@ export default function LoginPage() {
       {/* Left login form*/}
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          {loading ? (<Skeleton rows={5} />) : (
-            <div>
-              <Link
-                href="/"
-                className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-6 transition-colors"
-              >
-                <Icon name="back" size={16} /> Volver
-              </Link>
-              <div className="text-center mb-8">
-                <h1 className="text-3xl font-bold text-slate-800 mb-2 font-outfit">Iniciar sesión</h1>
-                <p className="text-slate-500 text-sm">Ingresa tus credenciales para continuar</p>
-              </div>
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-6 transition-colors"
+          >
+            <Icon name="back" size={16} /> Volver
+          </Link>
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-slate-800 mb-2 font-outfit">Iniciar sesión</h1>
+            <p className="text-slate-500 text-sm">Ingresa tus credenciales para continuar</p>
+          </div>
 
-              <form onSubmit={handleLogin} className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
-                {/* Role selector */}
-                {/* <div className="mb-6">
-                  <label className="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">
-                    Rol de acceso
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {([['medico', 'Médico'], ['enfermera', 'Enfermera']]).map(([r, label]) => (
-                      <button
-                        key={r}
-                        type="button"
-                        onClick={() => setRole({ roleId: (r === 'medico') ? 1 : 2, name: label })}
-                        className={`py-3 rounded-xl text-sm font-medium border-2 transition-all flex flex-col items-center gap-1.5 cursor-pointer 
-                      ${role.name === label
-                            ? 'border-blue-600 text-blue-700 bg-blue-50/70 font-semibold'
-                            : 'border-slate-200 text-slate-500 hover:border-slate-300 bg-slate-50/50'
-                          }`}
-                      >
-                        <Icon
-                          name={r === 'medico' ? 'consultas' : 'enfermeria'}
-                          size={18}
-                          color={role.name === label ? '#1d4ed8' : '#94a3b8'}
-                        />
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div> */}
-
-                {/* Form fields */}
-                <div className="space-y-4 mb-6">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">
-                      Correo electrónico
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="juan.guerra@docrecord.sv"
-                      onChange={(e) => { setUser({ ...user, email: e.target.value }) }}
-                      className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">
-                      Contraseña
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="••••••••"
-                      onChange={(e) => { setUser({ ...user, password: e.target.value }) }}
-                      className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none 
-                    focus:border-doc-blue transition-colors bg-white"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-3.5 rounded-2xl font-semibold text-white text-base bg-linear-to-r 
-                from-doc-blue to-doc-blue-light hover:opacity-95 shadow-md shadow-doc-blue/20 transition-all cursor-pointer"
-                >
-                  Ingresar al sistema
-                </button>
-
-                <p className="text-center text-sm text-slate-500 mt-5">
-                  ¿Sin cuenta?{' '}
-                  <Link
-                    href="/register"
-                    className="font-semibold text-doc-blue hover:underline cursor-pointer"
-                  >
-                    Registrarme como médico
-                  </Link>
-                </p>
-              </form>
-
-            </div>
+          {expiroPorInactividad && (
+            <p
+              role="status"
+              className="mb-4 rounded-xl border-2 border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+            >
+              Tu sesión expiró por inactividad. Vuelve a ingresar para continuar.
+            </p>
           )}
+
+          <form onSubmit={handleLogin} className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
+            {/* Form fields */}
+            <div className="space-y-4 mb-6">
+              <div>
+                <label htmlFor={ID_EMAIL} className={labelClass}>
+                  Correo electrónico
+                </label>
+                <input
+                  id={ID_EMAIL}
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  placeholder="usuario@docrecord.sv"
+                  // El rechazo del servidor es sobre la pareja correo/clave: no
+                  // dice cuál de los dos falló, así que se enlaza a ambos. Suelto
+                  // se anunciaría una vez; enlazado se relee al volver al campo.
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? ID_ERROR : undefined}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label htmlFor={ID_PASSWORD} className={labelClass}>
+                  Contraseña
+                </label>
+                <input
+                  id={ID_PASSWORD}
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? ID_ERROR : undefined}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+
+            {error && (
+              <p
+                id={ID_ERROR}
+                role="alert"
+                className="mb-4 rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
+              >
+                {error}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={enviando}
+              className="w-full py-3.5 rounded-2xl font-semibold text-white text-base bg-gradient-to-r from-doc-blue to-doc-blue-light hover:opacity-95 shadow-md shadow-doc-blue/20 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {enviando ? 'Ingresando…' : 'Ingresar al sistema'}
+            </button>
+
+            {/* Debajo del botón y no encima del campo: se busca cuando ya se
+                intentó entrar y no se pudo, no antes. */}
+            <p className="text-center text-sm mt-4">
+              <Link
+                href="/recuperar"
+                className="text-slate-500 hover:text-doc-blue hover:underline cursor-pointer"
+              >
+                ¿Olvidaste tu contraseña?
+              </Link>
+            </p>
+
+            <p className="text-center text-sm text-slate-500 mt-5">
+              ¿Sin cuenta?{' '}
+              <Link
+                href="/register"
+                className="font-semibold text-doc-blue hover:underline cursor-pointer"
+              >
+                Registrarme como médico
+              </Link>
+            </p>
+          </form>
+
         </div>
       </div>
 
@@ -167,5 +215,17 @@ export default function LoginPage() {
       </div>
 
     </div>
+  )
+}
+
+/**
+ * `useSearchParams()` obliga a envolver en Suspense al componente que lo usa:
+ * sin él, `next build` falla al prerenderizar esta ruta.
+ */
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-doc-surface" />}>
+      <FormularioDeLogin />
+    </Suspense>
   )
 }

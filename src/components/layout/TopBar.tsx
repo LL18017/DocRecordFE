@@ -6,7 +6,6 @@ import { useRouter, usePathname } from 'next/navigation'
 import { Icon } from '@/components/ui/Icon'
 import { useAppContext, useUsuarioAutenticado } from '@/context/AppContext'
 import { etiquetaDeRoles } from '@/lib/roles'
-import { authService } from '@/services/auth.service'
 
 interface TopBarProps {
   title?: string
@@ -32,7 +31,8 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   const router = useRouter()
   const pathname = usePathname()
-  const { activeClinic, user } = useAppContext()
+  const { activeClinic, cerrarSesion } = useAppContext()
+  const user = useUsuarioAutenticado()
   const [menuOpen, setMenuOpen] = useState(false)
 
   const currentTitle =
@@ -66,8 +66,8 @@ export const TopBar: React.FC<TopBarProps> = ({
             href="/clinicas"
             className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100/80 transition-colors"
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-            <span className="text-xs font-semibold text-amber-900 max-w-40 truncate">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
+            <span className="text-xs font-semibold text-amber-900 max-w-[160px] truncate">
               {activeClinic.name}
             </span>
             <Icon name="chevron_down" size={13} color="#92400e" />
@@ -124,8 +124,8 @@ export const TopBar: React.FC<TopBarProps> = ({
                 className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors font-medium cursor-pointer"
                 onClick={() => {
                   setMenuOpen(false)
-                  authService.logout()
-                  router.push('/')
+                  cerrarSesion()
+                  router.replace('/login')
                 }}
               >
                 <Icon name="logout" size={16} color="#dc2626" /> Cerrar sesión

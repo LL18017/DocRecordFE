@@ -56,6 +56,23 @@ describe('mapearRoles · prefijo ROLE_ del backend', () => {
     expect(mapearRoles(roles('ROLE_RECEPCION'), 'enfermera')).toEqual(['enfermera'])
   })
 
+  /**
+   * PACIENTE es el cuarto rol del backend y durante un tiempo no estuvo aquí.
+   * No fallaba de forma visible: caía por el respaldo de arriba y la cuenta
+   * quedaba mapeada a 'medico', o sea que un paciente entraba al portal con el
+   * menú de un médico y el servidor le negaba cada pantalla con 403.
+   *
+   * La aserción que importa es la segunda: que NO sea 'medico'. Un futuro
+   * cambio que vuelva a quitar el reconocimiento de PACIENTE no rompería la
+   * primera línea de ninguna otra prueba, pero rompe esta.
+   */
+  it('reconoce PACIENTE y no lo confunde con el rol por defecto', () => {
+    expect(mapearRoles(roles('ROLE_PACIENTE'))).toEqual(['paciente'])
+    expect(mapearRoles(roles('PACIENTE'))).toEqual(['paciente'])
+    expect(mapearRoles(roles('role_paciente'))).toEqual(['paciente'])
+    expect(mapearRoles(roles('ROLE_PACIENTE'))).not.toContain('medico')
+  })
+
   it('cae al rol por defecto con la lista de roles vacía', () => {
     expect(mapearRoles([])).toEqual(['medico'])
     expect(mapearRoles([], 'Administrador')).toEqual(['Administrador'])

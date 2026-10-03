@@ -108,9 +108,24 @@ export async function crearPaciente(payload: CrearPacientePayload): Promise<Paci
 /**
  * Lista pacientes. `buscar` es un único texto libre que el backend compara
  * contra apellidos, nombres o DUI; sin parámetro devuelve todos.
+ *
+ * Por omisión trae solo a los ACTIVOS, que es el listado de trabajo diario
+ * (HU-08, criterio 4). Los dados de baja se piden a propósito con
+ * `incluirInactivos`; el filtro lo aplica el servidor en el WHERE, no esta
+ * función, para que la lista no venga con huecos cuando se pagine.
  */
-export async function listarPacientes(buscar?: string): Promise<PacienteDto[]> {
-  const query = buscar ? `?buscar=${encodeURIComponent(buscar)}` : ''
+export async function listarPacientes(
+  buscar?: string,
+  incluirInactivos = false,
+): Promise<PacienteDto[]> {
+  // Se arma con `encodeURIComponent` y no con `URLSearchParams` porque este
+  // último codifica el espacio como `+` (la convención de los formularios), y
+  // el criterio de búsqueda viaja como `%20` desde antes: cambiar el formato de
+  // la petición no era parte de agregar un filtro.
+  const partes: string[] = []
+  if (buscar) partes.push(`buscar=${encodeURIComponent(buscar)}`)
+  if (incluirInactivos) partes.push('incluirInactivos=true')
+  const query = partes.length ? `?${partes.join('&')}` : ''
   return apiFetch<PacienteDto[]>(`/pacientes${query}`)
 }
 
@@ -146,10 +161,14 @@ export async function actualizarPaciente(
 }
 
 /**
- * Da de baja a un paciente.
+ * Da de baja a un paciente. La baja es **lógica**: lo marca INACTIVO.
  *
- * Solo deja de ser paciente: la persona se conserva, porque esa misma
- * identidad puede ser además médico o enfermera del sistema.
+ * No borra nada. El expediente, las consultas, las constantes y las recetas
+ * siguen existiendo; lo que cambia es que deja de aparecer en el listado de
+ * trabajo diario, y vuelve a verse con `listarPacientes(texto, true)`.
+ *
+ * La persona tampoco se toca: esa misma identidad puede ser además médico o
+ * enfermera del sistema.
  */
 export async function eliminarPaciente(personaId: number): Promise<void> {
   await apiFetch<void>(`/pacientes/${personaId}`, { method: 'DELETE' })

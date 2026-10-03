@@ -23,7 +23,6 @@ import type { PacienteDto } from '@/services/pacientes'
 import ConsultasPage from './page'
 
 const listarConsultas = vi.fn<() => Promise<ConsultaDto[]>>()
-const eliminarConsulta = vi.fn<(id: number) => Promise<void>>()
 const listarPacientes = vi.fn<() => Promise<PacienteDto[]>>()
 
 vi.mock('@/services/consultas', async (importarOriginal) => {
@@ -33,7 +32,6 @@ vi.mock('@/services/consultas', async (importarOriginal) => {
   return {
     ...real,
     listarConsultas: () => listarConsultas(),
-    eliminarConsulta: (id: number) => eliminarConsulta(id),
   }
 })
 
@@ -57,10 +55,8 @@ function consulta(cambios: Partial<ConsultaDto> = {}): ConsultaDto {
 
 beforeEach(() => {
   listarConsultas.mockReset()
-  eliminarConsulta.mockReset()
   listarPacientes.mockReset()
   listarConsultas.mockResolvedValue([consulta()])
-  eliminarConsulta.mockResolvedValue(undefined)
   listarPacientes.mockResolvedValue([])
 })
 
@@ -214,36 +210,21 @@ describe('consultas · buscar con una consulta sin motivo en la lista', () => {
   })
 })
 
-describe('consultas · borrado', () => {
-  it('quita la fila solo cuando el servidor confirmó', async () => {
-    const user = montar()
+describe('consultas · el borrado ya no se ofrece', () => {
+  it('no hay botón de eliminar en ninguna fila', async () => {
+    // Lo había, y borraba de verdad: con el ON DELETE CASCADE del backend se
+    // llevaba por delante las recetas emitidas. HU-21 lo prohíbe —«el sistema
+    // nunca ejecuta un DELETE sobre una consulta»— porque una consulta
+    // equivocada ocurrió, y hacerla desaparecer no corrige el error, lo
+    // esconde.
+    //
+    // Esta prueba vigila que no vuelva mientras la anulación no exista.
+    montar()
     await screen.findByText('Ana María Ramírez')
 
-    await user.click(screen.getByRole('button', { name: /eliminar la consulta de/i }))
-
-    await waitFor(() => expect(eliminarConsulta).toHaveBeenCalledWith(7))
-    await waitFor(() => expect(screen.queryByText('Ana María Ramírez')).toBeNull())
-  })
-
-  it('deja la fila donde está si el borrado falla, y dice por qué', async () => {
-    // El texto es el que ya redactó `services/consultas.ts` a partir del 409
-    // en crudo del backend; lo que esta prueba defiende es que la pantalla lo
-    // muestre tal cual y no lo cambie por un «no se pudo eliminar» genérico.
-    eliminarConsulta.mockRejectedValue(
-      new ApiError(
-        409,
-        'No se puede eliminar la consulta porque tiene prescripciones u otra información asociada.',
-      ),
-    )
-    const user = montar()
-    await screen.findByText('Ana María Ramírez')
-
-    await user.click(screen.getByRole('button', { name: /eliminar la consulta de/i }))
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /no se puede eliminar la consulta porque tiene prescripciones/i,
-    )
-    expect(screen.getByText('Ana María Ramírez')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /eliminar la consulta de/i })).toBeNull()
+    // Editar sí sigue estando: corregir no es lo mismo que borrar.
+    expect(screen.getByRole('button', { name: /editar la consulta de/i })).toBeInTheDocument()
   })
 })
 
