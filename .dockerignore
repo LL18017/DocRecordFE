@@ -1,0 +1,46 @@
+# Nada de esto hace falta dentro de la imagen; excluirlo acelera el build
+# (menos contexto que enviar al daemon) y evita que un node_modules o build
+# local contaminen la instalacion/compilacion que ocurre dentro del
+# contenedor.
+
+# dependencias (se instalan dentro del contenedor con el lockfile)
+node_modules
+.pnp
+.pnp.*
+
+# builds previos
+.next
+out
+build
+
+# control de versiones
+.git
+.gitignore
+.github
+
+# entorno local: nunca deben viajar dentro de la imagen
+.env
+.env.local
+.env.*.local
+
+# editor / OS
+.vscode
+.DS_Store
+
+# pruebas y cobertura
+coverage
+
+# logs y depuracion
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# documentacion (no hace falta para servir la app)
+README.md
+AGENTS.md
+CLAUDE.md

@@ -1,0 +1,231 @@
+'use client'
+
+import React, { useState, useMemo } from 'react'
+import { Icon } from './Icon'
+
+export interface Column<T> {
+  header: string
+  accessorKey?: keyof T
+  cell?: (item: T, index: number) => React.ReactNode
+  className?: string
+  headerClassName?: string
+}
+
+/**
+ * Dispara la acción de la fila, salvo que el clic saliera de un control propio
+ * de la celda.
+ *
+ * Sin esta guarda, pulsar el botón «Eliminar» de una fila haría DOS cosas: la
+ * del botón y la de la fila, porque el evento sube. En una tabla que abre un
+ * detalle al hacer clic eso es un modal encima de un borrado, y en una que
+ * borra es peor.
+ */
+function activarFila(evento: React.SyntheticEvent, accion: () => void) {
+  const origen = evento.target as HTMLElement
+  if (origen.closest('button, a, input, select, textarea, label')) return
+  accion()
+}
+
+interface DataTableProps<T> {
+  data: T[]
+  columns: Column<T>[]
+  keyExtractor: (item: T, index: number) => string | number
+  /**
+   * Qué hacer al pulsar una fila. Sin él la tabla se comporta como antes: sin
+   * cursor de mano, sin foco de teclado y sin rol, porque anunciar como
+   * pulsable algo que no hace nada es peor que no anunciarlo.
+   */
+  onRowClick?: (item: T) => void
+  searchable?: boolean
+  searchPlaceholder?: string
+  searchFilter?: (item: T, query: string) => boolean
+  pagination?: boolean
+  pageSize?: number
+  emptyMessage?: string
+  headerRight?: React.ReactNode
+  className?: string
+}
+
+export function DataTable<T>({
+  data,
+  columns,
+  keyExtractor,
+  onRowClick,
+  searchable = false,
+  searchPlaceholder = 'Buscar...',
+  searchFilter,
+  pagination = true,
+  pageSize = 5,
+  emptyMessage = 'No se encontraron registros.',
+  headerRight,
+  className = '',
+}: DataTableProps<T>) {
+  const [search, setSearch] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+
+  // Filtered data based on search
+  //
+  // La consulta se pasa SOLO en minúsculas, deliberadamente. Quitarle además
+  // las tildes aquí parecía el sitio natural para arreglar HU-08 criterio 2,
+  // pero cambia el contrato por debajo de cada `searchFilter`: los que
+  // comparan contra campos sin normalizar dejan de encontrar lo que sí está
+  // —«Martínez» con tilde en el dato y sin ella en la consulta—, y lo hacen en
+  // silencio, sin que nada en esta firma lo advierta.
+  //
+  // La normalización vive en cada filtro, que es quien sabe qué campos mira y
+  // puede normalizar LAS DOS MITADES de la comparación con `sinTildes`.
+  const filteredData = useMemo(() => {
+    if (!search || !searchFilter) return data
+    return data.filter((item) => searchFilter(item, search.toLowerCase()))
+  }, [data, search, searchFilter])
+
+  // Total pages
+  const totalPages = Math.ceil(filteredData.length / pageSize) || 1
+  const validPage = Math.min(Math.max(1, currentPage), totalPages)
+
+  // Paginated slice
+  const paginatedData = useMemo(() => {
+    if (!pagination) return filteredData
+    const start = (validPage - 1) * pageSize
+    return filteredData.slice(start, start + pageSize)
+  }, [filteredData, pagination, validPage, pageSize])
+
+  return (
+    <div className={`bg-white rounded-2xl shadow-sm border border-slate-100/80 overflow-hidden ${className}`}>
+      {/* Search and Header Actions */}
+      {(searchable || headerRight) && (
+        <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white">
+          {searchable && (
+            <div className="relative max-w-sm w-full">
+              <input
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                  setCurrentPage(1)
+                }}
+                placeholder={searchPlaceholder}
+                className="w-full pl-10 pr-4 py-2.5 border-2 border-slate-200 rounded-xl text-sm focus:outline-none focus:border-doc-blue transition-colors bg-white"
+              />
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                <Icon name="search" size={16} />
+              </div>
+            </div>
+          )}
+          {headerRight && <div className="flex items-center gap-2">{headerRight}</div>}
+        </div>
+      )}
+
+      {/* Table Body */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="border-b border-slate-100 bg-slate-50/50">
+              {columns.map((col, idx) => (
+                <th
+                  key={idx}
+                  className={`px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider ${
+                    col.headerClassName || ''
+                  }`}
+                >
+                  {col.header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {paginatedData.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="px-5 py-8 text-center text-sm text-slate-400 italic"
+                >
+                  {emptyMessage}
+                </td>
+              </tr>
+            ) : (
+              paginatedData.map((item, rowIdx) => (
+                <tr
+                  key={keyExtractor(item, rowIdx)}
+                  className={`hover:bg-slate-50/70 transition-colors ${
+                    onRowClick ? 'cursor-pointer' : ''
+                  }`}
+                  // Con teclado la fila tiene que ser alcanzable y activable:
+                  // una fila que solo responde al ratón deja fuera a quien
+                  // navega con tabulador, y aquí detrás hay un expediente
+                  // clínico. Enter y Espacio son lo que activa cualquier otro
+                  // control, así que se respetan los dos.
+                  tabIndex={onRowClick ? 0 : undefined}
+                  role={onRowClick ? 'button' : undefined}
+                  onClick={onRowClick ? (e) => activarFila(e, () => onRowClick(item)) : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (e) => {
+                          if (e.key !== 'Enter' && e.key !== ' ') return
+                          // El espacio hace scroll si no se frena.
+                          e.preventDefault()
+                          activarFila(e, () => onRowClick(item))
+                        }
+                      : undefined
+                  }
+                >
+                  {columns.map((col, colIdx) => (
+                    <td key={colIdx} className={`px-5 py-4 text-sm ${col.className || ''}`}>
+                      {col.cell
+                        ? col.cell(item, rowIdx)
+                        : col.accessorKey
+                        ? String(item[col.accessorKey] ?? '')
+                        : null}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination Footer */}
+      {pagination && (
+        <div className="px-5 py-3.5 border-t border-slate-100 flex items-center justify-between bg-slate-50/30">
+          <p className="text-xs text-slate-400">
+            Mostrando {filteredData.length === 0 ? 0 : (validPage - 1) * pageSize + 1} a{' '}
+            {Math.min(validPage * pageSize, filteredData.length)} de {filteredData.length} registros
+          </p>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={validPage === 1}
+                className="w-8 h-8 rounded-lg text-sm font-medium border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors flex items-center justify-center cursor-pointer"
+                aria-label="Página anterior"
+              >
+                ‹
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setCurrentPage(n)}
+                  className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                    n === validPage
+                      ? 'bg-doc-blue text-white shadow-2xs'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={validPage === totalPages}
+                className="w-8 h-8 rounded-lg text-sm font-medium border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors flex items-center justify-center cursor-pointer"
+                aria-label="Página siguiente"
+              >
+                ›
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
