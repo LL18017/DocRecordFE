@@ -26,6 +26,7 @@ import {
   type UsuarioDto,
 } from '@/services/usuarios'
 import { listarTodasLasClinicas, type ClinicaDto } from '@/services/clinicas'
+import { listarEspecialidades, type EspecialidadDto } from '@/services/personas'
 
 // Esta pantalla ya no es de solo lectura: sabe listar, dar de alta personal,
 // asignar un rol inicial y asignar/reestablecer contraseña. Lo que SIGUE sin
@@ -948,6 +949,13 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   const [quitandoId, setQuitandoId] = useState<number | null>(null)
   const usuarioEnSesion = useUsuarioAutenticado()
 
+  // La ficha de médico. El rol MÉDICO solo pasa el control de permisos: para
+  // registrar consultas, recetas o antecedentes el backend exige además la
+  // ficha, que lleva la especialidad. Por eso al dar MÉDICO se pide aquí.
+  const [especialidades, setEspecialidades] = useState<EspecialidadDto[] | null>(null)
+  const [especialidadId, setEspecialidadId] = useState<number | ''>('')
+  const [completandoFicha, setCompletandoFicha] = useState(false)
+
   const cargarRoles = useCallback(async () => {
     try {
       const catalogo = await listarRoles()
@@ -956,6 +964,22 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
       setErrorCarga(
         err instanceof ApiError ? err.message : 'No se pudo cargar el catálogo de roles.',
       )
+    }
+  }, [])
+
+  useEffect(() => {
+    let vigente = true
+    listarEspecialidades()
+      .then((lista) => {
+        if (vigente) setEspecialidades(lista.filter((e) => e.activa))
+      })
+      // Sin catálogo el selector queda vacío y el backend responde 400 al
+      // intentar dar MÉDICO, con un motivo legible: no hace falta otro aviso.
+      .catch(() => {
+        if (vigente) setEspecialidades([])
+      })
+    return () => {
+      vigente = false
     }
   }, [])
 
@@ -982,13 +1006,40 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   })
 
   const rolSeleccionado = disponibles.find((rol) => rol.id === rolSeleccionadoId) ?? null
+  const seleccionaMedico = rolSeleccionado !== null && normalizarNombreDeRol(rolSeleccionado.name) === 'MEDICO'
+  // `especialidad` no nula = la persona ya tiene ficha de médico.
+  const tieneFicha = usuario.especialidad !== null
+  const faltaEspecialidad = seleccionaMedico && !tieneFicha && especialidadId === ''
+
+  // Cuentas que ya tienen el rol MÉDICO pero no la ficha: las creadas antes de
+  // que asignar el rol la creara. Pasan el control de permisos y reciben 403
+  // al guardar una consulta; aquí se reparan eligiendo la especialidad.
+  const rolMedico = (roles ?? []).find((rol) => normalizarNombreDeRol(rol.name) === 'MEDICO') ?? null
+  const medicoSinFicha = yaTiene.has('MEDICO') && !tieneFicha
+
+  const handleCompletarFicha = async () => {
+    if (rolMedico?.id == null || especialidadId === '') return
+    setCompletandoFicha(true)
+    setError(null)
+    try {
+      onAsignado(await asignarRol(usuario.userId, rolMedico.id, especialidadId))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo completar la ficha de médico.')
+    } finally {
+      setCompletandoFicha(false)
+    }
+  }
 
   const handleConfirmar = async () => {
-    if (rolSeleccionadoId === null) return
+    if (rolSeleccionadoId === null || faltaEspecialidad) return
     setAsignando(true)
     setError(null)
     try {
-      const actualizado = await asignarRol(usuario.userId, rolSeleccionadoId)
+      const actualizado = await asignarRol(
+        usuario.userId,
+        rolSeleccionadoId,
+        seleccionaMedico && especialidadId !== '' ? especialidadId : undefined,
+      )
       onAsignado(actualizado)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo asignar el rol.')
@@ -1074,6 +1125,29 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
         )}
       </div>
 
+      {medicoSinFicha && (
+        <div className="space-y-2 rounded-xl border-2 border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm text-amber-900">
+            Esta cuenta tiene el rol Médico pero <strong>no su ficha de médico</strong>: puede
+            entrar a las pantallas clínicas, pero no registrar consultas, recetas ni antecedentes.
+            Elija su especialidad para completarla.
+          </p>
+          <SelectorDeEspecialidad
+            especialidades={especialidades}
+            valor={especialidadId}
+            onCambio={setEspecialidadId}
+          />
+          <button
+            type="button"
+            onClick={() => void handleCompletarFicha()}
+            disabled={completandoFicha || especialidadId === ''}
+            className={botonConfirmar}
+          >
+            {completandoFicha ? 'Guardando…' : 'Completar ficha de médico'}
+          </button>
+        </div>
+      )}
+
       <div className="pt-3 border-t border-slate-100">
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
           Añadir un rol
@@ -1116,6 +1190,16 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
               {etiquetaDeRol(rol.name)}
             </label>
           ))}
+          {seleccionaMedico && (
+            <div className="pt-1">
+              <SelectorDeEspecialidad
+                especialidades={especialidades}
+                valor={especialidadId}
+                onCambio={setEspecialidadId}
+                opcional={tieneFicha}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -1136,7 +1220,7 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
           <button
             type="button"
             onClick={() => void handleConfirmar()}
-            disabled={asignando || rolSeleccionadoId === null}
+            disabled={asignando || rolSeleccionadoId === null || faltaEspecialidad}
             className={botonConfirmar}
           >
             {asignando
@@ -1145,6 +1229,43 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Selector de especialidad para la ficha de médico. `opcional` cuando la
+ * persona ya tiene ficha: entonces dejarlo vacío conserva la especialidad que
+ * tenía.
+ */
+const SelectorDeEspecialidad: React.FC<{
+  especialidades: EspecialidadDto[] | null
+  valor: number | ''
+  onCambio: (valor: number | '') => void
+  opcional?: boolean
+}> = ({ especialidades, valor, onCambio, opcional = false }) => {
+  const uid = useId()
+  return (
+    <div>
+      <label htmlFor={`${uid}-especialidad`} className={labelClass}>
+        Especialidad{opcional ? ' (opcional: ya tiene una)' : ' *'}
+      </label>
+      <select
+        id={`${uid}-especialidad`}
+        value={valor}
+        onChange={(e) => onCambio(e.target.value === '' ? '' : Number(e.target.value))}
+        disabled={especialidades === null}
+        className={inputClass}
+      >
+        <option value="">
+          {especialidades === null ? 'Cargando especialidades…' : 'Seleccione…'}
+        </option>
+        {(especialidades ?? []).map((e) => (
+          <option key={e.especialidadId} value={e.especialidadId}>
+            {e.nombre}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }
