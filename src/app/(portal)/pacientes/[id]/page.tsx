@@ -24,10 +24,13 @@
 // Qué se carga de verdad y qué queda en hueco:
 //   · Consultas  → GET /consultas?pacienteId={id}      (services/consultas)
 //   · Recetas    → GET /prescripciones?pacienteId={id} (services/prescripciones)
-//   · Alergias, enfermedades crónicas, antecedentes hereditarios, hábitos y
-//     signos vitales → NO EXISTE ENDPOINT. No hay nada que cargar, así que se
-//     muestra el vacío con un aviso que dice por qué está vacío (ver
-//     `AvisoSinRegistro`), nunca datos de relleno.
+//   · Antecedentes patológicos (HU-12) → GET /antecedentes-patologicos?pacienteId={id}
+//   · Condiciones hereditarias (HU-13) → GET /condiciones-hereditarias?pacienteId={id}
+//     Las dos cargan dentro de su propia sección (components/clinico) y solo
+//     el médico las edita.
+//   · Alergias y hábitos → NO EXISTE ENDPOINT en el expediente. No hay nada que
+//     cargar, así que se muestra el vacío con un aviso que dice por qué está
+//     vacío (ver `AvisoSinRegistro`), nunca datos de relleno.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -41,6 +44,9 @@ import { ApiError } from '@/lib/api'
 import { obtenerPaciente } from '@/services/pacientes'
 import { pacienteDtoAPatient } from '@/lib/pacienteAdapter'
 import { ConsultationForm } from '@/components/forms/ConsultationForm'
+import { SeccionAntecedentes } from '@/components/clinico/SeccionAntecedentes'
+import { SeccionCondicionesHereditarias } from '@/components/clinico/SeccionCondicionesHereditarias'
+import { useAppContext } from '@/context/AppContext'
 import {
   formatearFechaHora,
   listarConsultas,
@@ -151,6 +157,10 @@ const SeccionSinRegistro: React.FC<SeccionSinRegistroProps> = ({
 export default function ExpedienteDetailPage() {
   const params = useParams()
   const patientId = Array.isArray(params?.id) ? params.id[0] : (params?.id as string)
+  // Antecedentes y condiciones hereditarias los registra solo el médico; la
+  // enfermera y el administrador los consultan (HU-12 c3, HU-13 c4).
+  const { user } = useAppContext()
+  const esMedico = user ? user.roles.includes('medico') : false
 
   const [patient, setPatient] = useState<Patient | null>(null)
   const [cargando, setCargando] = useState(true)
@@ -488,20 +498,20 @@ export default function ExpedienteDetailPage() {
             onToggle={() => toggle('alergias')}
           />
 
-          <SeccionSinRegistro
-            icon="history"
-            titulo="Enfermedades Crónicas"
-            vacio="No hay enfermedades crónicas registradas."
-            loQueFalta="enfermedades crónicas"
-            expanded={expanded.includes('enfermedades')}
-            onToggle={() => toggle('enfermedades')}
+          {/* ── HU-12 y HU-13: secciones con backend ──
+              Antecedentes patológicos reemplaza a «Enfermedades Crónicas»: una
+              enfermedad crónica es un antecedente de tipo Enfermedad en
+              estado Activo. */}
+          <SeccionAntecedentes
+            pacienteId={Number(patientId)}
+            puedeEditar={esMedico}
+            expanded={expanded.includes('antecedentes')}
+            onToggle={() => toggle('antecedentes')}
           />
 
-          <SeccionSinRegistro
-            icon="patients"
-            titulo="Condiciones Hereditarias"
-            vacio="No hay antecedentes hereditarios registrados."
-            loQueFalta="antecedentes hereditarios"
+          <SeccionCondicionesHereditarias
+            pacienteId={Number(patientId)}
+            puedeEditar={esMedico}
             expanded={expanded.includes('hereditarias')}
             onToggle={() => toggle('hereditarias')}
           />

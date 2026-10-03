@@ -26,6 +26,7 @@ import type { ConsultaDto, CrearConsultaPayload } from '@/services/consultas'
 import type { PrescripcionDto } from '@/services/prescripciones'
 import type { PacienteDto } from '@/services/pacientes'
 import type { SignosVitalesDto } from '@/services/signosVitales'
+import type { AntecedenteDto, CondicionHereditariaDto } from '@/services/antecedentes'
 import ExpedienteDetailPage from './page'
 
 const obtenerPaciente = vi.fn<(personaId: number) => Promise<PacienteDto>>()
@@ -33,6 +34,8 @@ const listarConsultas = vi.fn<(pacienteId?: number) => Promise<ConsultaDto[]>>()
 const listarPrescripcionesDePaciente = vi.fn<(pacienteId: number) => Promise<PrescripcionDto[]>>()
 const crearConsulta = vi.fn<(p: CrearConsultaPayload) => Promise<ConsultaDto>>()
 const ultimaToma = vi.fn<(pacienteId: number) => Promise<SignosVitalesDto | null>>()
+const listarAntecedentes = vi.fn<(pacienteId: number) => Promise<AntecedenteDto[]>>()
+const listarCondicionesHereditarias = vi.fn<(pacienteId: number) => Promise<CondicionHereditariaDto[]>>()
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ id: '42' }),
@@ -70,6 +73,17 @@ vi.mock('@/services/signosVitales', async (importarOriginal) => {
   return {
     ...real,
     ultimaToma: (pacienteId: number) => ultimaToma(pacienteId),
+  }
+})
+
+vi.mock('@/services/antecedentes', async (importarOriginal) => {
+  // Las etiquetas y `agruparPorParentesco` se dejan reales: son parte de lo
+  // que la sección pinta. Sus pruebas propias están en components/clinico.
+  const real = await importarOriginal<typeof import('@/services/antecedentes')>()
+  return {
+    ...real,
+    listarAntecedentes: (pacienteId: number) => listarAntecedentes(pacienteId),
+    listarCondicionesHereditarias: (pacienteId: number) => listarCondicionesHereditarias(pacienteId),
   }
 })
 
@@ -176,6 +190,10 @@ beforeEach(() => {
   listarPrescripcionesDePaciente.mockReset()
   crearConsulta.mockReset()
   ultimaToma.mockReset()
+  listarAntecedentes.mockReset()
+  listarCondicionesHereditarias.mockReset()
+  listarAntecedentes.mockResolvedValue([])
+  listarCondicionesHereditarias.mockResolvedValue([])
   obtenerPaciente.mockResolvedValue(PACIENTE)
   listarConsultas.mockResolvedValue([])
   listarPrescripcionesDePaciente.mockResolvedValue([])
@@ -196,12 +214,13 @@ async function montar() {
 }
 
 /** Secciones plegables que no tienen endpoint detrás. */
-const SECCIONES_SIN_BACKEND = [
-  'Historial de Alergias',
-  'Enfermedades Crónicas',
-  'Condiciones Hereditarias',
-  'Hábitos y Estilo de Vida',
-]
+const SECCIONES_SIN_BACKEND = ['Historial de Alergias', 'Hábitos y Estilo de Vida']
+
+/**
+ * Secciones plegables que sí lo tienen: HU-12 y HU-13. Salieron de la lista
+ * de arriba al aparecer `/antecedentes-patologicos` y `/condiciones-hereditarias`.
+ */
+const SECCIONES_CON_BACKEND = ['Antecedentes Patológicos', 'Condiciones Hereditarias']
 
 /**
  * Despliega todas las secciones sin backend.
@@ -212,7 +231,7 @@ const SECCIONES_SIN_BACKEND = [
  * con el defecto puesto.
  */
 async function desplegarTodo(user: ReturnType<typeof userEvent.setup>) {
-  for (const titulo of SECCIONES_SIN_BACKEND) {
+  for (const titulo of [...SECCIONES_SIN_BACKEND, ...SECCIONES_CON_BACKEND]) {
     await user.click(screen.getByRole('button', { name: titulo }))
   }
 }
@@ -348,23 +367,24 @@ describe('expediente · ninguna sección inventa datos del paciente', () => {
     const user = await montar()
     await desplegarTodo(user)
 
-    for (const vacio of [
-      'No hay alergias registradas.',
-      'No hay enfermedades crónicas registradas.',
-      'No hay antecedentes hereditarios registrados.',
-      'No hay hábitos registrados.',
-    ]) {
+    for (const vacio of ['No hay alergias registradas.', 'No hay hábitos registrados.']) {
       expect(screen.getByText(vacio)).toBeVisible()
     }
 
-    // CUATRO avisos, no cinco: signos vitales SALIÓ de este grupo al aparecer
+    // DOS avisos: antecedentes patológicos y condiciones hereditarias salieron
+    // del grupo con HU-12 y HU-13, por la misma razón que signos vitales (ver
+    // abajo). Su vacío dice que nadie registró nada, sin el aviso.
+    expect(screen.getByText(/No hay antecedentes patológicos registrados/)).toBeVisible()
+    expect(screen.getByText(/No hay condiciones hereditarias registradas/)).toBeVisible()
+
+    // Antes eran cuatro, y antes cinco: signos vitales SALIÓ de este grupo al aparecer
     // `GET /signos-vitales/ultima` (migración V9). El aviso dice «el sistema
     // todavía no guarda esto», y para las constantes eso ya es falso: aquí un
     // vacío sí significa que a este paciente nadie le ha tomado nada, que es
     // información de verdad y no una laguna de la aplicación. Mantener el
     // aviso haría desconfiar de un dato fiable, que es el mismo error de la
     // maqueta al revés.
-    expect(screen.getAllByText(/no lo lea como «no tiene»/i)).toHaveLength(4)
+    expect(screen.getAllByText(/no lo lea como «no tiene»/i)).toHaveLength(2)
 
     // Y el vacío de constantes dice por qué está vacío, sin afirmar que el
     // paciente «no tiene» nada.
@@ -430,6 +450,13 @@ describe('expediente · ninguna sección inventa datos del paciente', () => {
     }
     // Signos vitales tenía un «Actualizar» que solo movía el estado de React.
     expect(screen.queryByRole('button', { name: /actualizar/i })).toBeNull()
+
+    // Las secciones con backend sí lo ofrecen, a un médico (la sesión de estas
+    // pruebas): POST /antecedentes-patologicos y /condiciones-hereditarias existen.
+    for (const titulo of SECCIONES_CON_BACKEND) {
+      const seccion = screen.getByRole('region', { name: titulo })
+      expect(within(seccion).getByRole('button', { name: /agregar/i })).toBeVisible()
+    }
 
     // Y el contraste: el «Agregar» de Consultas sí se queda, porque POST
     // /consultas existe. Si se fuera, esta prueba avisaría de que se retiró de
