@@ -22,11 +22,13 @@ import type {
   RolDto,
   UsuarioDto,
 } from '@/services/usuarios'
+import type { EspecialidadDto } from '@/services/personas'
 import UsuariosPage from './page'
 
 const listarUsuarios = vi.fn<() => Promise<UsuarioDto[]>>()
 const crearUsuario = vi.fn<(payload: CrearUsuarioPayload) => Promise<AltaUsuarioDto>>()
-const asignarRol = vi.fn<(userId: number, roleId: number) => Promise<UsuarioDto>>()
+const asignarRol = vi.fn<(userId: number, roleId: number, especialidadId?: number) => Promise<UsuarioDto>>()
+const listarEspecialidades = vi.fn<() => Promise<EspecialidadDto[]>>()
 const asignarContrasena = vi.fn<(userId: number, password: string) => Promise<UsuarioDto>>()
 const listarRoles = vi.fn<() => Promise<RolDto[]>>()
 const quitarRol = vi.fn<(userId: number, roleId: number) => Promise<UsuarioDto>>()
@@ -35,12 +37,21 @@ const cambiarEstadoUsuario = vi.fn<(userId: number, activo: boolean) => Promise<
 vi.mock('@/services/usuarios', () => ({
   listarUsuarios: () => listarUsuarios(),
   crearUsuario: (payload: CrearUsuarioPayload) => crearUsuario(payload),
-  asignarRol: (userId: number, roleId: number) => asignarRol(userId, roleId),
+  // La especialidad solo se reenvía cuando viene: así las pruebas de los
+  // otros roles siguen comprobando exactamente (userId, roleId).
+  asignarRol: (userId: number, roleId: number, especialidadId?: number) =>
+    especialidadId === undefined
+      ? asignarRol(userId, roleId)
+      : asignarRol(userId, roleId, especialidadId),
   asignarContrasena: (userId: number, password: string) => asignarContrasena(userId, password),
   listarRoles: () => listarRoles(),
   quitarRol: (userId: number, roleId: number) => quitarRol(userId, roleId),
   cambiarEstadoUsuario: (userId: number, activo: boolean) =>
     cambiarEstadoUsuario(userId, activo),
+}))
+
+vi.mock('@/services/personas', () => ({
+  listarEspecialidades: () => listarEspecialidades(),
 }))
 
 let sesion: User
@@ -91,6 +102,12 @@ beforeEach(() => {
   asignarContrasena.mockReset()
   listarRoles.mockReset()
   quitarRol.mockReset()
+  listarEspecialidades.mockReset()
+  listarEspecialidades.mockResolvedValue([
+    { especialidadId: 5, nombre: 'Medicina General', activa: true },
+    { especialidadId: 6, nombre: 'Pediatría', activa: true },
+    { especialidadId: 7, nombre: 'Especialidad retirada', activa: false },
+  ])
   listarUsuarios.mockResolvedValue(DEL_API)
   listarRoles.mockResolvedValue([
     { id: 1, name: 'ADMIN' },
@@ -646,6 +663,64 @@ describe('asignar rol', () => {
     await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(353, 3))
     expect(await screen.findByText('Enfermera')).toBeVisible()
     expect(screen.queryByText(/sin rol asignado/i)).toBeNull()
+  })
+})
+
+// ─── Defecto de HU-05: el rol Médico sin ficha de médico ─────────────────────
+// El rol solo pasa el control de permisos; consultas, recetas y antecedentes
+// exigen además la ficha, que lleva la especialidad. Dar el rol sin ella
+// dejaba la cuenta viendo botones que respondían 403.
+describe('asignar rol Médico · ficha de médico', () => {
+  it('al elegir Médico pide la especialidad, solo ofrece las activas y la manda', async () => {
+    asignarRol.mockResolvedValue({
+      userId: 353,
+      email: 'sin.rol@docrecord.sv',
+      userName: 'Cuenta Sin Rol',
+      especialidad: 'Pediatría',
+      activo: true,
+      roles: [{ id: 2, name: 'MEDICO' }],
+    })
+    const user = montar()
+    await screen.findByText('Cuenta Sin Rol')
+
+    await user.click(screen.getByRole('button', { name: /sin rol asignado — asignar ahora/i }))
+    await user.click(await screen.findByRole('radio', { name: /^médico$/i }))
+
+    const confirmar = screen.getByRole('button', { name: /añadir rol médico/i })
+    expect(confirmar).toBeDisabled()
+
+    // Dentro del diálogo: la tabla de fondo tiene celdas «Sin especialidad».
+    const selector = within(screen.getByRole('dialog')).getByLabelText(/^especialidad/i)
+    await waitFor(() => expect(within(selector).getByRole('option', { name: 'Pediatría' })).toBeVisible())
+    expect(within(selector).queryByRole('option', { name: 'Especialidad retirada' })).toBeNull()
+
+    await user.selectOptions(selector, '6')
+    await user.click(confirmar)
+
+    await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(353, 2, 6))
+  })
+
+  it('a una cuenta con Médico pero sin ficha le ofrece completarla', async () => {
+    // Naun (fila 152) es Administrador y Médico, y su especialidad es null:
+    // exactamente la cuenta que pasaba el permiso y recibía 403 al guardar.
+    asignarRol.mockResolvedValue({ ...DEL_API[0], especialidad: 'Medicina General' })
+    const user = montar()
+    await screen.findByText('Naun Enrique Flores Menjivar')
+
+    const fila = screen.getByText('Naun Enrique Flores Menjivar').closest('tr')!
+    await user.click(within(fila).getByRole('button', { name: /^rol$/i }))
+    const modal = await screen.findByRole('dialog')
+
+    expect(within(modal).getByText(/no su ficha de médico/i)).toBeVisible()
+    const completar = within(modal).getByRole('button', { name: /completar ficha de médico/i })
+    expect(completar).toBeDisabled()
+
+    const selector = within(modal).getAllByLabelText(/especialidad/i)[0]
+    await waitFor(() => expect(within(selector).getByRole('option', { name: 'Medicina General' })).toBeVisible())
+    await user.selectOptions(selector, '5')
+    await user.click(completar)
+
+    await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(152, 2, 5))
   })
 })
 

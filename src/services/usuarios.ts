@@ -223,8 +223,20 @@ export async function crearUsuario(payload: CrearUsuarioPayload): Promise<AltaUs
  * si ya lo tiene, y 404 «No se encontro el usuario/rol con id: …» si alguno no
  * existe.
  */
-export async function asignarRol(userId: number, roleId: number): Promise<UsuarioDto> {
-  return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}`, { method: 'POST' })
+export async function asignarRol(
+  userId: number,
+  roleId: number,
+  /**
+   * Solo con MÉDICO: la especialidad con que el backend crea la ficha de
+   * médico. Obligatoria si la persona aún no tiene ficha —sin ella responde
+   * 400—, porque el rol solo no basta para registrar consultas ni recetas.
+   * A una cuenta que ya tiene el rol pero no la ficha, volver a asignarlo con
+   * la especialidad se la crea.
+   */
+  especialidadId?: number,
+): Promise<UsuarioDto> {
+  const query = especialidadId === undefined ? '' : `?especialidadId=${especialidadId}`
+  return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}${query}`, { method: 'POST' })
 }
 
 /**
