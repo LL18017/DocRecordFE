@@ -7,18 +7,22 @@ on:
   # habitual de encadenar "despliega cuando CI pase" -- SOLO se dispara si el
   # archivo que lo declara esta en la rama por defecto del repositorio, que
   # aqui es `main`. Con el despliegue viviendo en dev-naun nunca habria
-  # corrido, y sin dar ningun error: simplemente no pasaria nada.
+  # corrido, y sin dar ningun error: simplemente no pasaria nada. Hoy se
+  # despliega desde main, y se mantiene igual por la misma razon.
   workflow_call:
 
   push:
     branches:
-      # dev-naun no aparece aqui porque deploy.yml llama a este workflow en
-      # cada push a esa rama. Dejarlo en ambos sitios lo haria correr dos veces
-      # por push, con el mismo resultado.
+      # main no aparece aqui porque deploy.yml llama a este workflow en cada
+      # push a esa rama. Dejarlo en ambos sitios lo haria correr dos veces por
+      # push, con el mismo resultado.
       - dev
   pull_request:
     branches:
       - dev
+      # Un pull request a main es lo que dispara el despliegue al mergearse:
+      # las pruebas tienen que verse en el PR, antes de apretar el boton.
+      - main
 
 # Permisos mínimos: el workflow solo necesita leer el código.
 permissions:
