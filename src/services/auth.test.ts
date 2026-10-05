@@ -165,6 +165,19 @@ describe('login · mensajes y tokens', () => {
     expect(porCorreo.message).not.toMatch(/no encontrado|not found/i)
   })
 
+  it('una cuenta sin confirmar lo dice, en vez de «contraseña incorrecta»', async () => {
+    const { login, MENSAJE_CUENTA_SIN_CONFIRMAR } = await import('./auth')
+    // El backend solo responde esto cuando la contraseña era correcta.
+    fetchMock.mockResolvedValueOnce(
+      respuesta(401, { message: 'Usuario no ha confirmado su cuenta aun', error: 'No autenticado' }),
+    )
+
+    const error = await errorDe(login('ana@ues.edu.sv', 'la-correcta'))
+
+    expect(error.message).toBe(MENSAJE_CUENTA_SIN_CONFIRMAR)
+    expect(error.message).not.toBe('Correo o contraseña incorrectos.')
+  })
+
   it('no guarda tokens si el login falla', async () => {
     const { login } = await import('./auth')
     fetchMock.mockResolvedValueOnce(respuesta(401, { error: 'Bad credentials' }))
