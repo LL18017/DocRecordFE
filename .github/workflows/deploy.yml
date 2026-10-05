@@ -3,19 +3,21 @@ name: Deploy
 # Despliegue a produccion (EC2, us-east-2).
 #
 # -- Cuando corre --------------------------------------------------------
-# En cada push a dev-naun, pero SOLO despues de que las pruebas pasen: el job
+# En cada push a main, pero SOLO despues de que las pruebas pasen: el job
 # `pruebas` invoca el workflow CI de este mismo repositorio y `desplegar`
 # depende de el. Si CI falla, el despliegue no se ejecuta y el servidor se
 # queda con la version anterior en pie.
 #
 # Que las pruebas vayan por delante no es ceremonia. El 13 de septiembre llego
-# a dev-naun un commit que no compilaba, y con un despliegue atado solo al push
+# a la rama desplegada un commit que no compilaba, y con un despliegue atado solo al push
 # el build habria muerto en el servidor despues de detener lo que ya estaba
 # funcionando.
 #
 # Se llama a CI con `uses:` en vez de encadenarlo con `workflow_run` porque
 # `workflow_run` solo se dispara cuando el archivo que lo declara esta en la
-# rama por defecto -- aqui `main` --, de modo que desde dev-naun nunca habria
+# rama por defecto -- aqui `main` --. Hoy el despliegue sale justamente de
+# `main`, pero se mantiene `uses:`: no depende de cual sea la rama por
+# defecto, y antes, desplegando desde dev-naun, `workflow_run` nunca habria
 # corrido, y sin error visible.
 #
 # -- Que secretos necesita -----------------------------------------------
@@ -28,7 +30,7 @@ name: Deploy
 # que se pueden filtrar, a cambio de nada.
 on:
   push:
-    branches: [dev-naun]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -178,9 +180,25 @@ jobs:
 
           # desplegar.sh trae AMBOS repositorios desde GitHub y reconstruye; no
           # se le envia codigo desde aqui. Este paso solo dispara el despliegue.
+          #
+          # Antes de llamarlo, los dos clones del servidor pasan a seguir todas
+          # las ramas. Se crearon con `git clone --depth 1 --branch dev-naun`,
+          # que implica --single-branch: su refspec solo conoce dev-naun, y con
+          # el `git fetch origin main` del script origin/main nunca llega a
+          # existir, asi que `reset --hard origin/main` fallaria. Es idempotente:
+          # repetirlo en cada despliegue no cambia nada.
+          #
+          # Al terminar se copia desplegar.sh desde el clon del backend: el
+          # script no se reescribe a si mismo mientras corre (ver el propio
+          # script), y sin esta copia el servidor seguiria con la version vieja.
           ssh -i ~/.ssh/despliegue -o BatchMode=yes $OPCIONES_HOST \
               "$VPS_USER@$VPS_HOST" \
-              "cd /opt/docrecord && ./desplegar.sh dev-naun"
+              "cd /opt/docrecord \
+               && for r in DocRecordBE DocRecordFE; do \
+                    git -C \$r config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'; \
+                  done \
+               && ./desplegar.sh main \
+               && cp DocRecordBE/despliegue/desplegar.sh . && chmod +x desplegar.sh"
 
       # Que el script termine sin error no prueba que la aplicacion quedo en
       # pie: los contenedores pueden levantar y morir en el arranque. Esto lo

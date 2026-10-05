@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Patient } from '@/types'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
@@ -22,6 +23,7 @@ import { contarConsultasPorPaciente } from '@/lib/resumenPanel'
 import { sinTildes } from '@/lib/texto'
 
 export default function PacientesPage() {
+  const router = useRouter()
   // La lista sale de GET /pacientes. Antes se sembraba con los datos de la
   // maqueta, asi que un paciente recien creado desaparecia al recargar: estaba
   // en la base, pero la pantalla nunca la consultaba.
@@ -333,6 +335,11 @@ export default function PacientesPage() {
         data={patientsList}
         columns={columns}
         keyExtractor={(p) => p.id}
+        // Pulsar cualquier parte de la fila abre el expediente, que es lo que
+        // se busca casi siempre en esta lista. Los botones de la columna
+        // Acciones (editar, desactivar) siguen haciendo solo lo suyo: DataTable
+        // no dispara la fila cuando el clic sale de un botón o un enlace.
+        onRowClick={(p) => router.push(`/pacientes/${p.id}`)}
         searchable
         searchPlaceholder="Buscar por nombre, teléfono o expediente..."
         searchFilter={(p, q) =>

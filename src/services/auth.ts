@@ -94,6 +94,10 @@ export function mapearRoles(
   return Array.from(encontrados)
 }
 
+export const MENSAJE_CUENTA_SIN_CONFIRMAR =
+  'Tu cuenta aún no está confirmada. Abre el enlace que te enviamos por correo; ' +
+  'si ya venció, pide a un administrador que te asigne una contraseña desde Usuarios y Roles.'
+
 /**
  * Autentica contra `POST /auth/login`, guarda los tokens y devuelve el usuario.
  * Lanza `ApiError` (401) si las credenciales no son válidas.
@@ -116,6 +120,15 @@ export async function login(
     // cual en la pantalla de login confunde al usuario, y distinguir «ese
     // correo no existe» de «esa clave es incorrecta» revela qué cuentas están
     // registradas. Se unifican en un solo mensaje.
+    //
+    // La excepción es la cuenta sin confirmar. El backend comprueba la
+    // contraseña ANTES que el estado de la cuenta, así que «no ha confirmado
+    // su cuenta» solo llega cuando la contraseña era la correcta: decirlo no
+    // revela nada a quien no la sabe, y callarlo mandaba a la persona a
+    // reescribir una clave que estaba bien.
+    if (error instanceof ApiError && error.status === 401 && /no ha confirmado/i.test(error.message)) {
+      throw new ApiError(401, MENSAJE_CUENTA_SIN_CONFIRMAR)
+    }
     if (error instanceof ApiError && (error.status === 401 || error.status === 404)) {
       throw new ApiError(error.status, 'Correo o contraseña incorrectos.')
     }

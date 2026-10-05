@@ -26,6 +26,7 @@ import {
   type UsuarioDto,
 } from '@/services/usuarios'
 import { listarTodasLasClinicas, type ClinicaDto } from '@/services/clinicas'
+import { listarEspecialidades, type EspecialidadDto } from '@/services/personas'
 
 // Esta pantalla ya no es de solo lectura: sabe listar, dar de alta personal,
 // asignar un rol inicial y asignar/reestablecer contraseña. Lo que SIGUE sin
@@ -229,12 +230,24 @@ export default function UsuariosPage() {
 
   /** Reemplaza en la lista la cuenta que acaba de volver actualizada del API. */
   const actualizarEnLista = (actualizado: UsuarioDto) => {
-    setUsuarios((prev) => prev.map((u) => (u.userId === actualizado.userId ? actualizado : u)))
+    // Algunos endpoints no calculan `sedes` (cambiar estado, contraseña): se
+    // conserva el que ya se sabía en vez de perderlo y dejar de avisar.
+    setUsuarios((prev) =>
+      prev.map((u) =>
+        u.userId === actualizado.userId ? { ...actualizado, sedes: actualizado.sedes ?? u.sedes } : u,
+      ),
+    )
+  }
+
+  /** El modal de sedes avisa cada cambio para que el aviso «Sin sede» de la fila se actualice. */
+  const actualizarSedesEnLista = (userId: number, sedes: number) => {
+    setUsuarios((prev) => prev.map((u) => (u.userId === userId ? { ...u, sedes } : u)))
   }
 
   /** Inserta la cuenta recién creada. `POST /user` no la devuelve en el listado paginado hasta el próximo `GET /user/all`. */
   const agregarALista = (nuevo: AltaUsuarioDto) => {
-    setUsuarios((prev) => [nuevo, ...prev])
+    // Una cuenta recién creada no tiene ninguna sede.
+    setUsuarios((prev) => [{ ...nuevo, sedes: nuevo.sedes ?? 0 }, ...prev])
   }
 
   /**
@@ -344,6 +357,12 @@ export default function UsuariosPage() {
         // nunca lo llena), y `email` es el único identificador estable (ver
         // `identidadDe` en `AppContext.tsx`).
         const filaEsAdmin = u.roles.some((rol) => normalizarNombreDeRol(rol.name) === 'ADMIN')
+        // Un médico o una enfermera sin sede no puede entrar a trabajar: se
+        // queda en la pantalla de selección de clínica. `sedes` nulo es «no se
+        // sabe», y entonces no se avisa de algo que no se comprobó.
+        const sinSede =
+          u.sedes === 0 &&
+          u.roles.some((rol) => ['MEDICO', 'ENFERMERA'].includes(normalizarNombreDeRol(rol.name) ?? ''))
         const esLaPropiaCuenta = u.email === usuario.email
         const puedeAsignarContrasena = !filaEsAdmin || esLaPropiaCuenta
 
@@ -364,10 +383,18 @@ export default function UsuariosPage() {
             <button
               type="button"
               onClick={() => setUsuarioParaClinicas(u)}
-              title="Asignar las sedes donde trabaja esta cuenta"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-doc-teal bg-doc-teal/10 hover:bg-doc-teal/20 transition-colors cursor-pointer"
+              title={
+                sinSede
+                  ? 'Esta cuenta no tiene ninguna sede: no puede entrar a trabajar hasta que se le asigne una'
+                  : 'Asignar las sedes donde trabaja esta cuenta'
+              }
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                sinSede
+                  ? 'text-amber-800 bg-amber-100 ring-1 ring-amber-300 hover:bg-amber-200'
+                  : 'text-doc-teal bg-doc-teal/10 hover:bg-doc-teal/20'
+              }`}
             >
-              <Icon name="clinicas" size={13} /> Sedes
+              <Icon name="clinicas" size={13} /> {sinSede ? 'Sin sede' : 'Sedes'}
             </button>
             {puedeAsignarContrasena ? (
               <button
@@ -576,6 +603,7 @@ export default function UsuariosPage() {
           <FormularioDeSedes
             usuario={usuarioParaClinicas}
             onCerrar={() => setUsuarioParaClinicas(null)}
+            onCambioDeSedes={(cantidad) => actualizarSedesEnLista(usuarioParaClinicas.userId, cantidad)}
           />
         )}
       </Modal>
@@ -588,6 +616,8 @@ export default function UsuariosPage() {
 interface FormularioDeSedesProps {
   usuario: UsuarioDto
   onCerrar: () => void
+  /** Cuántas sedes quedaron, tras cada cambio confirmado por el servidor. */
+  onCambioDeSedes?: (cantidad: number) => void
 }
 
 /**
@@ -602,7 +632,7 @@ interface FormularioDeSedesProps {
  * hace falta ver también las que registró otro: es justo el caso de enfermería,
  * que va a trabajar en la clínica de un médico.
  */
-const FormularioDeSedes: React.FC<FormularioDeSedesProps> = ({ usuario, onCerrar }) => {
+const FormularioDeSedes: React.FC<FormularioDeSedesProps> = ({ usuario, onCerrar, onCambioDeSedes }) => {
   const [todas, setTodas] = useState<ClinicaDto[]>([])
   const [asignadas, setAsignadas] = useState<number[]>([])
   const [cargando, setCargando] = useState(true)
@@ -643,9 +673,11 @@ const FormularioDeSedes: React.FC<FormularioDeSedesProps> = ({ usuario, onCerrar
       if (estaAsignada) {
         await quitarClinica(usuario.userId, clinicaId)
         setAsignadas((prev) => prev.filter((id) => id !== clinicaId))
+        onCambioDeSedes?.(asignadas.length - 1)
       } else {
         await asignarClinica(usuario.userId, clinicaId)
         setAsignadas((prev) => [...prev, clinicaId])
+        onCambioDeSedes?.(asignadas.length + 1)
       }
     } catch (err) {
       setError(
@@ -948,6 +980,19 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   const [quitandoId, setQuitandoId] = useState<number | null>(null)
   const usuarioEnSesion = useUsuarioAutenticado()
 
+  // La ficha de médico. El rol MÉDICO solo pasa el control de permisos: para
+  // registrar consultas, recetas o antecedentes el backend exige además la
+  // ficha, que lleva la especialidad. Por eso al dar MÉDICO se pide aquí.
+  const [especialidades, setEspecialidades] = useState<EspecialidadDto[] | null>(null)
+  const [especialidadId, setEspecialidadId] = useState<number | ''>('')
+  const [completandoFicha, setCompletandoFicha] = useState(false)
+
+  // La primera sede. Un médico o una enfermera sin ninguna no puede entrar a
+  // trabajar, así que a quien aún no tiene sede el rol clínico se le da junto
+  // con ella (el backend responde 400 si falta).
+  const [sedesDisponibles, setSedesDisponibles] = useState<ClinicaDto[] | null>(null)
+  const [sedeId, setSedeId] = useState<number | ''>('')
+
   const cargarRoles = useCallback(async () => {
     try {
       const catalogo = await listarRoles()
@@ -956,6 +1001,36 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
       setErrorCarga(
         err instanceof ApiError ? err.message : 'No se pudo cargar el catálogo de roles.',
       )
+    }
+  }, [])
+
+  useEffect(() => {
+    let vigente = true
+    listarTodasLasClinicas()
+      .then((lista) => {
+        if (vigente) setSedesDisponibles(lista)
+      })
+      .catch(() => {
+        if (vigente) setSedesDisponibles([])
+      })
+    return () => {
+      vigente = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let vigente = true
+    listarEspecialidades()
+      .then((lista) => {
+        if (vigente) setEspecialidades(lista.filter((e) => e.activa))
+      })
+      // Sin catálogo el selector queda vacío y el backend responde 400 al
+      // intentar dar MÉDICO, con un motivo legible: no hace falta otro aviso.
+      .catch(() => {
+        if (vigente) setEspecialidades([])
+      })
+    return () => {
+      vigente = false
     }
   }, [])
 
@@ -982,13 +1057,47 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   })
 
   const rolSeleccionado = disponibles.find((rol) => rol.id === rolSeleccionadoId) ?? null
+  const seleccionaMedico = rolSeleccionado !== null && normalizarNombreDeRol(rolSeleccionado.name) === 'MEDICO'
+  // `especialidad` no nula = la persona ya tiene ficha de médico.
+  const tieneFicha = usuario.especialidad !== null
+  const faltaEspecialidad = seleccionaMedico && !tieneFicha && especialidadId === ''
+  const seleccionaRolClinico =
+    rolSeleccionado !== null && ['MEDICO', 'ENFERMERA'].includes(normalizarNombreDeRol(rolSeleccionado.name) ?? '')
+  // Ausente o nulo se trata como «sin sede»: una cuenta recién creada no trae
+  // el conteo, y no tiene ninguna. Si ya la tuviera, elegir una no hace daño.
+  const necesitaSede = seleccionaRolClinico && (usuario.sedes ?? 0) === 0
+  const faltaSede = necesitaSede && sedeId === ''
+
+  // Cuentas que ya tienen el rol MÉDICO pero no la ficha: las creadas antes de
+  // que asignar el rol la creara. Pasan el control de permisos y reciben 403
+  // al guardar una consulta; aquí se reparan eligiendo la especialidad.
+  const rolMedico = (roles ?? []).find((rol) => normalizarNombreDeRol(rol.name) === 'MEDICO') ?? null
+  const medicoSinFicha = yaTiene.has('MEDICO') && !tieneFicha
+
+  const handleCompletarFicha = async () => {
+    if (rolMedico?.id == null || especialidadId === '') return
+    setCompletandoFicha(true)
+    setError(null)
+    try {
+      onAsignado(await asignarRol(usuario.userId, rolMedico.id, especialidadId))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo completar la ficha de médico.')
+    } finally {
+      setCompletandoFicha(false)
+    }
+  }
 
   const handleConfirmar = async () => {
-    if (rolSeleccionadoId === null) return
+    if (rolSeleccionadoId === null || faltaEspecialidad || faltaSede) return
     setAsignando(true)
     setError(null)
     try {
-      const actualizado = await asignarRol(usuario.userId, rolSeleccionadoId)
+      const actualizado = await asignarRol(
+        usuario.userId,
+        rolSeleccionadoId,
+        seleccionaMedico && especialidadId !== '' ? especialidadId : undefined,
+        necesitaSede && sedeId !== '' ? sedeId : undefined,
+      )
       onAsignado(actualizado)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo asignar el rol.')
@@ -1074,6 +1183,29 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
         )}
       </div>
 
+      {medicoSinFicha && (
+        <div className="space-y-2 rounded-xl border-2 border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm text-amber-900">
+            Esta cuenta tiene el rol Médico pero <strong>no su ficha de médico</strong>: puede
+            entrar a las pantallas clínicas, pero no registrar consultas, recetas ni antecedentes.
+            Elija su especialidad para completarla.
+          </p>
+          <SelectorDeEspecialidad
+            especialidades={especialidades}
+            valor={especialidadId}
+            onCambio={setEspecialidadId}
+          />
+          <button
+            type="button"
+            onClick={() => void handleCompletarFicha()}
+            disabled={completandoFicha || especialidadId === ''}
+            className={botonConfirmar}
+          >
+            {completandoFicha ? 'Guardando…' : 'Completar ficha de médico'}
+          </button>
+        </div>
+      )}
+
       <div className="pt-3 border-t border-slate-100">
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
           Añadir un rol
@@ -1116,6 +1248,21 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
               {etiquetaDeRol(rol.name)}
             </label>
           ))}
+          {seleccionaMedico && (
+            <div className="pt-1">
+              <SelectorDeEspecialidad
+                especialidades={especialidades}
+                valor={especialidadId}
+                onCambio={setEspecialidadId}
+                opcional={tieneFicha}
+              />
+            </div>
+          )}
+          {necesitaSede && (
+            <div className="pt-1">
+              <SelectorDeSede sedes={sedesDisponibles} valor={sedeId} onCambio={setSedeId} />
+            </div>
+          )}
         </div>
       )}
 
@@ -1136,7 +1283,7 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
           <button
             type="button"
             onClick={() => void handleConfirmar()}
-            disabled={asignando || rolSeleccionadoId === null}
+            disabled={asignando || rolSeleccionadoId === null || faltaEspecialidad || faltaSede}
             className={botonConfirmar}
           >
             {asignando
@@ -1145,6 +1292,87 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Selector de especialidad para la ficha de médico. `opcional` cuando la
+ * persona ya tiene ficha: entonces dejarlo vacío conserva la especialidad que
+ * tenía.
+ */
+const SelectorDeEspecialidad: React.FC<{
+  especialidades: EspecialidadDto[] | null
+  valor: number | ''
+  onCambio: (valor: number | '') => void
+  opcional?: boolean
+}> = ({ especialidades, valor, onCambio, opcional = false }) => {
+  const uid = useId()
+  return (
+    <div>
+      <label htmlFor={`${uid}-especialidad`} className={labelClass}>
+        Especialidad{opcional ? ' (opcional: ya tiene una)' : ' *'}
+      </label>
+      <select
+        id={`${uid}-especialidad`}
+        value={valor}
+        onChange={(e) => onCambio(e.target.value === '' ? '' : Number(e.target.value))}
+        disabled={especialidades === null}
+        className={inputClass}
+      >
+        <option value="">
+          {especialidades === null ? 'Cargando especialidades…' : 'Seleccione…'}
+        </option>
+        {(especialidades ?? []).map((e) => (
+          <option key={e.especialidadId} value={e.especialidadId}>
+            {e.nombre}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+/**
+ * Selector de la primera sede de un médico o una enfermera. Sin sedes
+ * registradas lo dice, porque sin ninguna no hay a dónde asignar a la cuenta.
+ */
+const SelectorDeSede: React.FC<{
+  sedes: ClinicaDto[] | null
+  valor: number | ''
+  onCambio: (valor: number | '') => void
+}> = ({ sedes, valor, onCambio }) => {
+  const uid = useId()
+  if (sedes !== null && sedes.length === 0) {
+    return (
+      <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+        Un médico o una enfermera necesita al menos una sede, y todavía no hay ninguna clínica
+        registrada. Dé de alta una en Clínicas y vuelva a asignar el rol.
+      </p>
+    )
+  }
+  return (
+    <div>
+      <label htmlFor={`${uid}-sede`} className={labelClass}>
+        Sede donde va a trabajar *
+      </label>
+      <select
+        id={`${uid}-sede`}
+        value={valor}
+        onChange={(e) => onCambio(e.target.value === '' ? '' : Number(e.target.value))}
+        disabled={sedes === null}
+        className={inputClass}
+      >
+        <option value="">{sedes === null ? 'Cargando sedes…' : 'Seleccione…'}</option>
+        {(sedes ?? []).map((c) => (
+          <option key={c.clinicaId} value={c.clinicaId}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1.5 text-xs text-slate-500">
+        Un médico o una enfermera necesita al menos una sede: sin ella no puede entrar a trabajar.
+      </p>
     </div>
   )
 }

@@ -18,6 +18,9 @@ import type { PacienteDto } from '@/services/pacientes'
 import type { ConsultaDto } from '@/services/consultas'
 import PacientesPage from './page'
 
+const push = vi.fn<(href: string) => void>()
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: (href: string) => push(href) }) }))
+
 const listarPacientes = vi.fn<() => Promise<PacienteDto[]>>()
 const eliminarPaciente = vi.fn<(id: number) => Promise<void>>()
 const obtenerPaciente = vi.fn<(id: number) => Promise<PacienteDto>>()
@@ -178,6 +181,35 @@ const botonDesactivar = () => screen.getByRole('button', { name: 'Desactivar' })
 /** Buscar dentro de la tabla y no en toda la pantalla: con el diálogo abierto
  *  el nombre del paciente sale dos veces, y solo una de ellas es la fila. */
 const enTabla = () => within(screen.getByRole('table'))
+
+describe('pacientes · abrir el expediente desde la fila', () => {
+  it('pulsar en cualquier parte de la fila abre el expediente de ese paciente', async () => {
+    listarPacientes.mockResolvedValue([paciente(42, 'Ana')])
+    listarConsultas.mockResolvedValue([])
+    push.mockReset()
+    render(<PacientesPage />)
+    const user = userEvent.setup()
+
+    const fila = (await screen.findByText(/^Ana/)).closest('tr') as HTMLElement
+    // La celda de la edad: lejos del nombre y de los iconos, que ya eran enlaces.
+    await user.click(within(fila).getByText(/años/))
+
+    expect(push).toHaveBeenCalledWith('/pacientes/42')
+  })
+
+  it('los botones de la fila no abren el expediente: desactivar sigue siendo desactivar', async () => {
+    listarPacientes.mockResolvedValue([paciente(42, 'Ana')])
+    listarConsultas.mockResolvedValue([])
+    push.mockReset()
+    render(<PacientesPage />)
+    const user = userEvent.setup()
+
+    const fila = (await screen.findByText(/^Ana/)).closest('tr') as HTMLElement
+    await user.click(within(fila).getByTitle('Desactivar paciente'))
+
+    expect(push).not.toHaveBeenCalled()
+  })
+})
 
 describe('pacientes · confirmación antes de dar de baja', () => {
   it('el icono de la fila no da de baja: solo pide confirmación', async () => {

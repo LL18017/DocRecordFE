@@ -91,6 +91,12 @@ export interface UsuarioDto {
   especialidad: string | null
   /** Si la cuenta puede iniciar sesión. Espeja `users.enabled` del backend. */
   activo: boolean
+  /**
+   * Cuántas sedes tiene asignadas. Un médico o una enfermera sin ninguna no
+   * puede entrar a trabajar, y la pantalla lo avisa. `null` o ausente cuando
+   * el endpoint no lo calculó: no es lo mismo que cero.
+   */
+  sedes?: number | null
 }
 
 /**
@@ -223,8 +229,29 @@ export async function crearUsuario(payload: CrearUsuarioPayload): Promise<AltaUs
  * si ya lo tiene, y 404 «No se encontro el usuario/rol con id: …» si alguno no
  * existe.
  */
-export async function asignarRol(userId: number, roleId: number): Promise<UsuarioDto> {
-  return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}`, { method: 'POST' })
+export async function asignarRol(
+  userId: number,
+  roleId: number,
+  /**
+   * Solo con MÉDICO: la especialidad con que el backend crea la ficha de
+   * médico. Obligatoria si la persona aún no tiene ficha —sin ella responde
+   * 400—, porque el rol solo no basta para registrar consultas ni recetas.
+   * A una cuenta que ya tiene el rol pero no la ficha, volver a asignarlo con
+   * la especialidad se la crea.
+   */
+  especialidadId?: number,
+  /**
+   * Con MÉDICO o ENFERMERA: la primera sede donde va a trabajar. Obligatoria
+   * si la cuenta aún no tiene ninguna —sin ella el backend responde 400—: sin
+   * sede la cuenta se queda en la pantalla de selección de clínica.
+   */
+  clinicaId?: number,
+): Promise<UsuarioDto> {
+  const parametros = new URLSearchParams()
+  if (especialidadId !== undefined) parametros.set('especialidadId', String(especialidadId))
+  if (clinicaId !== undefined) parametros.set('clinicaId', String(clinicaId))
+  const query = parametros.size > 0 ? `?${parametros}` : ''
+  return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}${query}`, { method: 'POST' })
 }
 
 /**
