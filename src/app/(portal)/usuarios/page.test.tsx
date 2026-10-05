@@ -23,11 +23,15 @@ import type {
   UsuarioDto,
 } from '@/services/usuarios'
 import type { EspecialidadDto } from '@/services/personas'
+import type { ClinicaDto } from '@/services/clinicas'
 import UsuariosPage from './page'
 
 const listarUsuarios = vi.fn<() => Promise<UsuarioDto[]>>()
 const crearUsuario = vi.fn<(payload: CrearUsuarioPayload) => Promise<AltaUsuarioDto>>()
-const asignarRol = vi.fn<(userId: number, roleId: number, especialidadId?: number) => Promise<UsuarioDto>>()
+const asignarRol = vi.fn<
+  (userId: number, roleId: number, especialidadId?: number, clinicaId?: number) => Promise<UsuarioDto>
+>()
+const listarTodasLasClinicas = vi.fn<() => Promise<ClinicaDto[]>>()
 const listarEspecialidades = vi.fn<() => Promise<EspecialidadDto[]>>()
 const asignarContrasena = vi.fn<(userId: number, password: string) => Promise<UsuarioDto>>()
 const listarRoles = vi.fn<() => Promise<RolDto[]>>()
@@ -37,17 +41,22 @@ const cambiarEstadoUsuario = vi.fn<(userId: number, activo: boolean) => Promise<
 vi.mock('@/services/usuarios', () => ({
   listarUsuarios: () => listarUsuarios(),
   crearUsuario: (payload: CrearUsuarioPayload) => crearUsuario(payload),
-  // La especialidad solo se reenvía cuando viene: así las pruebas de los
-  // otros roles siguen comprobando exactamente (userId, roleId).
-  asignarRol: (userId: number, roleId: number, especialidadId?: number) =>
-    especialidadId === undefined
-      ? asignarRol(userId, roleId)
-      : asignarRol(userId, roleId, especialidadId),
+  // Los parámetros opcionales del final solo se reenvían cuando vienen: así
+  // las pruebas de los otros roles siguen comprobando exactamente (userId, roleId).
+  asignarRol: (userId: number, roleId: number, especialidadId?: number, clinicaId?: number) => {
+    const argumentos: [number, number, number?, number?] = [userId, roleId, especialidadId, clinicaId]
+    while (argumentos.length > 2 && argumentos[argumentos.length - 1] === undefined) argumentos.pop()
+    return asignarRol(...argumentos)
+  },
   asignarContrasena: (userId: number, password: string) => asignarContrasena(userId, password),
   listarRoles: () => listarRoles(),
   quitarRol: (userId: number, roleId: number) => quitarRol(userId, roleId),
   cambiarEstadoUsuario: (userId: number, activo: boolean) =>
     cambiarEstadoUsuario(userId, activo),
+}))
+
+vi.mock('@/services/clinicas', () => ({
+  listarTodasLasClinicas: () => listarTodasLasClinicas(),
 }))
 
 vi.mock('@/services/personas', () => ({
@@ -80,6 +89,7 @@ const DEL_API: UsuarioDto[] = [
     userName: 'Naun Enrique Flores Menjivar',
     especialidad: null,
     activo: true,
+    sedes: 1,
     roles: [
       { id: 1, name: 'ADMIN' },
       { id: 2, name: 'MEDICO' },
@@ -91,6 +101,7 @@ const DEL_API: UsuarioDto[] = [
     userName: 'Cuenta Sin Rol',
     especialidad: null,
     activo: true,
+    sedes: 1,
     roles: [],
   },
 ]
@@ -103,6 +114,11 @@ beforeEach(() => {
   listarRoles.mockReset()
   quitarRol.mockReset()
   listarEspecialidades.mockReset()
+  listarTodasLasClinicas.mockReset()
+  listarTodasLasClinicas.mockResolvedValue([
+    { clinicaId: 10, name: 'Clínica Regional de Santa Ana' } as ClinicaDto,
+    { clinicaId: 11, name: 'Unidad de Salud Escalón' } as ClinicaDto,
+  ])
   listarEspecialidades.mockResolvedValue([
     { especialidadId: 5, nombre: 'Medicina General', activa: true },
     { especialidadId: 6, nombre: 'Pediatría', activa: true },
@@ -721,6 +737,69 @@ describe('asignar rol Médico · ficha de médico', () => {
     await user.click(completar)
 
     await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(152, 2, 5))
+  })
+})
+
+// ─── Sede obligatoria para médicos y enfermeras ─────────────────────────────
+// Sin ninguna sede, la cuenta inicia sesión y se queda en la pantalla de
+// selección de clínica sin poder entrar a trabajar.
+describe('asignar rol Médico o Enfermera · sede obligatoria', () => {
+  const SIN_SEDE: UsuarioDto = {
+    userId: 400,
+    email: 'nueva.enfermera@docrecord.sv',
+    userName: 'Nueva Enfermera',
+    especialidad: null,
+    activo: true,
+    sedes: 0,
+    roles: [],
+  }
+
+  it('a una cuenta sin sede le pide la sede al darle Enfermera, y la manda', async () => {
+    listarUsuarios.mockResolvedValue([SIN_SEDE])
+    asignarRol.mockResolvedValue({ ...SIN_SEDE, sedes: 1, roles: [{ id: 3, name: 'ENFERMERA' }] })
+    const user = montar()
+    await screen.findByText('Nueva Enfermera')
+
+    await user.click(screen.getByRole('button', { name: /sin rol asignado — asignar ahora/i }))
+    await user.click(await screen.findByRole('radio', { name: /^enfermera$/i }))
+
+    const confirmar = screen.getByRole('button', { name: /añadir rol enfermera/i })
+    expect(confirmar).toBeDisabled()
+
+    const selector = within(screen.getByRole('dialog')).getByLabelText(/sede donde va a trabajar/i)
+    await waitFor(() => expect(within(selector).getByRole('option', { name: 'Unidad de Salud Escalón' })).toBeVisible())
+    await user.selectOptions(selector, '11')
+    await user.click(confirmar)
+
+    await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(400, 3, undefined, 11))
+  })
+
+  it('a quien ya tiene sede no se la pide', async () => {
+    asignarRol.mockResolvedValue({ ...DEL_API[1], roles: [{ id: 3, name: 'ENFERMERA' }] })
+    const user = montar()
+    await screen.findByText('Cuenta Sin Rol')
+
+    await user.click(screen.getByRole('button', { name: /sin rol asignado — asignar ahora/i }))
+    await user.click(await screen.findByRole('radio', { name: /^enfermera$/i }))
+
+    expect(within(screen.getByRole('dialog')).queryByLabelText(/sede donde va a trabajar/i)).toBeNull()
+    expect(screen.getByRole('button', { name: /añadir rol enfermera/i })).toBeEnabled()
+  })
+
+  it('en la tabla avisa del médico o la enfermera sin sede, y no del administrador', async () => {
+    listarUsuarios.mockResolvedValue([
+      { ...SIN_SEDE, roles: [{ id: 3, name: 'ENFERMERA' }] },
+      { ...SIN_SEDE, userId: 401, email: 'otro.admin@docrecord.sv', userName: 'Otro Admin', roles: [{ id: 1, name: 'ADMIN' }] },
+    ])
+    montar()
+    await screen.findByText('Nueva Enfermera')
+
+    const enfermera = screen.getByText('Nueva Enfermera').closest('tr')!
+    expect(within(enfermera).getByRole('button', { name: /sin sede/i })).toBeVisible()
+
+    const admin = screen.getByText('Otro Admin').closest('tr')!
+    expect(within(admin).queryByRole('button', { name: /sin sede/i })).toBeNull()
+    expect(within(admin).getByRole('button', { name: /sedes/i })).toBeVisible()
   })
 })
 

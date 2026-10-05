@@ -91,6 +91,12 @@ export interface UsuarioDto {
   especialidad: string | null
   /** Si la cuenta puede iniciar sesión. Espeja `users.enabled` del backend. */
   activo: boolean
+  /**
+   * Cuántas sedes tiene asignadas. Un médico o una enfermera sin ninguna no
+   * puede entrar a trabajar, y la pantalla lo avisa. `null` o ausente cuando
+   * el endpoint no lo calculó: no es lo mismo que cero.
+   */
+  sedes?: number | null
 }
 
 /**
@@ -234,8 +240,17 @@ export async function asignarRol(
    * la especialidad se la crea.
    */
   especialidadId?: number,
+  /**
+   * Con MÉDICO o ENFERMERA: la primera sede donde va a trabajar. Obligatoria
+   * si la cuenta aún no tiene ninguna —sin ella el backend responde 400—: sin
+   * sede la cuenta se queda en la pantalla de selección de clínica.
+   */
+  clinicaId?: number,
 ): Promise<UsuarioDto> {
-  const query = especialidadId === undefined ? '' : `?especialidadId=${especialidadId}`
+  const parametros = new URLSearchParams()
+  if (especialidadId !== undefined) parametros.set('especialidadId', String(especialidadId))
+  if (clinicaId !== undefined) parametros.set('clinicaId', String(clinicaId))
+  const query = parametros.size > 0 ? `?${parametros}` : ''
   return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}${query}`, { method: 'POST' })
 }
 
