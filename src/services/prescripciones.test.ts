@@ -87,9 +87,10 @@ describe('prescripciones · una receta sin medicamentos no es una receta', () =>
     const error = await errorDe(
       crearPrescripcion({
         consultaId: 7,
+        // Líneas sin medicamento elegido del catálogo, aunque una traiga dosis.
         medicamentos: [
-          { medicamento: '   ' },
-          { medicamento: '', dosis: '500 mg' },
+          { medicamentoId: null },
+          { medicamentoId: null, dosis: '500 mg' },
         ],
       }),
     )
@@ -104,7 +105,7 @@ describe('prescripciones · lo que viaja al backend', () => {
     await crearPrescripcion({
       consultaId: 7,
       medicamentos: [
-        { medicamento: 'Amoxicilina', dosis: '500 mg', frecuencia: 'cada 8 h', duracion: '7 días' },
+        { medicamentoId: 6, dosis: '500 mg', frecuencia: 'cada 8 h', duracion: '7 días' },
       ],
     })
 
@@ -114,7 +115,8 @@ describe('prescripciones · lo que viaja al backend', () => {
         consultaId: 7,
         medicamentos: [
           {
-            medicamento: 'Amoxicilina',
+            // El id del catálogo, no un nombre: el nombre lo pone el backend.
+            medicamentoId: 6,
             dosis: '500 mg',
             frecuencia: 'cada 8 h',
             duracion: '7 días',
@@ -130,14 +132,14 @@ describe('prescripciones · lo que viaja al backend', () => {
     // interfaz ya sabe mostrarla como «—».
     await crearPrescripcion({
       consultaId: 7,
-      medicamentos: [{ medicamento: '  Ibuprofeno ', dosis: '  ', frecuencia: 'cada 12 h' }],
+      medicamentos: [{ medicamentoId: 3, dosis: '  ', frecuencia: 'cada 12 h' }],
     })
 
     expect(apiFetch).toHaveBeenCalledWith('/prescripciones', {
       method: 'POST',
       body: {
         consultaId: 7,
-        medicamentos: [{ medicamento: 'Ibuprofeno', frecuencia: 'cada 12 h' }],
+        medicamentos: [{ medicamentoId: 3, frecuencia: 'cada 12 h' }],
       },
     })
   })
@@ -145,11 +147,11 @@ describe('prescripciones · lo que viaja al backend', () => {
   it('descarta las líneas sin medicamento y conserva las útiles', () => {
     expect(
       normalizarMedicamentos([
-        { medicamento: 'Amoxicilina', dosis: '500 mg' },
-        { medicamento: '  ' },
-        { medicamento: 'Ibuprofeno' },
+        { medicamentoId: 6, dosis: '500 mg' },
+        { medicamentoId: null },
+        { medicamentoId: 3 },
       ]),
-    ).toEqual([{ medicamento: 'Amoxicilina', dosis: '500 mg' }, { medicamento: 'Ibuprofeno' }])
+    ).toEqual([{ medicamentoId: 6, dosis: '500 mg' }, { medicamentoId: 3 }])
   })
 
   it('consulta las recetas por consulta y por paciente con su parámetro', async () => {
@@ -304,7 +306,7 @@ describe('prescripciones · traducción de errores', () => {
     apiFetch.mockRejectedValue(new ApiError(404, 'Recurso no encontrado'))
 
     const error = await errorDe(
-      crearPrescripcion({ consultaId: 7, medicamentos: [{ medicamento: 'Amoxicilina' }] }),
+      crearPrescripcion({ consultaId: 7, medicamentos: [{ medicamentoId: 6 }] }),
     )
 
     expect(error.message).toContain('consulta')
@@ -329,7 +331,7 @@ describe('prescripciones · traducción de errores', () => {
     )
 
     const error = await errorDe(
-      crearPrescripcion({ consultaId: 7, medicamentos: [{ medicamento: 'Amoxicilina' }] }),
+      crearPrescripcion({ consultaId: 7, medicamentos: [{ medicamentoId: 6 }] }),
     )
 
     expect(error.message).toBe('Solo el médico que atendió la consulta puede recetar')

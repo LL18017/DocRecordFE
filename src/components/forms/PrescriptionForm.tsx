@@ -12,10 +12,13 @@ import {
   crearPrescripcion,
   normalizarMedicamentos,
   MENSAJE_RECETA_VACIA,
+  mensajeFueraDelCatalogo,
   type MedicamentoPayload,
   type PrescripcionDto,
 } from '@/services/prescripciones'
+import { listarMedicamentos, type MedicamentoCatalogoDto } from '@/services/medicamentos'
 import type { OpcionPaciente } from './ConsultationForm'
+import { SelectorDeMedicamento } from './SelectorDeMedicamento'
 
 interface PrescriptionFormProps {
   /** Pacientes elegibles. Se ignora si la receta ya nace atada a una consulta. */
@@ -29,16 +32,25 @@ interface PrescriptionFormProps {
   onCancel: () => void
 }
 
-/** Línea del formulario. Todo cadena: es lo que devuelven los `input`. */
+/**
+ * Línea del formulario.
+ *
+ * `texto` es lo que hay escrito en la casilla del medicamento y `medicamento`
+ * la opción del catálogo que se eligió; son cosas distintas a propósito (ver
+ * SelectorDeMedicamento). Una línea con texto y sin medicamento es un valor
+ * fuera del catálogo, y no se envía.
+ */
 interface LineaMedicamento {
-  medicamento: string
+  texto: string
+  medicamento: MedicamentoCatalogoDto | null
   dosis: string
   frecuencia: string
   duracion: string
 }
 
 const LINEA_VACIA: LineaMedicamento = {
-  medicamento: '',
+  texto: '',
+  medicamento: null,
   dosis: '',
   frecuencia: '',
   duracion: '',
@@ -104,6 +116,39 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
   const [lineas, setLineas] = useState<LineaMedicamento[]>([{ ...LINEA_VACIA }])
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Índice de la línea que provocó el error de arriba, para señalarla. */
+  const [lineaDelError, setLineaDelError] = useState<number | null>(null)
+
+  // El catálogo ACTIVO, una sola vez al abrir el formulario: con unos cientos
+  // de productos cabe de sobra en memoria, y filtrar en el cliente hace que el
+  // autocompletado responda en cada tecla sin un viaje al servidor. Lo que no
+  // está aquí —un medicamento desactivado— no se puede elegir (criterio 4).
+  const [catalogo, setCatalogo] = useState<MedicamentoCatalogoDto[]>([])
+  const [cargandoCatalogo, setCargandoCatalogo] = useState(true)
+  const [errorCatalogo, setErrorCatalogo] = useState<string | null>(null)
+
+  const cargarCatalogo = useCallback(async () => {
+    try {
+      // El backend ya devuelve solo los activos; el filtro se repite porque
+      // ofrecer un desactivado aquí sería ofrecer algo que el backend va a
+      // rechazar al emitir, y es barato no fiarse.
+      setCatalogo((await listarMedicamentos()).filter((m) => m.activo))
+      setErrorCatalogo(null)
+    } catch (err) {
+      setErrorCatalogo(
+        err instanceof Error ? err.message : 'No se pudo cargar el catálogo de medicamentos.',
+      )
+    } finally {
+      setCargandoCatalogo(false)
+    }
+  }, [])
+
+  // Mismo patrón «cargar datos remotos al montar» que el de las consultas de
+  // más abajo; ver el comentario de ese efecto.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ver comentario arriba
+    void cargarCatalogo()
+  }, [cargarCatalogo])
 
   /**
    * Trae las consultas del paciente elegido y preselecciona la más reciente
@@ -154,17 +199,38 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
 
   const actualizarLinea = (indice: number, cambios: Partial<LineaMedicamento>) => {
     setLineas((prev) => prev.map((l, i) => (i === indice ? { ...l, ...cambios } : l)))
+    // Tocar la línea señalada es corregirla: deja de marcarse como inválida.
+    if (indice === lineaDelError) setLineaDelError(null)
   }
 
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
+
+    // HU-23 criterio 3: no se acepta un valor fuera del catálogo. Una línea
+    // con algo escrito que no se eligió de la lista NO se descarta en
+    // silencio como si estuviera vacía: el médico escribió un medicamento y
+    // la receta saldría sin él sin que nadie se lo dijera.
+    const fuera = lineas.findIndex((l) => l.medicamento === null && l.texto.trim() !== '')
+    if (fuera !== -1) {
+      setError(mensajeFueraDelCatalogo(lineas[fuera].texto))
+      setLineaDelError(fuera)
+      return
+    }
 
     // Regla de negocio: una receta sin medicamentos no es una receta. Se
     // comprueba con `normalizarMedicamentos`, el mismo criterio que aplica el
     // servicio, para que «tres líneas en blanco» cuente como cero y no como
     // tres. El aviso se muestra en vez de deshabilitar el botón: un botón
     // apagado sin explicación deja al médico adivinando qué le falta.
-    const medicamentos: MedicamentoPayload[] = normalizarMedicamentos(lineas)
+    const medicamentos: MedicamentoPayload[] = normalizarMedicamentos(
+      lineas.map((l) => ({
+        medicamentoId: l.medicamento?.medicamentoId ?? null,
+        dosis: l.dosis,
+        frecuencia: l.frecuencia,
+        duracion: l.duracion,
+      })),
+    )
+    setLineaDelError(null)
     if (medicamentos.length === 0) {
       setError(MENSAJE_RECETA_VACIA)
       return
@@ -195,6 +261,7 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
     <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
       {error && (
         <p
+          id={id('error')}
           role="alert"
           className="rounded-xl border-2 border-red-100 bg-red-50 px-3.5 py-2.5 text-xs text-red-700"
         >
@@ -286,6 +353,12 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
           </button>
         </div>
 
+        {errorCatalogo && (
+          <p role="alert" className="text-xs text-red-600 mb-2">
+            {errorCatalogo}
+          </p>
+        )}
+
         <div className="space-y-2">
           {lineas.map((linea, i) => (
             <div
@@ -296,13 +369,30 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
                 <label htmlFor={id(`medicamento-${i}`)} className="sr-only">
                   Medicamento {i + 1}
                 </label>
-                <input
+                <SelectorDeMedicamento
                   id={id(`medicamento-${i}`)}
-                  placeholder="Medicamento (ej: Amoxicilina)"
-                  value={linea.medicamento}
-                  onChange={(e) => actualizarLinea(i, { medicamento: e.target.value })}
+                  catalogo={catalogo}
+                  texto={linea.texto}
+                  seleccionado={linea.medicamento}
+                  // Teclear de nuevo deshace la elección: lo escrito vuelve a
+                  // ser solo una búsqueda hasta que se elija otra opción.
+                  onCambiarTexto={(texto) => actualizarLinea(i, { texto, medicamento: null })}
+                  onElegir={(m) => actualizarLinea(i, { texto: m.descripcion, medicamento: m })}
+                  invalido={lineaDelError === i}
+                  descritoPor={lineaDelError === i ? id('error') : undefined}
+                  deshabilitado={cargandoCatalogo || errorCatalogo !== null}
+                  placeholder={
+                    cargandoCatalogo
+                      ? 'Cargando catálogo…'
+                      : 'Busca en el catálogo (ej: amoxicilina, Panadol)'
+                  }
                   className={inputLineaClass}
                 />
+                {linea.medicamento && (
+                  <p className="text-xs text-slate-400 mt-1">
+                    Principio activo: {linea.medicamento.principioActivo}
+                  </p>
+                )}
               </div>
               <div>
                 <label htmlFor={id(`dosis-${i}`)} className="sr-only">
@@ -343,7 +433,12 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
               {lineas.length > 1 && (
                 <button
                   type="button"
-                  onClick={() => setLineas((prev) => prev.filter((_, j) => j !== i))}
+                  onClick={() => {
+                    setLineas((prev) => prev.filter((_, j) => j !== i))
+                    // Los índices se corren al quitar una línea; la marca de
+                    // error podría quedar sobre otra que no tiene nada malo.
+                    setLineaDelError(null)
+                  }}
                   aria-label={`Quitar el medicamento ${i + 1}`}
                   className="flex items-center justify-center border border-red-200 rounded-lg text-red-500 hover:bg-red-50 transition-colors bg-white cursor-pointer"
                 >
@@ -355,7 +450,8 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
         </div>
 
         <p className="text-xs text-slate-400 mt-2">
-          Dosis, frecuencia y duración son opcionales; lo que se deje en blanco no se guarda.
+          El medicamento se elige del catálogo. Dosis, frecuencia y duración son opcionales; lo
+          que se deje en blanco no se guarda.
         </p>
       </div>
 
