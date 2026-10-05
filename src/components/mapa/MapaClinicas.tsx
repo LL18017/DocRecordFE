@@ -61,7 +61,7 @@ const VERDE_ACTIVA = '#059669'
  * `className: ''` es intencionado: el valor por defecto (`leaflet-div-icon`)
  * pinta un recuadro blanco con borde alrededor de la chinche.
  */
-function crearChinche(color: string, destacada: boolean) {
+export function crearChinche(color: string, destacada: boolean) {
   const ancho = destacada ? 34 : 26
   const alto = Math.round(ancho * 1.32)
   return divIcon({

@@ -63,3 +63,16 @@ describe('puedeVerRuta · el paciente no hereda el portal de trabajo', () => {
     expect(visibles.map((r) => r.href)).toEqual(['/mi-panel'])
   })
 })
+
+describe('puedeVerRuta · el catálogo de medicamentos (HU-23)', () => {
+  it('solo lo administra el Administrador', () => {
+    // El médico receta DESDE el catálogo, en el formulario de la receta; no
+    // lo mantiene. Ofrecerle la pantalla sería ofrecerle botones que el
+    // backend le responde con 403.
+    expect(puedeVerRuta('/medicamentos', ['Administrador'])).toBe(true)
+    expect(puedeVerRuta('/medicamentos', ['Administrador', 'medico'])).toBe(true)
+    for (const rol of ['medico', 'enfermera', 'paciente'] as const) {
+      expect(puedeVerRuta('/medicamentos', [rol])).toBe(false)
+    }
+  })
+})
