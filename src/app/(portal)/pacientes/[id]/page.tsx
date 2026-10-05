@@ -28,9 +28,12 @@
 //   · Condiciones hereditarias (HU-13) → GET /condiciones-hereditarias?pacienteId={id}
 //     Las dos cargan dentro de su propia sección (components/clinico) y solo
 //     el médico las edita.
-//   · Alergias y hábitos → NO EXISTE ENDPOINT en el expediente. No hay nada que
-//     cargar, así que se muestra el vacío con un aviso que dice por qué está
-//     vacío (ver `AvisoSinRegistro`), nunca datos de relleno.
+//   · Alergias (HU-11) → GET /alergias?pacienteId={id}. Carga en su sección,
+//     la editan médico y enfermera, y las severas se destacan además arriba de
+//     la ficha (`AvisoDeAlergiasSeveras`).
+//   · Hábitos → NO EXISTE ENDPOINT en el expediente. No hay nada que cargar,
+//     así que se muestra el vacío con un aviso que dice por qué está vacío
+//     (ver `AvisoSinRegistro`), nunca datos de relleno.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -46,6 +49,11 @@ import { pacienteDtoAPatient } from '@/lib/pacienteAdapter'
 import { ConsultationForm } from '@/components/forms/ConsultationForm'
 import { SeccionAntecedentes } from '@/components/clinico/SeccionAntecedentes'
 import { SeccionCondicionesHereditarias } from '@/components/clinico/SeccionCondicionesHereditarias'
+import {
+  AvisoDeAlergiasSeveras,
+  SeccionAlergias,
+  type AlergiasConocidas,
+} from '@/components/clinico/SeccionAlergias'
 import { useAppContext } from '@/context/AppContext'
 import {
   formatearFechaHora,
@@ -161,6 +169,13 @@ export default function ExpedienteDetailPage() {
   // enfermera y el administrador los consultan (HU-12 c3, HU-13 c4).
   const { user } = useAppContext()
   const esMedico = user ? user.roles.includes('medico') : false
+  // Las alergias, en cambio, las registra también la enfermera (HU-11): suele
+  // ser quien primero oye «soy alérgico a…». El administrador solo consulta.
+  const puedeRegistrarAlergias = user
+    ? user.roles.includes('medico') || user.roles.includes('enfermera')
+    : false
+  // Lo que la sección de alergias sabe, para el aviso de arriba (HU-11 c2).
+  const [alergiasConocidas, setAlergiasConocidas] = useState<AlergiasConocidas>(undefined)
 
   const [patient, setPatient] = useState<Patient | null>(null)
   const [cargando, setCargando] = useState(true)
@@ -370,6 +385,10 @@ export default function ExpedienteDetailPage() {
         </div>
       </div>
 
+      {/* HU-11 c2: las alergias severas, arriba y en rojo, sin tener que
+          desplegar nada. */}
+      <AvisoDeAlergiasSeveras alergias={alergiasConocidas} />
+
       {avisoHistorial && (
         <div
           role="alert"
@@ -488,14 +507,13 @@ export default function ExpedienteDetailPage() {
             )}
           </div>
 
-          {/* ── Secciones sin endpoint: se muestra el hueco, no relleno ── */}
-          <SeccionSinRegistro
-            icon="shield"
-            titulo="Historial de Alergias"
-            vacio="No hay alergias registradas."
-            loQueFalta="alergias"
+          {/* ── HU-11: alergias (GET /alergias?pacienteId=) ── */}
+          <SeccionAlergias
+            pacienteId={Number(patientId)}
+            puedeEditar={puedeRegistrarAlergias}
             expanded={expanded.includes('alergias')}
             onToggle={() => toggle('alergias')}
+            onCambio={setAlergiasConocidas}
           />
 
           {/* ── HU-12 y HU-13: secciones con backend ──
