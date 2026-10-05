@@ -27,6 +27,7 @@ import type { PrescripcionDto } from '@/services/prescripciones'
 import type { PacienteDto } from '@/services/pacientes'
 import type { SignosVitalesDto } from '@/services/signosVitales'
 import type { AntecedenteDto, CondicionHereditariaDto } from '@/services/antecedentes'
+import type { AlergiaDto, CrearAlergiaPayload } from '@/services/alergias'
 import ExpedienteDetailPage from './page'
 
 const obtenerPaciente = vi.fn<(personaId: number) => Promise<PacienteDto>>()
@@ -36,6 +37,8 @@ const crearConsulta = vi.fn<(p: CrearConsultaPayload) => Promise<ConsultaDto>>()
 const ultimaToma = vi.fn<(pacienteId: number) => Promise<SignosVitalesDto | null>>()
 const listarAntecedentes = vi.fn<(pacienteId: number) => Promise<AntecedenteDto[]>>()
 const listarCondicionesHereditarias = vi.fn<(pacienteId: number) => Promise<CondicionHereditariaDto[]>>()
+const listarAlergias = vi.fn<(pacienteId: number) => Promise<AlergiaDto[]>>()
+const crearAlergia = vi.fn<(p: CrearAlergiaPayload) => Promise<AlergiaDto>>()
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ id: '42' }),
@@ -87,8 +90,22 @@ vi.mock('@/services/antecedentes', async (importarOriginal) => {
   }
 })
 
+vi.mock('@/services/alergias', async (importarOriginal) => {
+  // Las etiquetas, el orden y el filtro de severas se dejan reales: son parte
+  // de lo que la sección y el aviso pintan. Sus pruebas propias están en
+  // components/clinico/SeccionAlergias.test.tsx.
+  const real = await importarOriginal<typeof import('@/services/alergias')>()
+  return {
+    ...real,
+    listarAlergias: (pacienteId: number) => listarAlergias(pacienteId),
+    crearAlergia: (p: CrearAlergiaPayload) => crearAlergia(p),
+  }
+})
+
+const MEDICO: User = { name: 'naun@docrecord.sv', email: 'naun@docrecord.sv', roles: ['medico'] }
+
 const SESION: { user: User | null; activeClinic: Clinica | null } = {
-  user: { name: 'naun@docrecord.sv', email: 'naun@docrecord.sv', roles: ['medico'] },
+  user: MEDICO,
   activeClinic: null,
 }
 
@@ -185,6 +202,12 @@ const TOMA: SignosVitalesDto = {
 }
 
 beforeEach(() => {
+  // Las pruebas de permisos de HU-11 cambian el rol; cada prueba arranca con
+  // el médico.
+  SESION.user = MEDICO
+  listarAlergias.mockReset()
+  crearAlergia.mockReset()
+  listarAlergias.mockResolvedValue([])
   obtenerPaciente.mockReset()
   listarConsultas.mockReset()
   listarPrescripcionesDePaciente.mockReset()
@@ -214,13 +237,14 @@ async function montar() {
 }
 
 /** Secciones plegables que no tienen endpoint detrás. */
-const SECCIONES_SIN_BACKEND = ['Historial de Alergias', 'Hábitos y Estilo de Vida']
+const SECCIONES_SIN_BACKEND = ['Hábitos y Estilo de Vida']
 
 /**
- * Secciones plegables que sí lo tienen: HU-12 y HU-13. Salieron de la lista
- * de arriba al aparecer `/antecedentes-patologicos` y `/condiciones-hereditarias`.
+ * Secciones plegables que sí lo tienen: HU-11, HU-12 y HU-13. Salieron de la
+ * lista de arriba al aparecer `/alergias`, `/antecedentes-patologicos` y
+ * `/condiciones-hereditarias`.
  */
-const SECCIONES_CON_BACKEND = ['Antecedentes Patológicos', 'Condiciones Hereditarias']
+const SECCIONES_CON_BACKEND = ['Historial de Alergias', 'Antecedentes Patológicos', 'Condiciones Hereditarias']
 
 /**
  * Despliega todas las secciones sin backend.
@@ -350,7 +374,7 @@ describe('expediente · ninguna sección inventa datos del paciente', () => {
     // Guarda de la guarda: si `desplegarTodo` dejara de desplegar, el resto de
     // la prueba pasaría en verde con la Penicilina puesta, escondida dentro de
     // una sección plegada.
-    expect(screen.getByText('No hay alergias registradas.')).toBeVisible()
+    expect(screen.getByText(/No hay alergias registradas/)).toBeVisible()
 
     for (const inventado of DATOS_INVENTADOS) {
       expect(screen.queryAllByText(inventado)).toHaveLength(0)
@@ -367,24 +391,24 @@ describe('expediente · ninguna sección inventa datos del paciente', () => {
     const user = await montar()
     await desplegarTodo(user)
 
-    for (const vacio of ['No hay alergias registradas.', 'No hay hábitos registrados.']) {
-      expect(screen.getByText(vacio)).toBeVisible()
-    }
+    expect(screen.getByText('No hay hábitos registrados.')).toBeVisible()
 
-    // DOS avisos: antecedentes patológicos y condiciones hereditarias salieron
-    // del grupo con HU-12 y HU-13, por la misma razón que signos vitales (ver
-    // abajo). Su vacío dice que nadie registró nada, sin el aviso.
+    // UN aviso, el de hábitos: alergias, antecedentes patológicos y
+    // condiciones hereditarias salieron del grupo con HU-11, HU-12 y HU-13,
+    // por la misma razón que signos vitales (ver abajo). Su vacío dice que
+    // nadie registró nada, sin el aviso.
+    expect(screen.getByText(/No hay alergias registradas/)).toBeVisible()
     expect(screen.getByText(/No hay antecedentes patológicos registrados/)).toBeVisible()
     expect(screen.getByText(/No hay condiciones hereditarias registradas/)).toBeVisible()
 
-    // Antes eran cuatro, y antes cinco: signos vitales SALIÓ de este grupo al aparecer
+    // Antes eran dos, cuatro y cinco: signos vitales SALIÓ de este grupo al aparecer
     // `GET /signos-vitales/ultima` (migración V9). El aviso dice «el sistema
     // todavía no guarda esto», y para las constantes eso ya es falso: aquí un
     // vacío sí significa que a este paciente nadie le ha tomado nada, que es
     // información de verdad y no una laguna de la aplicación. Mantener el
     // aviso haría desconfiar de un dato fiable, que es el mismo error de la
     // maqueta al revés.
-    expect(screen.getAllByText(/no lo lea como «no tiene»/i)).toHaveLength(2)
+    expect(screen.getAllByText(/no lo lea como «no tiene»/i)).toHaveLength(1)
 
     // Y el vacío de constantes dice por qué está vacío, sin afirmar que el
     // paciente «no tiene» nada.
@@ -452,7 +476,8 @@ describe('expediente · ninguna sección inventa datos del paciente', () => {
     expect(screen.queryByRole('button', { name: /actualizar/i })).toBeNull()
 
     // Las secciones con backend sí lo ofrecen, a un médico (la sesión de estas
-    // pruebas): POST /antecedentes-patologicos y /condiciones-hereditarias existen.
+    // pruebas): POST /alergias, /antecedentes-patologicos y
+    // /condiciones-hereditarias existen.
     for (const titulo of SECCIONES_CON_BACKEND) {
       const seccion = screen.getByRole('region', { name: titulo })
       expect(within(seccion).getByRole('button', { name: /agregar/i })).toBeVisible()
@@ -464,6 +489,105 @@ describe('expediente · ninguna sección inventa datos del paciente', () => {
     const cabecera = screen.getByRole('heading', { name: 'Consultas Médicas' }).closest('div')
     if (!cabecera) throw new Error('La cabecera de Consultas Médicas no tiene contenedor.')
     expect(within(cabecera).getByRole('button', { name: 'Agregar' })).toBeVisible()
+  })
+})
+
+describe('expediente · alergias del paciente (HU-11)', () => {
+  function alergia(cambios: Partial<AlergiaDto> = {}): AlergiaDto {
+    // «Amoxicilina» y no «Penicilina»: la Penicilina es uno de los datos
+    // inventados que vigila la prueba de arriba.
+    return {
+      alergiaId: 3,
+      pacienteId: 42,
+      sustancia: 'Amoxicilina',
+      reaccion: 'Edema de glotis',
+      severidad: 'SEVERA',
+      fechaDeteccion: '2019-04-02',
+      registradaPor: 'Sofía Recinos',
+      registradaEn: '2026-09-01T10:00:00',
+      eliminadaPor: null,
+      eliminadaEn: null,
+      ...cambios,
+    }
+  }
+
+  /** La sección de alergias, para no confundirla con el aviso de arriba. */
+  const seccion = () => screen.getByRole('region', { name: 'Historial de Alergias' })
+
+  it('c1: pide las alergias de ESTE paciente y las muestra en su sección', async () => {
+    listarAlergias.mockResolvedValue([alergia({ severidad: 'MODERADA', sustancia: 'Látex' })])
+    const user = await montar()
+
+    expect(listarAlergias).toHaveBeenCalledWith(42)
+    await user.click(screen.getByRole('button', { name: /^Historial de Alergias/ }))
+    expect(within(seccion()).getByText('Látex')).toBeVisible()
+    expect(within(seccion()).getByText(/Registrada por Sofía Recinos/)).toBeVisible()
+  })
+
+  it('c2: una alergia severa aparece arriba de la ficha, en rojo, sin desplegar nada', async () => {
+    listarAlergias.mockResolvedValue([alergia(), alergia({ alergiaId: 4, sustancia: 'Polen', severidad: 'LEVE' })])
+    await montar()
+
+    const aviso = await screen.findByRole('alert', { name: 'Alergias severas' })
+    expect(within(aviso).getByText('Amoxicilina')).toBeVisible()
+    expect(aviso).toHaveTextContent('Edema de glotis')
+    expect(within(aviso).queryByText('Polen')).toBeNull()
+    expect(aviso.className).toMatch(/red/)
+    // «En la parte superior»: antes que todas las secciones del expediente,
+    // la de alergias incluida.
+    const posicion = aviso.compareDocumentPosition(screen.getByText('Datos Personales'))
+    expect(posicion & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('c2: sin alergias severas no hay aviso', async () => {
+    listarAlergias.mockResolvedValue([alergia({ severidad: 'MODERADA' })])
+    await montar()
+
+    await waitFor(() => expect(listarAlergias).toHaveBeenCalled())
+    expect(screen.queryByRole('alert', { name: 'Alergias severas' })).toBeNull()
+  })
+
+  it('c2: una severa recién registrada aparece arriba sin recargar', async () => {
+    crearAlergia.mockImplementation(async (p) => alergia({ alergiaId: 9, ...p }))
+    const user = await montar()
+
+    await user.click(within(seccion()).getByRole('button', { name: '+ Agregar' }))
+    const form = screen.getByRole('form', { name: 'Nueva alergia' })
+    await user.type(within(form).getByLabelText(/^sustancia/i), 'Yodo')
+    await user.type(within(form).getByLabelText(/^tipo de reacción/i), 'Anafilaxia')
+    await user.selectOptions(within(form).getByLabelText(/^severidad/i), 'SEVERA')
+    await user.type(within(form).getByLabelText(/^fecha de detección/i), '2024-02-02')
+    await user.click(within(form).getByRole('button', { name: 'Guardar alergia' }))
+
+    const aviso = await screen.findByRole('alert', { name: 'Alergias severas' })
+    expect(within(aviso).getByText('Yodo')).toBeVisible()
+  })
+
+  it('si las alergias no se pudieron cargar, la ficha lo advierte arriba', async () => {
+    listarAlergias.mockRejectedValue(new ApiError(500, 'Error del servidor (500).'))
+    await montar()
+
+    expect(await screen.findByText(/No se pudieron cargar las alergias de este paciente/)).toBeVisible()
+  })
+
+  it('la enfermera agrega alergias aunque no pueda editar antecedentes', async () => {
+    SESION.user = { name: 'marta@docrecord.sv', email: 'marta@docrecord.sv', roles: ['enfermera'] }
+    await montar()
+
+    expect(within(seccion()).getByRole('button', { name: '+ Agregar' })).toBeVisible()
+    const antecedentes = screen.getByRole('region', { name: 'Antecedentes Patológicos' })
+    expect(within(antecedentes).queryByRole('button', { name: /agregar/i })).toBeNull()
+  })
+
+  it('el administrador consulta las alergias pero no las agrega ni elimina', async () => {
+    SESION.user = { name: 'admin@docrecord.sv', email: 'admin@docrecord.sv', roles: ['Administrador'] }
+    listarAlergias.mockResolvedValue([alergia({ severidad: 'LEVE' })])
+    const user = await montar()
+
+    await user.click(screen.getByRole('button', { name: /^Historial de Alergias/ }))
+    expect(within(seccion()).getByText('Amoxicilina')).toBeVisible()
+    expect(within(seccion()).queryByRole('button', { name: /agregar/i })).toBeNull()
+    expect(within(seccion()).queryByRole('button', { name: /eliminar/i })).toBeNull()
   })
 })
 
