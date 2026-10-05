@@ -25,6 +25,16 @@ export default function HomePage() {
           </span>
         </div>
         <div className="flex items-center gap-3">
+          {/* HU-28: el mapa de la red es público; quien busca dónde atenderse
+              no tiene por qué tener cuenta. En el teléfono se oculta de la
+              barra —tres enlaces no caben en 320 px sin scroll lateral— y queda
+              el botón del bloque principal. */}
+          <Link
+            href="/mapa"
+            className="hidden sm:inline-block text-blue-200 hover:text-white text-sm font-medium transition-colors px-4 py-2"
+          >
+            Mapa de clínicas
+          </Link>
           <Link
             href="/login"
             className="text-blue-200 hover:text-white text-sm font-medium transition-colors px-4 py-2"
@@ -70,6 +80,12 @@ export default function HomePage() {
               className="px-8 py-3.5 rounded-2xl font-semibold text-slate-700 text-base border-2 border-slate-300 hover:border-slate-400 bg-white/50 backdrop-blur-xs transition-colors"
             >
               Ingresar
+            </Link>
+            <Link
+              href="/mapa"
+              className="inline-flex items-center gap-2 px-2 py-3.5 font-semibold text-doc-blue text-base hover:underline"
+            >
+              <Icon name="map" size={18} /> Ver clínicas en el mapa
             </Link>
           </div>
 

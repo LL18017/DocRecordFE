@@ -183,6 +183,15 @@ function FormularioDeLogin() {
             </p>
           </form>
 
+          {/* Fuera del formulario: no es parte de iniciar sesión, es lo que
+              puede hacer quien llegó aquí buscando dónde atenderse (HU-28). */}
+          <p className="text-center text-sm text-slate-500 mt-6">
+            ¿Buscas dónde atenderte?{' '}
+            <Link href="/mapa" className="font-semibold text-doc-blue hover:underline">
+              Ver el mapa de clínicas
+            </Link>
+          </p>
+
         </div>
       </div>
 
