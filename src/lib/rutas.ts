@@ -48,6 +48,11 @@ export const RUTAS_DEL_PORTAL: readonly RutaDelPortal[] = [
   { href: '/agenda', label: 'Agenda de Citas', icon: 'agenda', roles: ['medico', 'enfermera'] },
   { href: '/clinicas', label: 'Clínicas', icon: 'clinicas', roles: ['medico', 'enfermera', 'Administrador'] },
   { href: '/usuarios', label: 'Usuarios y Roles', icon: 'usuarios', roles: ['Administrador'] },
+  // HU-23. Solo el Administrador: mantener el catálogo es lo que lo hace una
+  // lista CONTROLADA, y el backend responde 403 a cualquier otro rol que
+  // intente escribir en él. El médico usa el catálogo desde la receta, no
+  // desde aquí. Lleva el icono de Prescripciones porque es de lo que trata.
+  { href: '/medicamentos', label: 'Medicamentos', icon: 'prescripciones', roles: ['Administrador'] },
   // Lo único que el portal le ofrece hoy a una cuenta de paciente, y va al
   // final porque `rutaPorDefecto` se queda con la PRIMERA entrada que el rol
   // puede ver: así el personal sigue aterrizando en el Dashboard y solo quien

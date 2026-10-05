@@ -36,6 +36,16 @@ export interface PaginaDto<T> {
  */
 export interface MedicamentoPrescritoDto {
   id: number
+  /**
+   * El medicamento del catálogo (HU-23). `null` —o ausente— en las recetas
+   * emitidas antes del catálogo, que se escribieron como texto libre.
+   */
+  medicamentoId?: number | null
+  /**
+   * El nombre TAL COMO QUEDÓ en la receta. No se vuelve a buscar en el
+   * catálogo para pintarlo: si el catálogo se corrige o el medicamento se
+   * desactiva, la receta ya entregada tiene que seguir diciendo lo mismo.
+   */
   medicamento: string
   dosis: string | null
   frecuencia: string | null
@@ -81,18 +91,32 @@ export interface PrescripcionDto {
   medicamentos: MedicamentoPrescritoDto[]
 }
 
-/** Una línea tal como se envía al crear. Solo `medicamento` es obligatorio. */
+/**
+ * Una línea tal como se envía al crear. Solo `medicamentoId` es obligatorio.
+ *
+ * Es el id de un medicamento ACTIVO del catálogo, no un nombre: desde HU-23 el
+ * backend rechaza con 400 lo que no esté en el catálogo, y el nombre que queda
+ * en la receta lo pone él.
+ */
 export interface MedicamentoPayload {
-  medicamento: string
+  medicamentoId: number
   dosis?: string
   frecuencia?: string
   duracion?: string
 }
 
+/**
+ * Una línea del formulario antes de limpiarla: puede no tener medicamento
+ * elegido todavía (`null`), que es lo que `normalizarMedicamentos` descarta.
+ */
+export type BorradorDeMedicamento = Omit<MedicamentoPayload, 'medicamentoId'> & {
+  medicamentoId: number | null
+}
+
 /** Cuerpo de `POST /prescripciones`. */
 export interface CrearPrescripcionPayload {
   consultaId: number
-  medicamentos: MedicamentoPayload[]
+  medicamentos: readonly BorradorDeMedicamento[]
 }
 
 /**
@@ -106,7 +130,16 @@ export const MENSAJE_RECETA_VACIA =
   'Una receta necesita al menos un medicamento. Agrega uno antes de emitirla.'
 
 /**
- * Deja la lista lista para enviar: descarta líneas sin nombre de medicamento
+ * Lo que se dice cuando una línea tiene escrito algo que no se eligió del
+ * catálogo (HU-23 criterio 3). Nombra el texto para que el médico sepa cuál
+ * de las líneas es, y dice qué hacer si el medicamento de verdad falta.
+ */
+export function mensajeFueraDelCatalogo(texto: string): string {
+  return `«${texto.trim()}» no está en el catálogo de medicamentos. Elígelo de la lista; si no aparece, pídele a un administrador que lo registre.`
+}
+
+/**
+ * Deja la lista lista para enviar: descarta líneas sin medicamento elegido
  * y omite —no manda vacíos— los campos opcionales que quedaron en blanco.
  *
  * Enviar `dosis: ''` no es lo mismo que no enviarla: la primera guarda una
@@ -116,7 +149,7 @@ export const MENSAJE_RECETA_VACIA =
  * cuántas líneas útiles hay de verdad.
  */
 export function normalizarMedicamentos(
-  medicamentos: readonly MedicamentoPayload[],
+  medicamentos: readonly BorradorDeMedicamento[],
 ): MedicamentoPayload[] {
   const opcional = (valor: string | undefined) => {
     const limpio = valor?.trim()
@@ -124,9 +157,9 @@ export function normalizarMedicamentos(
   }
 
   return medicamentos
-    .filter((m) => m.medicamento.trim() !== '')
+    .filter((m): m is BorradorDeMedicamento & { medicamentoId: number } => m.medicamentoId !== null)
     .map((m) => {
-      const linea: MedicamentoPayload = { medicamento: m.medicamento.trim() }
+      const linea: MedicamentoPayload = { medicamentoId: m.medicamentoId }
       const dosis = opcional(m.dosis)
       const frecuencia = opcional(m.frecuencia)
       const duracion = opcional(m.duracion)

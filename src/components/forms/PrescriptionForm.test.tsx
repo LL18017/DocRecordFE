@@ -7,6 +7,9 @@
 //
 // Lo segundo: que el cuerpo sea el del contrato —`consultaId` más la lista de
 // medicamentos, con los opcionales OMITIDOS cuando están en blanco—.
+//
+// Lo tercero (HU-23): el medicamento se elige del catálogo con un
+// autocompletado, y lo que no salió de la lista no se envía.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -14,17 +17,25 @@ import userEvent from '@testing-library/user-event'
 import { ApiError } from '@/lib/api'
 import type { ConsultaDto } from '@/services/consultas'
 import type { CrearPrescripcionPayload, PrescripcionDto } from '@/services/prescripciones'
-import { MENSAJE_RECETA_VACIA } from '@/services/prescripciones'
+import { MENSAJE_RECETA_VACIA, mensajeFueraDelCatalogo } from '@/services/prescripciones'
+import type { FiltroDeMedicamentos, MedicamentoCatalogoDto } from '@/services/medicamentos'
 import { PrescriptionForm } from './PrescriptionForm'
 
 const crearPrescripcion = vi.fn<(p: CrearPrescripcionPayload) => Promise<PrescripcionDto>>()
 const listarConsultas = vi.fn<(pacienteId?: number) => Promise<ConsultaDto[]>>()
+const listarMedicamentos = vi.fn<(f?: FiltroDeMedicamentos) => Promise<MedicamentoCatalogoDto[]>>()
 
 vi.mock('@/services/prescripciones', async (importarOriginal) => {
   // `normalizarMedicamentos` y el mensaje se dejan reales: son la regla que se
   // está probando.
   const real = await importarOriginal<typeof import('@/services/prescripciones')>()
   return { ...real, crearPrescripcion: (p: CrearPrescripcionPayload) => crearPrescripcion(p) }
+})
+
+vi.mock('@/services/medicamentos', async (importarOriginal) => {
+  // `coincideConBusqueda` se deja real: es el filtro del autocompletado.
+  const real = await importarOriginal<typeof import('@/services/medicamentos')>()
+  return { ...real, listarMedicamentos: (f?: FiltroDeMedicamentos) => listarMedicamentos(f) }
 })
 
 vi.mock('@/services/consultas', async (importarOriginal) => {
@@ -61,6 +72,42 @@ function receta(): PrescripcionDto {
   }
 }
 
+function medicamento(cambios: Partial<MedicamentoCatalogoDto>): MedicamentoCatalogoDto {
+  const base = {
+    medicamentoId: 6,
+    nombreGenerico: 'Amoxicilina',
+    nombreComercial: 'Amoxil',
+    principioActivo: 'Amoxicilina',
+    presentacion: 'Cápsula',
+    concentracion: '500 mg',
+    activo: true,
+    ...cambios,
+  }
+  return {
+    ...base,
+    descripcion: `${base.nombreGenerico} ${base.concentracion} (${base.nombreComercial}), ${base.presentacion}`,
+  }
+}
+
+const AMOXICILINA = medicamento({})
+const IBUPROFENO = medicamento({
+  medicamentoId: 3,
+  nombreGenerico: 'Ibuprofeno',
+  nombreComercial: 'Advil',
+  principioActivo: 'Ibuprofeno',
+  presentacion: 'Tableta',
+  concentracion: '400 mg',
+})
+const ACETAMINOFEN = medicamento({
+  medicamentoId: 1,
+  nombreGenerico: 'Acetaminofén',
+  nombreComercial: 'Panadol',
+  principioActivo: 'Paracetamol',
+  presentacion: 'Tableta',
+  concentracion: '500 mg',
+})
+const CATALOGO = [ACETAMINOFEN, AMOXICILINA, IBUPROFENO]
+
 const PACIENTES = [{ personaId: 42, nombre: 'Ana María Ramírez', expediente: 'EXP-0042' }]
 
 let onCreada: ReturnType<typeof vi.fn<(prescripcion: PrescripcionDto) => void>>
@@ -69,6 +116,8 @@ let onCancel: ReturnType<typeof vi.fn<() => void>>
 beforeEach(() => {
   crearPrescripcion.mockReset()
   listarConsultas.mockReset()
+  listarMedicamentos.mockReset()
+  listarMedicamentos.mockResolvedValue(CATALOGO)
   crearPrescripcion.mockResolvedValue(receta())
   listarConsultas.mockResolvedValue([consulta()])
   onCreada = vi.fn<(prescripcion: PrescripcionDto) => void>()
@@ -110,6 +159,22 @@ const campoDosis = (n: number) => screen.getByLabelText(new RegExp(`dosis del me
 const campoFrecuencia = (n: number) =>
   screen.getByLabelText(new RegExp(`frecuencia del medicamento ${n}`, 'i'))
 
+/**
+ * Elige un medicamento como lo haría el médico: teclea en la casilla y pulsa
+ * la opción del catálogo. `opcion` es el texto de la opción; por defecto, el
+ * mismo que se tecleó.
+ */
+async function elegir(
+  user: ReturnType<typeof userEvent.setup>,
+  n: number,
+  tecleado: string,
+  opcion: RegExp = new RegExp(tecleado, 'i'),
+) {
+  await waitFor(() => expect(campoMedicamento(n)).toBeEnabled())
+  await user.type(campoMedicamento(n), tecleado)
+  await user.click(await screen.findByRole('option', { name: opcion }))
+}
+
 /** Espera a que la lista de consultas del paciente esté cargada. */
 async function esperarConsultas() {
   await waitFor(() => expect(listarConsultas).toHaveBeenCalled())
@@ -149,19 +214,20 @@ describe('PrescriptionForm · el cuerpo que viaja al backend', () => {
     const user = await montar()
     await esperarConsultas()
 
-    await user.type(campoMedicamento(1), 'Amoxicilina')
+    await elegir(user, 1, 'Amoxicilina')
     await user.type(campoDosis(1), '500 mg')
     await user.type(campoFrecuencia(1), 'cada 8 h')
     await user.click(screen.getByRole('button', { name: /agregar medicamento/i }))
-    await user.type(campoMedicamento(2), 'Ibuprofeno')
+    await elegir(user, 2, 'Ibuprofeno')
     await user.click(botonEmitir())
 
     await waitFor(() => expect(crearPrescripcion).toHaveBeenCalled())
     expect(crearPrescripcion.mock.calls[0][0]).toEqual({
       consultaId: 7,
+      // Ids del catálogo, no nombres: el nombre de la receta lo pone el backend.
       medicamentos: [
-        { medicamento: 'Amoxicilina', dosis: '500 mg', frecuencia: 'cada 8 h' },
-        { medicamento: 'Ibuprofeno' },
+        { medicamentoId: AMOXICILINA.medicamentoId, dosis: '500 mg', frecuencia: 'cada 8 h' },
+        { medicamentoId: IBUPROFENO.medicamentoId },
       ],
     })
   })
@@ -170,23 +236,23 @@ describe('PrescriptionForm · el cuerpo que viaja al backend', () => {
     const user = await montar()
     await esperarConsultas()
 
-    await user.type(campoMedicamento(1), 'Amoxicilina')
+    await elegir(user, 1, 'Amoxicilina')
     await user.click(screen.getByRole('button', { name: /agregar medicamento/i }))
     await user.click(screen.getByRole('button', { name: /agregar medicamento/i }))
-    await user.type(campoMedicamento(3), 'Ibuprofeno')
+    await elegir(user, 3, 'Ibuprofeno')
     await user.click(botonEmitir())
 
     await waitFor(() => expect(crearPrescripcion).toHaveBeenCalled())
     expect(crearPrescripcion.mock.calls[0][0].medicamentos).toEqual([
-      { medicamento: 'Amoxicilina' },
-      { medicamento: 'Ibuprofeno' },
+      { medicamentoId: AMOXICILINA.medicamentoId },
+      { medicamentoId: IBUPROFENO.medicamentoId },
     ])
   })
 
   it('usa la consulta fija cuando se receta desde una consulta concreta', async () => {
     const user = await montar({ consulta: consulta({ consultaId: 99 }) })
 
-    await user.type(campoMedicamento(1), 'Amoxicilina')
+    await elegir(user, 1, 'Amoxicilina')
     await user.click(botonEmitir())
 
     await waitFor(() => expect(crearPrescripcion).toHaveBeenCalled())
@@ -206,7 +272,7 @@ describe('PrescriptionForm · la consulta de la que cuelga la receta', () => {
     await waitFor(() => expect(listarConsultas).toHaveBeenCalledWith(42))
     await screen.findByRole('option', { name: /control post operatorio/i })
 
-    await user.type(campoMedicamento(1), 'Amoxicilina')
+    await elegir(user, 1, 'Amoxicilina')
     await user.click(botonEmitir())
 
     await waitFor(() => expect(crearPrescripcion).toHaveBeenCalled())
@@ -219,7 +285,7 @@ describe('PrescriptionForm · la consulta de la que cuelga la receta', () => {
     await waitFor(() => expect(listarConsultas).toHaveBeenCalled())
     await screen.findByRole('option', { name: /no tiene consultas registradas/i })
 
-    await user.type(campoMedicamento(1), 'Amoxicilina')
+    await elegir(user, 1, 'Amoxicilina')
     await user.click(botonEmitir())
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/elige la consulta/i)
@@ -264,7 +330,7 @@ describe('PrescriptionForm · errores al emitir', () => {
     const user = await montar()
     await esperarConsultas()
 
-    await user.type(campoMedicamento(1), 'Amoxicilina')
+    await elegir(user, 1, 'Amoxicilina')
     await user.click(botonEmitir())
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -279,9 +345,116 @@ describe('PrescriptionForm · errores al emitir', () => {
     const user = await montar()
     await esperarConsultas()
 
-    await user.type(campoMedicamento(1), 'Amoxicilina')
+    await elegir(user, 1, 'Amoxicilina')
     await user.click(botonEmitir())
 
     await waitFor(() => expect(onCreada).toHaveBeenCalledWith(emitida))
+  })
+})
+
+describe('PrescriptionForm · HU-23 criterio 3: el medicamento sale del catálogo', () => {
+  it('autocompleta desde el catálogo, sin distinguir tildes ni mayúsculas', async () => {
+    const user = await montar()
+    await esperarConsultas()
+    await waitFor(() => expect(campoMedicamento(1)).toBeEnabled())
+
+    // «acetaminofen» sin tilde encuentra «Acetaminofén»; y por el principio
+    // activo también, que es como lo piensa más de un médico.
+    await user.type(campoMedicamento(1), 'acetaminofen')
+    expect(await screen.findByRole('option', { name: /acetaminofén 500 mg \(panadol\)/i })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /amoxicilina/i })).not.toBeInTheDocument()
+
+    await user.clear(campoMedicamento(1))
+    await user.type(campoMedicamento(1), 'PARACETAMOL')
+    await user.click(await screen.findByRole('option', { name: /panadol/i }))
+
+    expect(campoMedicamento(1)).toHaveValue(ACETAMINOFEN.descripcion)
+    // Se muestra el principio activo del elegido: es el dato estructurado.
+    expect(screen.getByText('Principio activo: Paracetamol')).toBeInTheDocument()
+  })
+
+  it('no envía un valor escrito que no se eligió de la lista', async () => {
+    const user = await montar()
+    await esperarConsultas()
+    await waitFor(() => expect(campoMedicamento(1)).toBeEnabled())
+
+    await user.type(campoMedicamento(1), 'Aspirina de la casa')
+    await user.click(botonEmitir())
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      mensajeFueraDelCatalogo('Aspirina de la casa'),
+    )
+    expect(campoMedicamento(1)).toHaveAttribute('aria-invalid', 'true')
+    expect(crearPrescripcion).not.toHaveBeenCalled()
+  })
+
+  it('tampoco cuela una opción elegida y luego retocada a mano', async () => {
+    // Elegir «Amoxicilina» y después borrarle letras deja en la casilla un
+    // texto que ya no es esa opción: la elección se pierde y no se envía.
+    const user = await montar()
+    await esperarConsultas()
+    await elegir(user, 1, 'Amoxicilina')
+    await user.type(campoMedicamento(1), '{Backspace}{Backspace}')
+    await user.click(botonEmitir())
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no está en el catálogo/i)
+    expect(crearPrescripcion).not.toHaveBeenCalled()
+  })
+
+  it('se elige también con el teclado: flechas y Enter', async () => {
+    const user = await montar()
+    await esperarConsultas()
+    await waitFor(() => expect(campoMedicamento(1)).toBeEnabled())
+
+    await user.type(campoMedicamento(1), 'ibu')
+    await user.keyboard('{Enter}')
+    expect(campoMedicamento(1)).toHaveValue(IBUPROFENO.descripcion)
+
+    await user.click(botonEmitir())
+    await waitFor(() => expect(crearPrescripcion).toHaveBeenCalled())
+    expect(crearPrescripcion.mock.calls[0][0].medicamentos).toEqual([
+      { medicamentoId: IBUPROFENO.medicamentoId },
+    ])
+  })
+
+  it('escribir la descripción completa de un medicamento cuenta como elegirlo', async () => {
+    const user = await montar()
+    await esperarConsultas()
+    await waitFor(() => expect(campoMedicamento(1)).toBeEnabled())
+
+    await user.type(campoMedicamento(1), 'amoxicilina 500 mg (amoxil), capsula')
+    await user.click(botonEmitir())
+
+    await waitFor(() => expect(crearPrescripcion).toHaveBeenCalled())
+    expect(crearPrescripcion.mock.calls[0][0].medicamentos).toEqual([
+      { medicamentoId: AMOXICILINA.medicamentoId },
+    ])
+  })
+
+  it('dice por qué no se puede recetar si el catálogo no cargó', async () => {
+    listarMedicamentos.mockRejectedValue(new ApiError(500, 'El catálogo no responde'))
+    await montar({ consulta: consulta() })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('El catálogo no responde')
+    expect(campoMedicamento(1)).toBeDisabled()
+  })
+})
+
+describe('PrescriptionForm · HU-23 criterio 4: un medicamento desactivado no se ofrece', () => {
+  it('pide solo los activos y no ofrece uno desactivado aunque llegara en la lista', async () => {
+    listarMedicamentos.mockResolvedValue([
+      ...CATALOGO,
+      medicamento({ medicamentoId: 99, nombreGenerico: 'Ranitidina', nombreComercial: 'Zantac', activo: false }),
+    ])
+    const user = await montar()
+    await esperarConsultas()
+    await waitFor(() => expect(campoMedicamento(1)).toBeEnabled())
+
+    // Sin `incluirInactivos`: esa lista es la del administrador, no la de recetar.
+    expect(listarMedicamentos).toHaveBeenCalledWith(undefined)
+
+    await user.type(campoMedicamento(1), 'ranitidina')
+    expect(screen.queryByRole('option', { name: /ranitidina/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/ningún medicamento del catálogo coincide/i)).toBeInTheDocument()
   })
 })
