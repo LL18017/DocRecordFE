@@ -56,7 +56,20 @@ next-env.d.ts
 /blob-report/
 /playwright/.cache/
 
-# Capturas del Laboratorio 2 (scripts/capturas-lab2.mjs)
-# Misma regla que las e2e: la plantilla se versiona, los valores reales no.
-!.env.capturas.example
+# Herramientas locales de las entregas (capturas de pantalla y exportacion
+# de Jira para los laboratorios). No son parte de la aplicacion: viven solo en
+# el equipo de quien las usa, igual que sus credenciales.
+/scripts/
 .env.capturas
+.env.capturas.example
+
+# Configuracion del editor de cada quien.
+/.vscode/
+
+### Archivos de asistentes de codigo ###
+# Instrucciones locales de herramientas (Claude Code, Copilot, etc.): cada
+# quien las mantiene en su equipo y no forman parte del proyecto.
+CLAUDE.md
+AGENTS.md
+# (AGENTS.md lo vuelve a escribir `next dev` en cada arranque.)
+.claude/
