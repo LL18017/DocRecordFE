@@ -102,6 +102,17 @@ vi.mock('@/services/alergias', async (importarOriginal) => {
   }
 })
 
+// Hábitos (HU-14): vacíos por defecto. Sus pruebas propias están en
+// components/clinico/SeccionHabitos.test.tsx.
+vi.mock('@/services/habitos', async (importarOriginal) => {
+  const real = await importarOriginal<typeof import('@/services/habitos')>()
+  return {
+    ...real,
+    listarHabitos: async () => [],
+    listarTiposDeHabito: async () => [],
+  }
+})
+
 const MEDICO: User = { name: 'naun@docrecord.sv', email: 'naun@docrecord.sv', roles: ['medico'] }
 
 const SESION: { user: User | null; activeClinic: Clinica | null } = {
@@ -391,12 +402,11 @@ describe('expediente · ninguna sección inventa datos del paciente', () => {
     const user = await montar()
     await desplegarTodo(user)
 
-    expect(screen.getByText('No hay hábitos registrados.')).toBeVisible()
-
-    // UN aviso, el de hábitos: alergias, antecedentes patológicos y
-    // condiciones hereditarias salieron del grupo con HU-11, HU-12 y HU-13,
-    // por la misma razón que signos vitales (ver abajo). Su vacío dice que
-    // nadie registró nada, sin el aviso.
+    // Ya no queda ninguna sección sin backend: hábitos fue la última en salir
+    // del grupo, con HU-14. Como alergias, antecedentes patológicos y
+    // condiciones hereditarias (HU-11, HU-12, HU-13), su vacío dice que nadie
+    // registró nada, sin el aviso.
+    expect(screen.getByText(/No hay hábitos registrados/)).toBeVisible()
     expect(screen.getByText(/No hay alergias registradas/)).toBeVisible()
     expect(screen.getByText(/No hay antecedentes patológicos registrados/)).toBeVisible()
     expect(screen.getByText(/No hay condiciones hereditarias registradas/)).toBeVisible()
@@ -408,7 +418,7 @@ describe('expediente · ninguna sección inventa datos del paciente', () => {
     // información de verdad y no una laguna de la aplicación. Mantener el
     // aviso haría desconfiar de un dato fiable, que es el mismo error de la
     // maqueta al revés.
-    expect(screen.getAllByText(/no lo lea como «no tiene»/i)).toHaveLength(1)
+    expect(screen.queryAllByText(/no lo lea como «no tiene»/i)).toHaveLength(0)
 
     // Y el vacío de constantes dice por qué está vacío, sin afirmar que el
     // paciente «no tiene» nada.

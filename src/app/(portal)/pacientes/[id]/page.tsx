@@ -31,14 +31,13 @@
 //   · Alergias (HU-11) → GET /alergias?pacienteId={id}. Carga en su sección,
 //     la editan médico y enfermera, y las severas se destacan además arriba de
 //     la ficha (`AvisoDeAlergiasSeveras`).
-//   · Hábitos → NO EXISTE ENDPOINT en el expediente. No hay nada que cargar,
-//     así que se muestra el vacío con un aviso que dice por qué está vacío
-//     (ver `AvisoSinRegistro`), nunca datos de relleno.
+//   · Hábitos (HU-14) → GET /api/habitos-estilo-de-vida/paciente/{id}. Carga
+//     en su sección; registran y editan médico y enfermera, elimina el médico.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { IconName, Patient } from '@/types'
+import { Patient } from '@/types'
 import { Badge } from '@/components/ui/Badge'
 import { EvolucionSignosVitales } from '@/components/clinico/EvolucionSignosVitales'
 import { Icon } from '@/components/ui/Icon'
@@ -49,6 +48,7 @@ import { pacienteDtoAPatient } from '@/lib/pacienteAdapter'
 import { ConsultationForm } from '@/components/forms/ConsultationForm'
 import { SeccionAntecedentes } from '@/components/clinico/SeccionAntecedentes'
 import { SeccionCondicionesHereditarias } from '@/components/clinico/SeccionCondicionesHereditarias'
+import { SeccionHabitos } from '@/components/clinico/SeccionHabitos'
 import {
   AvisoDeAlergiasSeveras,
   SeccionAlergias,
@@ -89,78 +89,6 @@ const inputDatoClass =
 /** Cómo se pinta cada estado de consulta. El backend solo maneja estos dos. */
 const ETIQUETA_DE_ESTADO = { PENDIENTE: 'Pendiente', FINALIZADA: 'Finalizada' } as const
 const COLOR_DE_ESTADO = { PENDIENTE: 'yellow', FINALIZADA: 'green' } as const
-
-/**
- * Aviso que acompaña a cada sección sin backend.
- *
- * Es la mitad que faltaría si solo se borraran los datos inventados. «No hay
- * alergias registradas» a secas, en un expediente clínico, se lee como «esta
- * paciente no tiene alergias» —una afirmación que nadie ha comprobado— y eso
- * es otra vez un dato inventado, solo que en negativo. El aviso convierte la
- * frase en lo único que la aplicación sabe de verdad: que aquí todavía no se
- * guarda nada.
- */
-const AvisoSinRegistro: React.FC<{ loQueFalta: string }> = ({ loQueFalta }) => (
-  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
-    El sistema todavía no guarda {loQueFalta}: este apartado seguirá vacío aunque el paciente sí
-    tenga. No lo lea como «no tiene» —pregúntelo y consulte el expediente en papel antes de
-    decidir un tratamiento—.
-  </p>
-)
-
-interface SeccionSinRegistroProps {
-  icon: IconName
-  titulo: string
-  /** Estado vacío, redactado para la sección: «No hay alergias registradas.» */
-  vacio: string
-  /** Lo que el sistema aún no guarda, en plural: «alergias». */
-  loQueFalta: string
-  expanded: boolean
-  onToggle: () => void
-}
-
-/**
- * Sección del expediente para la que NO existe endpoint.
- *
- * No lleva botón «Agregar». El que había metía una fila en el estado de React
- * y nada más: el médico veía la alergia en pantalla, cerraba el modal creyendo
- * que había quedado registrada y al recargar no estaba. Es el mismo criterio
- * que se aplicó a «Nuevo Usuario» en (portal)/usuarios/page.tsx —un botón que
- * no llega a la base es una promesa falsa— y aquí pesa más, porque lo que se
- * pierde en silencio es una alergia.
- */
-const SeccionSinRegistro: React.FC<SeccionSinRegistroProps> = ({
-  icon,
-  titulo,
-  vacio,
-  loQueFalta,
-  expanded,
-  onToggle,
-}) => (
-  <div className="bg-white rounded-2xl shadow-sm border border-slate-100/80 overflow-hidden">
-    <div className="flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors">
-      <button className="flex items-center gap-3 flex-1 text-left cursor-pointer" onClick={onToggle}>
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-doc-surface text-doc-blue">
-          <Icon name={icon} size={16} />
-        </div>
-        <span className="font-semibold text-slate-700 text-sm font-outfit">{titulo}</span>
-      </button>
-      <button
-        onClick={onToggle}
-        aria-label={`Expandir ${titulo}`}
-        className={`text-slate-400 transition-transform cursor-pointer ${expanded ? 'rotate-180' : ''}`}
-      >
-        <Icon name="chevron_down" size={18} />
-      </button>
-    </div>
-    {expanded && (
-      <div className="px-5 pb-5 border-t border-slate-100 pt-4 space-y-3">
-        <p className="text-sm text-slate-500">{vacio}</p>
-        <AvisoSinRegistro loQueFalta={loQueFalta} />
-      </div>
-    )}
-  </div>
-)
 
 export default function ExpedienteDetailPage() {
   const params = useParams()
@@ -534,11 +462,13 @@ export default function ExpedienteDetailPage() {
             onToggle={() => toggle('hereditarias')}
           />
 
-          <SeccionSinRegistro
-            icon="vitals"
-            titulo="Hábitos y Estilo de Vida"
-            vacio="No hay hábitos registrados."
-            loQueFalta="hábitos ni estilo de vida"
+          {/* ── HU-14: hábitos (GET /api/habitos-estilo-de-vida/paciente/{id}).
+              Registran y editan médico y enfermera, como las alergias;
+              eliminar es solo del médico. ── */}
+          <SeccionHabitos
+            pacienteId={Number(patientId)}
+            puedeEditar={puedeRegistrarAlergias}
+            puedeEliminar={esMedico}
             expanded={expanded.includes('habitos')}
             onToggle={() => toggle('habitos')}
           />

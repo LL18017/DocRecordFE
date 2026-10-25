@@ -287,6 +287,15 @@ export async function eliminarPrescripcion(prescripcionId: number): Promise<void
   }
 }
 
+/**
+ * HU-25: encola el envío de la receta de una consulta, en PDF, al correo del
+ * paciente. Responde 204 y el correo sale en los siguientes segundos. Llamarlo
+ * otra vez la reenvía. 422 si la consulta no tiene receta.
+ */
+export async function enviarRecetaPorCorreo(consultaId: number): Promise<void> {
+  await apiFetch<void>(`/prescripciones/enviar-receta/${consultaId}`, { method: 'POST' })
+}
+
 // ─── Ayudas de presentación ────────────────────────────────────────────────
 
 /** Nombre completo del médico que firma. */
