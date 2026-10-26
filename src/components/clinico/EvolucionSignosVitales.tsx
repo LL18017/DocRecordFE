@@ -25,56 +25,75 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import type { SignosVitalesDto } from '@/services/signosVitales'
+import {
+  RANGOS_NORMALES,
+  fueraDeRangoNormal,
+  imcFueraDeRango,
+  rangoNormalComoTexto,
+} from '@/lib/rangosVitales'
+import { estaAnulada, type SignosVitalesDto } from '@/services/signosVitales'
 
 // ─── Qué se puede graficar ───────────────────────────────────────────────────
 
 type ClaveMedida = 'presion' | 'peso' | 'imc'
 
-interface Medida {
+export interface Medida {
   clave: ClaveMedida
   etiqueta: string
   unidad: string
-  /** Franja considerada normal, para pintarla de fondo y marcar lo que se sale. */
+  /** Franja considerada normal, para pintarla de fondo. Sale de `@/lib/rangosVitales`. */
   normal: { min: number; max: number }
   /** Series que se dibujan. La presión son dos líneas; las otras, una. */
   series: { campo: string; nombre: string; color: string }[]
-  /** Saca el valor que decide si una toma está fuera de rango. */
-  valorDeReferencia: (t: SignosVitalesDto) => number | null
+  /** ¿Esta toma sale de rango para la medida? Es lo que se marca en rojo. */
+  fueraDeRango: (t: SignosVitalesDto) => boolean
+  /** Texto de la leyenda cuando la marca no es una franja sobre el eje. */
+  explicacionDeLaMarca?: string
 }
 
-const MEDIDAS: Medida[] = [
+// Exportada solo para probar qué marca cada medida: recharts no dibuja nada en jsdom.
+export const MEDIDAS: Medida[] = [
   {
     clave: 'presion',
     etiqueta: 'Presión arterial',
     unidad: 'mmHg',
-    // Rango de referencia para adulto. Se marca contra la sistólica, que es la
-    // que primero se sale en el paciente crónico típico de esta historia.
-    normal: { min: 90, max: 129 },
+    // La franja dibujada es la de la sistólica, que es la que primero se sale en
+    // el paciente crónico típico de esta historia; la marca roja se pone si
+    // CUALQUIERA de las dos cifras sale de su rango.
+    normal: RANGOS_NORMALES.presionSistolica!,
     series: [
       { campo: 'sistolica', nombre: 'Sistólica', color: '#1E3A8A' },
       { campo: 'diastolica', nombre: 'Diastólica', color: '#60A5FA' },
     ],
-    valorDeReferencia: (t) => t.presionSistolica,
+    fueraDeRango: (t) =>
+      fueraDeRangoNormal('presionSistolica', t.presionSistolica) ||
+      fueraDeRangoNormal('presionDiastolica', t.presionDiastolica),
   },
   {
     clave: 'peso',
     etiqueta: 'Peso',
     unidad: 'kg',
     // El peso no tiene un rango normal universal —depende de la talla—, así que
-    // no se marca ninguna franja. Inventar una sería afirmar algo que no se
-    // sabe: para eso está el IMC, que sí lo relaciona con la estatura.
+    // no se dibuja ninguna franja ni se compara el peso en kilos: inventar un
+    // rango sería afirmar algo que no se sabe (HU-18, criterio 4).
+    //
+    // Pero tampoco se queda sin marcar: un peso que sale de lo sano se nota en
+    // el IMC, que sí lo relaciona con la estatura. Por eso el punto se pinta en
+    // rojo cuando el IMC DE ESA TOMA sale del rango de la OMS (18.5–24.9), y la
+    // leyenda lo explica. En menores de 18 años no se marca nada: ahí el IMC se
+    // lee por percentiles, no contra la tabla de adultos.
     normal: { min: Number.NEGATIVE_INFINITY, max: Number.POSITIVE_INFINITY },
     series: [{ campo: 'peso', nombre: 'Peso', color: '#0F766E' }],
-    valorDeReferencia: () => null,
+    fueraDeRango: (t) => imcFueraDeRango(t),
+    explicacionDeLaMarca: `IMC de la toma fuera de ${rangoNormalComoTexto('imc')}`,
   },
   {
     clave: 'imc',
     etiqueta: 'IMC',
     unidad: 'kg/m²',
-    normal: { min: 18.5, max: 24.9 },
+    normal: RANGOS_NORMALES.imc!,
     series: [{ campo: 'imc', nombre: 'IMC', color: '#B45309' }],
-    valorDeReferencia: (t) => t.imc,
+    fueraDeRango: (t) => imcFueraDeRango(t),
   },
 ]
 
@@ -126,9 +145,12 @@ export function EvolucionSignosVitales({ tomas }: EvolucionSignosVitalesProps) {
     const desde = ahora - rango.dias * 24 * 60 * 60 * 1000
 
     return tomas
+      // Una toma anulada (HU-16) no es una medición válida: sigue en el
+      // expediente, marcada, pero no puede dibujar la tendencia ni ser un punto
+      // «fuera de rango» que alarme por un dato que enfermería declaró erróneo.
+      .filter((t) => !estaAnulada(t))
       .filter((t) => new Date(t.tomadoEn).getTime() >= desde)
       .map((t) => {
-        const referencia = medida.valorDeReferencia(t)
         return {
           fecha: new Date(t.tomadoEn).toLocaleDateString('es-SV', {
             day: '2-digit',
@@ -139,9 +161,7 @@ export function EvolucionSignosVitales({ tomas }: EvolucionSignosVitalesProps) {
           diastolica: t.presionDiastolica,
           peso: t.pesoKg,
           imc: t.imc,
-          fueraDeRango:
-            referencia !== null &&
-            (referencia < medida.normal.min || referencia > medida.normal.max),
+          fueraDeRango: medida.fueraDeRango(t),
         }
       })
       // De lo más antiguo a lo más reciente: el backend los devuelve al revés
@@ -316,7 +336,7 @@ export function EvolucionSignosVitales({ tomas }: EvolucionSignosVitalesProps) {
             )}
             <span className="inline-flex items-center gap-1.5">
               <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" />
-              Fuera de rango
+              Fuera de rango{medida.explicacionDeLaMarca && ` (${medida.explicacionDeLaMarca})`}
             </span>
           </p>
         </>

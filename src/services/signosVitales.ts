@@ -8,6 +8,8 @@
 //   · Registrar → solo ENFERMERA. Un médico recibe 403.
 //   · Leer      → ADMIN, MÉDICO y ENFERMERA. Ésta es la razón del módulo: el
 //                 médico necesita las constantes antes de diagnosticar.
+//   · Anular    → solo la ENFERMERA que registró la toma. Una toma no se borra:
+//                 se anula con motivo y sigue visible, marcada (HU-16).
 //
 // Los números llegan como números y sin unidad pegada —`presionSistolica: 120`,
 // no `"120/80 mmHg"`—. Componer el par para mostrarlo es trabajo de la
@@ -69,7 +71,20 @@ export interface SignosVitalesDto {
    * una etiqueta sin sentido, y una etiqueta equivocada orienta decisiones.
    */
   clasificacionImc: string | null
+  /**
+   * `ACTIVA` o `ANULADA` (HU-16, criterio 4). Una toma anulada sigue en el
+   * histórico, marcada, pero no cuenta como «última» ni entra en la gráfica.
+   */
+  estado: EstadoDeToma
+  /** Por qué se anuló; `null` mientras la toma está activa. */
+  motivoAnulacion: string | null
+  /** Cuándo se anuló; `null` mientras la toma está activa. */
+  anuladaEn: string | null
+  /** Quién la anuló; `null` mientras la toma está activa. */
+  anuladaPor: SignosVitalesEnfermeraDto | null
 }
+
+export type EstadoDeToma = 'ACTIVA' | 'ANULADA'
 
 /** Cuerpo de `POST /signos-vitales`. Sin `enfermeraId`: sale del token. */
 export interface RegistrarSignosVitalesPayload {
@@ -153,6 +168,23 @@ export async function registrarToma(
   return apiFetch<SignosVitalesDto>('/signos-vitales', { method: 'POST', body: payload })
 }
 
+/**
+ * Anula una toma dejando el motivo (`PATCH /signos-vitales/{id}/anulacion`).
+ *
+ * No la borra: la toma queda `ANULADA` con el motivo, quién y cuándo, y el
+ * servidor devuelve la toma ya anulada. Solo puede hacerlo la enfermera que la
+ * registró; cualquier otro recibe 403, y una toma ya anulada, 409.
+ */
+export async function anularToma(
+  signosVitalesId: number,
+  motivo: string,
+): Promise<SignosVitalesDto> {
+  return apiFetch<SignosVitalesDto>(`/signos-vitales/${signosVitalesId}/anulacion`, {
+    method: 'PATCH',
+    body: { motivo },
+  })
+}
+
 // ─── Ayudas de presentación ────────────────────────────────────────────────
 
 /**
@@ -169,4 +201,9 @@ export function tensionArterial(toma: SignosVitalesDto): string | null {
 /** Nombre completo de la enfermera que tomó las constantes. */
 export function nombreDeEnfermera(toma: SignosVitalesDto): string {
   return `${toma.enfermera.nombres} ${toma.enfermera.apellidos}`.trim()
+}
+
+/** ¿La enfermera la anuló? Sigue en el histórico, pero no vale como medición. */
+export function estaAnulada(toma: Pick<SignosVitalesDto, 'estado'>): boolean {
+  return toma.estado === 'ANULADA'
 }

@@ -210,6 +210,10 @@ const TOMA: SignosVitalesDto = {
   observaciones: 'Refiere cefalea leve desde ayer.',
   imc: null,
   clasificacionImc: null,
+  estado: 'ACTIVA',
+  motivoAnulacion: null,
+  anuladaEn: null,
+  anuladaPor: null,
 }
 
 beforeEach(() => {

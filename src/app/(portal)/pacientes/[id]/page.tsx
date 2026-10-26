@@ -40,6 +40,7 @@ import { useParams } from 'next/navigation'
 import { Patient } from '@/types'
 import { Badge } from '@/components/ui/Badge'
 import { EvolucionSignosVitales } from '@/components/clinico/EvolucionSignosVitales'
+import { TarjetaUltimosSignos } from '@/components/clinico/TarjetaUltimosSignos'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { ApiError } from '@/lib/api'
@@ -62,8 +63,6 @@ import {
   type ConsultaDto,
 } from '@/services/consultas'
 import {
-  nombreDeEnfermera,
-  tensionArterial,
   listarTomas,
   ultimaToma,
   type SignosVitalesDto,
@@ -726,83 +725,9 @@ export default function ExpedienteDetailPage() {
           </div>
 
           {/* Signos vitales: ESTE SÍ tiene endpoint (GET /signos-vitales/ultima).
-              Lo toma enfermería y el médico solo lo lee —por eso aquí no hay
-              ningún botón de «Registrar»: ofrecerlo a un médico sería pedirle
-              algo que el backend le va a responder con 403—.
-
-              Ya NO lleva `AvisoSinRegistro`: ese aviso dice «el sistema todavía
-              no guarda esto», y desde V9 sí lo guarda. Dejarlo puesto mentiría
-              en el otro sentido, que es el mismo error de la maqueta al revés:
-              haría desconfiar de un vacío que ahora sí significa lo que dice. */}
-          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100/80">
-            <h4 className="font-bold text-slate-800 text-sm font-outfit mb-3">
-              Últimos Signos Vitales
-            </h4>
-
-            {errorVitales ? (
-              <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-relaxed text-red-800">
-                {errorVitales}. No lo lea como «sin tomas»: no se pudo consultar.
-              </p>
-            ) : ultimosVitales === null ? (
-              <p className="text-sm text-slate-500">
-                No hay signos vitales registrados. Enfermería aún no le ha tomado constantes a
-                este paciente.
-              </p>
-            ) : (
-              <>
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  {(
-                    [
-                      ['Tensión', tensionArterial(ultimosVitales), 'mmHg'],
-                      ['Pulso', ultimosVitales.pulsoLpm, 'lpm'],
-                      ['Temperatura', ultimosVitales.temperaturaC, '°C'],
-                      ['Saturación', ultimosVitales.saturacionPct, '%'],
-                      ['Frec. resp.', ultimosVitales.frecuenciaRespRpm, 'rpm'],
-                      ['Peso', ultimosVitales.pesoKg, 'kg'],
-                      ['Estatura', ultimosVitales.estaturaCm, 'cm'],
-                    ] as [string, string | number | null, string][]
-                  ).map(([etiqueta, valor, unidad]) => (
-                    // Una medida que no se tomó se pinta «—», nunca 0: la
-                    // diferencia entre «no se tomó la saturación» y «la
-                    // saturación es 0» es la diferencia entre un hueco y una
-                    // urgencia.
-                    <div key={etiqueta} className="rounded-xl bg-slate-50 px-3 py-2">
-                      <p className="text-[11px] uppercase tracking-wider text-slate-400">
-                        {etiqueta}
-                      </p>
-                      <p
-                        className={`text-sm font-semibold font-outfit ${
-                          valor === null ? 'text-slate-400' : 'text-slate-800'
-                        }`}
-                      >
-                        {valor === null ? (
-                          '—'
-                        ) : (
-                          <>
-                            {valor}{' '}
-                            <span className="text-xs font-normal text-slate-500">{unidad}</span>
-                          </>
-                        )}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                {ultimosVitales.observaciones && (
-                  <p className="text-sm text-slate-600 mb-3 leading-relaxed">
-                    {ultimosVitales.observaciones}
-                  </p>
-                )}
-
-                {/* Quién y cuándo, siempre: una constante sin responsable ni
-                    hora no le sirve al médico para decidir nada. */}
-                <p className="text-xs text-slate-400">
-                  Tomado el {formatearFechaHora(ultimosVitales.tomadoEn)} ·{' '}
-                  {nombreDeEnfermera(ultimosVitales)}
-                </p>
-              </>
-            )}
-          </div>
+              El detalle (qué botones no hay, qué se resalta en rojo, el IMC)
+              vive en TarjetaUltimosSignos. */}
+          <TarjetaUltimosSignos ultimosVitales={ultimosVitales} errorVitales={errorVitales} />
 
           {/* La evolución va DEBAJO de la última toma y no en su lugar: son dos
               preguntas distintas. «¿Cómo está hoy?» la responde la tarjeta de

@@ -23,11 +23,13 @@ import { useRouter } from 'next/navigation'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
+import { fueraDeRangoNormal } from '@/lib/rangosVitales'
 import { sinTildes } from '@/lib/texto'
 import { Modal } from '@/components/ui/Modal'
 import { VitalsForm, type PacienteParaToma } from '@/components/forms/VitalsForm'
 import { listarPacientes } from '@/services/pacientes'
 import {
+  estaAnulada,
   listarTomas,
   nombreDeEnfermera,
   registrarToma,
@@ -170,6 +172,14 @@ export default function EnfermeriaPage() {
         cell: (t) => (
           <span className="font-medium text-slate-800 font-outfit">
             {t.paciente.nombres} {t.paciente.apellidos}
+            {/* Una toma anulada sigue en la lista, marcada (HU-16 criterio 4):
+                borrarla de la vista escondería que existió y por qué dejó de
+                valer. El motivo completo está en el detalle. */}
+            {estaAnulada(t) && (
+              <Badge color="gray" className="ml-2">
+                Anulada
+              </Badge>
+            )}
           </span>
         ),
       },
@@ -211,15 +221,18 @@ export default function EnfermeriaPage() {
           t.saturacionPct === null ? (
             <span className="text-slate-300">—</span>
           ) : (
-            <Badge color={t.saturacionPct >= 95 ? 'green' : 'yellow'}>{t.saturacionPct}%</Badge>
+            <Badge color={fueraDeRangoNormal('saturacionPct', t.saturacionPct) ? 'yellow' : 'green'}>
+              {t.saturacionPct}%
+            </Badge>
           ),
       },
       {
         header: 'Acciones',
         // Solo «Ver», que lleva a la pantalla de detalle. No hay editar ni
         // eliminar, y no es que falten: el backend no los expone a propósito.
-        // Una constante mal tomada no se corrige reescribiéndola, se toma otra
-        // vez y las dos quedan en el histórico con su hora.
+        // Una constante mal tomada no se corrige reescribiéndola: se anula con
+        // motivo desde el detalle y se toma otra vez, y las dos quedan en el
+        // histórico con su hora.
         cell: (t) => (
           <button
             type="button"

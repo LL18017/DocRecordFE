@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { SignosVitalesDto } from '@/services/signosVitales'
-import { EvolucionSignosVitales } from './EvolucionSignosVitales'
+import { EvolucionSignosVitales, MEDIDAS } from './EvolucionSignosVitales'
 
 /** Una toma mínima; cada prueba sobreescribe lo que le interesa. */
 function toma(diasAtras: number, cambios: Partial<SignosVitalesDto> = {}): SignosVitalesDto {
@@ -32,6 +32,10 @@ function toma(diasAtras: number, cambios: Partial<SignosVitalesDto> = {}): Signo
     observaciones: null,
     imc: 24.2,
     clasificacionImc: 'Normal',
+    estado: 'ACTIVA',
+    motivoAnulacion: null,
+    anuladaEn: null,
+    anuladaPor: null,
     ...cambios,
   }
 }
@@ -139,5 +143,54 @@ describe('Evolución de signos vitales', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Peso' }))
 
     expect(screen.queryByText(/rango normal/i)).not.toBeInTheDocument()
+  })
+})
+
+// ── HU-16 criterio 4 · una toma anulada no entra en la gráfica ──────────────
+
+describe('Evolución de signos vitales · tomas anuladas', () => {
+  it('una toma anulada no cuenta como medición: con una válida y una anulada solo hay una', () => {
+    const anulada = toma(5, { estado: 'ANULADA', motivoAnulacion: 'Paciente equivocado' })
+    render(<EvolucionSignosVitales tomas={[toma(10), anulada]} />)
+
+    expect(screen.getByRole('status')).toHaveTextContent(/solo hay una toma/i)
+  })
+})
+
+// ── HU-18 criterio 4 · qué marca cada medida ────────────────────────────────
+// recharts no dibuja en jsdom, así que se comprueba la regla que decide el
+// rojo de cada punto, no el pixel.
+
+describe('Evolución de signos vitales · puntos fuera de rango', () => {
+  const marca = (clave: string, t: SignosVitalesDto) =>
+    MEDIDAS.find((m) => m.clave === clave)!.fueraDeRango(t)
+
+  it('la presión se marca si la sistólica O la diastólica salen de rango', () => {
+    expect(marca('presion', toma(1))).toBe(false)
+    expect(marca('presion', toma(1, { presionSistolica: 150 }))).toBe(true)
+    expect(marca('presion', toma(1, { presionDiastolica: 95 }))).toBe(true)
+  })
+
+  it('el peso se marca por el IMC de la toma, nunca por los kilos', () => {
+    // 150 kg con IMC normal (un adulto muy alto) no se marca...
+    expect(marca('peso', toma(1, { pesoKg: 150, imc: 23 }))).toBe(false)
+    // ...y 80 kg con IMC de sobrepeso sí.
+    expect(marca('peso', toma(1, { pesoKg: 80, imc: 28, clasificacionImc: 'Sobrepeso' }))).toBe(
+      true,
+    )
+  })
+
+  it('el peso de un menor no se marca: su IMC se lee por percentiles', () => {
+    const aviso = 'La clasificación de adultos no aplica en menores de 18 años; debe interpretarse por percentiles'
+    expect(marca('peso', toma(1, { imc: 16, clasificacionImc: aviso }))).toBe(false)
+    expect(marca('imc', toma(1, { imc: 16, clasificacionImc: aviso }))).toBe(false)
+  })
+
+  it('la leyenda del peso explica con qué se marca', async () => {
+    render(<EvolucionSignosVitales tomas={[toma(30), toma(10)]} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Peso' }))
+
+    expect(screen.getByText(/fuera de rango \(IMC de la toma fuera de 18\.5–24\.9/i)).toBeInTheDocument()
   })
 })

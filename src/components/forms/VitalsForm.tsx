@@ -2,6 +2,12 @@
 
 import React, { useId, useMemo, useState } from 'react'
 import type { RegistrarSignosVitalesPayload } from '@/services/signosVitales'
+import {
+  LIMITES_FISIOLOGICOS,
+  fueraDeRangoNormal,
+  rangoNormalComoTexto,
+  type ClaveDeMedida,
+} from '@/lib/rangosVitales'
 
 /**
  * Toma de constantes. Lo llena enfermería, antes de la consulta.
@@ -25,6 +31,21 @@ import type { RegistrarSignosVitalesPayload } from '@/services/signosVitales'
  *    en el backend y no del cuerpo de la petición, exactamente igual que el
  *    médico de una consulta: un campo libre aquí permitiría atribuirle una
  *    presión arterial a cualquier compañera.
+ *
+ * ── Dos avisos distintos junto a cada campo ──────────────────────────────
+ * 1. FUERA DEL RANGO NORMAL (ámbar, HU-16 criterio 2): el valor es posible pero
+ *    inusual —40 °C de temperatura, una saturación de 88 %—. Se ADVIERTE y se
+ *    deja guardar: un paciente realmente puede llegar así, y un formulario que
+ *    lo rechaza por «imposible» obliga a la enfermera a falsear el dato.
+ * 2. FUERA DEL LÍMITE FISIOLÓGICO (rojo, HU-17 criterio 3): el valor no puede
+ *    ser real —un peso de 500 kg, una talla de 300 cm—, casi siempre es la coma
+ *    corrida de sitio. Eso sí BLOQUEA el envío, con el mismo rango que el
+ *    servidor rechaza con 400, para que la enfermera lo corrija antes de ir y
+ *    volver. El `<input type="number">` no impide teclear el número, así que lo
+ *    que se impide es enviarlo y se le dice por qué.
+ *
+ * Los rangos de ambos salen de `@/lib/rangosVitales`, el único lugar donde se
+ * definen.
  *
  * ── Por qué la presión va en dos casillas ─────────────────────────────────
  * «120/80» es un par de números que la costumbre escribe con una barra, no un
@@ -63,27 +84,57 @@ const labelClass = 'block text-xs font-semibold text-slate-500 mb-1.5 uppercase 
 const labelCortoClass = 'block text-xs font-semibold text-slate-500 mb-1'
 
 /**
- * Las medidas: clave del estado, rótulo, ejemplo y rango.
+ * Las medidas: clave del estado, rótulo, ejemplo y paso del campo.
  *
- * Los mínimos y máximos son los MISMOS que los CHECK de la migración V9 y las
- * validaciones del DTO. No son validación de formato sino de plausibilidad
- * fisiológica: no existe un ser humano a 90 grados. Repetirlos aquí no
- * sustituye a los del backend —quien manda es él—, sino que evita un viaje de
- * ida y vuelta para decirle a la enfermera lo que se puede saber en la propia
- * pantalla.
+ * Los límites (mín. y máx.) NO se escriben aquí: salen de `LIMITES_FISIOLOGICOS`
+ * para que haya un solo sitio donde cambiarlos. `nombre` es la frase con que el
+ * mensaje de error nombra la medida («El peso debe estar entre…»).
  */
-const MEDIDAS = [
-  { clave: 'pesoKg', label: 'Peso (kg)', ejemplo: '68.4', min: 0.1, max: 500, paso: '0.01' },
-  { clave: 'estaturaCm', label: 'Talla (cm)', ejemplo: '162', min: 0.1, max: 300, paso: '0.01' },
-  { clave: 'temperaturaC', label: 'Temperatura (°C)', ejemplo: '36.8', min: 25, max: 45, paso: '0.1' },
-  { clave: 'presionSistolica', label: 'Presión sistólica (mmHg)', ejemplo: '120', min: 40, max: 300, paso: '1' },
-  { clave: 'presionDiastolica', label: 'Presión diastólica (mmHg)', ejemplo: '80', min: 20, max: 200, paso: '1' },
-  { clave: 'pulsoLpm', label: 'Pulso (lpm)', ejemplo: '74', min: 20, max: 300, paso: '1' },
-  { clave: 'frecuenciaRespRpm', label: 'Frecuencia resp. (rpm)', ejemplo: '16', min: 4, max: 90, paso: '1' },
-  { clave: 'saturacionPct', label: 'Saturación O₂ (%)', ejemplo: '98', min: 50, max: 100, paso: '1' },
-] as const
+const MEDIDAS: {
+  clave: ClaveDeMedida
+  label: string
+  nombre: string
+  unidad: string
+  ejemplo: string
+  paso: string
+}[] = [
+  { clave: 'pesoKg', label: 'Peso (kg)', nombre: 'El peso', unidad: 'kg', ejemplo: '68.4', paso: '0.01' },
+  { clave: 'estaturaCm', label: 'Talla (cm)', nombre: 'La talla', unidad: 'cm', ejemplo: '162', paso: '0.01' },
+  { clave: 'temperaturaC', label: 'Temperatura (°C)', nombre: 'La temperatura', unidad: '°C', ejemplo: '36.8', paso: '0.1' },
+  { clave: 'presionSistolica', label: 'Presión sistólica (mmHg)', nombre: 'La presión sistólica', unidad: 'mmHg', ejemplo: '120', paso: '1' },
+  { clave: 'presionDiastolica', label: 'Presión diastólica (mmHg)', nombre: 'La presión diastólica', unidad: 'mmHg', ejemplo: '80', paso: '1' },
+  { clave: 'pulsoLpm', label: 'Pulso (lpm)', nombre: 'El pulso', unidad: 'lpm', ejemplo: '74', paso: '1' },
+  { clave: 'frecuenciaRespRpm', label: 'Frecuencia resp. (rpm)', nombre: 'La frecuencia respiratoria', unidad: 'rpm', ejemplo: '16', paso: '1' },
+  { clave: 'saturacionPct', label: 'Saturación O₂ (%)', nombre: 'La saturación', unidad: '%', ejemplo: '98', paso: '1' },
+]
 
-type ClaveDeMedida = (typeof MEDIDAS)[number]['clave']
+/**
+ * Qué decirle a la enfermera sobre lo que escribió en una casilla.
+ *
+ *   · `error`: fuera del límite fisiológico, el servidor lo rechazaría. Bloquea.
+ *   · `aviso`: dentro de lo posible pero fuera del rango normal. No bloquea.
+ *   · `null`: casilla vacía (no se tomó) o valor normal.
+ */
+function evaluarCasilla(
+  { clave, nombre, unidad }: (typeof MEDIDAS)[number],
+  texto: string,
+): { tipo: 'error' | 'aviso'; mensaje: string } | null {
+  if (texto.trim() === '') return null
+
+  const valor = Number(texto)
+  const { min, max } = LIMITES_FISIOLOGICOS[clave]
+
+  if (Number.isNaN(valor) || valor < min || valor > max) {
+    return { tipo: 'error', mensaje: `${nombre} debe estar entre ${min} y ${max} ${unidad}.` }
+  }
+  if (fueraDeRangoNormal(clave, valor)) {
+    return {
+      tipo: 'aviso',
+      mensaje: `Fuera del rango normal (${rangoNormalComoTexto(clave)}). Puede guardarla de todos modos.`,
+    }
+  }
+  return null
+}
 
 export const VitalsForm: React.FC<VitalsFormProps> = ({
   pacientes = [],
@@ -137,9 +188,19 @@ export const VitalsForm: React.FC<VitalsFormProps> = ({
     [medidas],
   )
 
+  // Lo que se le dice de cada casilla. Se calcula al vuelo en cada pulsación:
+  // el aviso tiene que aparecer mientras escribe, no al enviar.
+  const evaluaciones = useMemo(
+    () => MEDIDAS.map((m) => ({ medida: m, resultado: evaluarCasilla(m, medidas[m.clave]) })),
+    [medidas],
+  )
+  const hayError = evaluaciones.some((e) => e.resultado?.tipo === 'error')
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!pacienteId || !algunaMedida || guardando) return
+    // `hayError` repite la guarda del botón: se puede enviar con Enter desde un
+    // campo, y ahí el botón deshabilitado no frena nada.
+    if (!pacienteId || !algunaMedida || hayError || guardando) return
 
     const payload: RegistrarSignosVitalesPayload = { pacienteId: Number(pacienteId) }
 
@@ -157,7 +218,10 @@ export const VitalsForm: React.FC<VitalsFormProps> = ({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    // `noValidate`: los mensajes de los límites los da el propio formulario, en
+    // español y junto al campo. Con la validación nativa, el navegador pondría
+    // su globo en otro idioma y sin distinguir el aviso del error.
+    <form onSubmit={handleSubmit} noValidate className="space-y-4">
       {eligePaciente && (
         <div>
           <label htmlFor={id('paciente')} className={labelClass}>
@@ -183,25 +247,50 @@ export const VitalsForm: React.FC<VitalsFormProps> = ({
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        {MEDIDAS.map(({ clave, label, ejemplo, min, max, paso }) => (
-          <div key={clave}>
-            <label htmlFor={id(clave)} className={labelCortoClass}>
-              {label}
-            </label>
-            <input
-              id={id(clave)}
-              type="number"
-              inputMode="decimal"
-              step={paso}
-              min={min}
-              max={max}
-              placeholder={ejemplo}
-              value={medidas[clave]}
-              onChange={(e) => setMedidas((prev) => ({ ...prev, [clave]: e.target.value }))}
-              className={campoCortoClass}
-            />
-          </div>
-        ))}
+        {evaluaciones.map(({ medida: { clave, label, ejemplo, paso }, resultado }) => {
+          const { min, max } = LIMITES_FISIOLOGICOS[clave]
+          const idMensaje = id(`${clave}-mensaje`)
+          return (
+            <div key={clave}>
+              <label htmlFor={id(clave)} className={labelCortoClass}>
+                {label}
+              </label>
+              <input
+                id={id(clave)}
+                type="number"
+                inputMode="decimal"
+                step={paso}
+                min={min}
+                max={max}
+                placeholder={ejemplo}
+                value={medidas[clave]}
+                onChange={(e) => setMedidas((prev) => ({ ...prev, [clave]: e.target.value }))}
+                aria-invalid={resultado?.tipo === 'error' ? true : undefined}
+                aria-describedby={resultado ? idMensaje : undefined}
+                className={`${campoCortoClass} ${
+                  resultado?.tipo === 'error'
+                    ? 'border-red-400'
+                    : resultado?.tipo === 'aviso'
+                      ? 'border-amber-400'
+                      : ''
+                }`}
+              />
+              {/* Error (rojo, bloquea) o aviso (ámbar, no bloquea): el texto lo
+                  dice con palabras, no solo con el color. */}
+              {resultado && (
+                <p
+                  id={idMensaje}
+                  role={resultado.tipo === 'error' ? 'alert' : 'status'}
+                  className={`mt-1 text-[11px] leading-snug ${
+                    resultado.tipo === 'error' ? 'text-red-700' : 'text-amber-700'
+                  }`}
+                >
+                  {resultado.mensaje}
+                </p>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       <div>
@@ -227,6 +316,13 @@ export const VitalsForm: React.FC<VitalsFormProps> = ({
         </p>
       )}
 
+      {hayError && (
+        <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-relaxed text-red-800">
+          Hay valores que no pueden ser reales (suele ser la coma corrida de sitio). Corríjalos
+          para poder guardar.
+        </p>
+      )}
+
       {error && (
         <p
           role="alert"
@@ -246,7 +342,7 @@ export const VitalsForm: React.FC<VitalsFormProps> = ({
         </button>
         <button
           type="submit"
-          disabled={guardando || !algunaMedida || !pacienteId}
+          disabled={guardando || !algunaMedida || !pacienteId || hayError}
           className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-doc-teal hover:opacity-90 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {guardando ? 'Guardando…' : 'Guardar Registro'}
