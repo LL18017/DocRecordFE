@@ -10,6 +10,7 @@ import {
 } from '@/components/clinico/SelectorDeUbicacion'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
+import { MedicosDeLaClinica } from '@/components/clinicas/MedicosDeLaClinica'
 import { useAppContext } from '@/context/AppContext'
 import { ApiError } from '@/lib/api'
 import { tieneUbicacion } from '@/lib/mapaClinicas'
@@ -42,7 +43,10 @@ const MapaClinicas = dynamic(() => import('@/components/mapa/MapaClinicas'), {
 })
 
 export default function ClinicasPage() {
-  const { activeClinic, setActiveClinic } = useAppContext()
+  const { activeClinic, setActiveClinic, user } = useAppContext()
+  // HU-29: la ficha de médicos la ve todo el personal; cambiarla, solo el admin.
+  const esAdmin = user?.roles.includes('Administrador') ?? false
+  const [medicosDe, setMedicosDe] = useState<Clinica | null>(null)
   // La lista sale de GET /clinics/mias. Antes se sembraba con los datos de la
   // maqueta: la pantalla se veía llena aunque el backend estuviera caído y una
   // clínica recién creada desaparecía al recargar.
@@ -269,6 +273,14 @@ export default function ClinicasPage() {
                     )}
                   </button>
                   <button
+                    onClick={() => setMedicosDe(c)}
+                    aria-label={`Médicos y horarios de ${c.name}`}
+                    className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
+                    title="Médicos y horarios"
+                  >
+                    <Icon name="patients" size={14} />
+                  </button>
+                  <button
                     onClick={() => setEditando(c)}
                     className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
                     title="Editar clínica"
@@ -457,6 +469,18 @@ export default function ClinicasPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Modal: médicos y horarios de la sede (HU-29) */}
+      <Modal
+        isOpen={medicosDe !== null}
+        onClose={() => setMedicosDe(null)}
+        title="Médicos y horarios"
+        subtitle={medicosDe?.name}
+        icon="patients"
+        maxWidth="lg"
+      >
+        {medicosDe && <MedicosDeLaClinica clinicaId={medicosDe.id} esAdmin={esAdmin} />}
       </Modal>
 
       {/* Modal: Nueva Clínica */}
