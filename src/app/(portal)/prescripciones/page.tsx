@@ -476,6 +476,13 @@ export default function PrescripcionesPage() {
                   </tbody>
                 </table>
               </div>
+              {/* HU-24: si se recetó pese a una alergia, la razón va con la receta. */}
+              {rx.justificacionAlergia && (
+                <p className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-800">
+                  <span className="font-semibold">Recetado pese a una alergia registrada.</span>{' '}
+                  Justificación: {rx.justificacionAlergia}
+                </p>
+              )}
             </div>
           ))}
 

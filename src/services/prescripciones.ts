@@ -10,6 +10,7 @@
 
 import { ApiError, apiFetch } from '@/lib/api'
 import { formatearFechaHora } from './consultas'
+import { etiquetaDeSeveridad, type SeveridadDeAlergia } from './alergias'
 
 /**
  * Sobre paginado con el que el backend envuelve TODA lista de `/prescripciones`
@@ -89,6 +90,11 @@ export interface PrescripcionDto {
   paciente: PrescripcionPacienteDto
   medico: PrescripcionMedicoDto
   medicamentos: MedicamentoPrescritoDto[]
+  /**
+   * HU-24: por qué se recetó pese a una alergia registrada del paciente.
+   * `null` —o ausente— si la receta no tuvo coincidencias, que es lo normal.
+   */
+  justificacionAlergia?: string | null
 }
 
 /**
@@ -117,7 +123,49 @@ export type BorradorDeMedicamento = Omit<MedicamentoPayload, 'medicamentoId'> & 
 export interface CrearPrescripcionPayload {
   consultaId: number
   medicamentos: readonly BorradorDeMedicamento[]
+  /**
+   * HU-24: obligatoria si algún medicamento coincide con una alergia vigente
+   * del paciente. Si va en blanco se omite, igual que los demás opcionales.
+   */
+  justificacionAlergia?: string
+  /** HU-24: la segunda confirmación explícita que pide una alergia SEVERA. */
+  confirmaAlergiaSevera?: boolean
 }
+
+/**
+ * Espejo de `AlertaDeAlergiaDto` (HU-24): una alergia vigente del paciente
+ * que coincide con un medicamento, con lo que el médico necesita leer antes
+ * de decidir.
+ */
+export interface AlertaDeAlergiaDto {
+  alergiaId: number
+  sustancia: string
+  severidad: SeveridadDeAlergia
+  reaccion: string
+  medicamentoId: number
+  /** El medicamento tal como se lee en la receta. */
+  medicamento: string
+}
+
+/**
+ * Cuando el aviso no se pudo pedir. No se calla: sin él, un fallo de red se
+ * vería igual que «sin alergias», y el médico seguiría convencido de que se
+ * comprobó. El backend vuelve a comprobar al emitir, así que aun así no se
+ * receta a ciegas.
+ */
+export const MENSAJE_ALERTAS_NO_COMPROBADAS =
+  'No se pudo comprobar si el paciente tiene alergias a este medicamento. Revisa su expediente antes de emitir; el sistema volverá a comprobarlo al emitir.'
+
+/** Sin justificación no se emite una receta con alerta de alergia (criterio 2). */
+export const MENSAJE_FALTA_JUSTIFICACION =
+  'El paciente es alérgico a un componente de esta receta. Escribe la justificación para recetarlo de todos modos.'
+
+/** Una alergia severa pide una segunda confirmación explícita (criterio 3). */
+export const MENSAJE_FALTA_CONFIRMACION =
+  'La alergia es severa. Marca la casilla para confirmar de forma explícita que quieres recetarlo.'
+
+/** Tope de la justificación, el mismo que valida el backend. */
+export const MAXIMO_JUSTIFICACION_ALERGIA = 500
 
 /**
  * Lo que se le dice a quien intenta emitir una receta sin medicamentos.
@@ -186,13 +234,54 @@ export async function crearPrescripcion(
   if (medicamentos.length === 0) throw new Error(MENSAJE_RECETA_VACIA)
 
   try {
+    const justificacion = payload.justificacionAlergia?.trim()
     return await apiFetch<PrescripcionDto>('/prescripciones', {
       method: 'POST',
-      body: { consultaId: payload.consultaId, medicamentos },
+      body: {
+        consultaId: payload.consultaId,
+        medicamentos,
+        // Solo viajan cuando hay algo que decir: una receta sin alerta no
+        // lleva ni justificación ni confirmación.
+        ...(justificacion ? { justificacionAlergia: justificacion } : {}),
+        ...(payload.confirmaAlergiaSevera ? { confirmaAlergiaSevera: true } : {}),
+      },
     })
   } catch (error) {
     throw traducirError(error, 'emitir')
   }
+}
+
+/**
+ * HU-24: las alergias vigentes del paciente que coinciden con un medicamento.
+ * `pacienteId` es el `personaId` del paciente. Lista vacía si no hay ninguna
+ * (criterio 4): no es un error y el flujo sigue normal.
+ *
+ * La coincidencia es por texto —la sustancia contenida en el principio activo
+ * o en el nombre genérico—, no por familia farmacológica: una alergia a
+ * «Penicilina» no avisa de «Amoxicilina». Lo decide el backend; aquí no se
+ * vuelve a filtrar nada.
+ */
+export async function buscarAlertasDeAlergia(
+  pacienteId: number,
+  medicamentoId: number,
+): Promise<AlertaDeAlergiaDto[]> {
+  const params = new URLSearchParams({
+    pacienteId: String(pacienteId),
+    medicamentoId: String(medicamentoId),
+  })
+  try {
+    return await apiFetch<AlertaDeAlergiaDto[]>(`/prescripciones/alertas-de-alergia?${params}`)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      throw new ApiError(404, 'El paciente o el medicamento ya no existen; no se pudo comprobar las alergias.')
+    }
+    throw error instanceof Error ? error : new Error(MENSAJE_ALERTAS_NO_COMPROBADAS)
+  }
+}
+
+/** Texto de una alerta para mostrarla o registrarla: «Penicilina (Severa) · Urticaria». */
+export function resumenDeAlerta(alerta: AlertaDeAlergiaDto): string {
+  return `${alerta.sustancia} (${etiquetaDeSeveridad(alerta.severidad)}) · ${alerta.reaccion}`
 }
 
 /**

@@ -9,13 +9,20 @@ import {
   type ConsultaDto,
 } from '@/services/consultas'
 import {
+  buscarAlertasDeAlergia,
   crearPrescripcion,
   normalizarMedicamentos,
+  MAXIMO_JUSTIFICACION_ALERGIA,
+  MENSAJE_ALERTAS_NO_COMPROBADAS,
+  MENSAJE_FALTA_CONFIRMACION,
+  MENSAJE_FALTA_JUSTIFICACION,
   MENSAJE_RECETA_VACIA,
   mensajeFueraDelCatalogo,
+  type AlertaDeAlergiaDto,
   type MedicamentoPayload,
   type PrescripcionDto,
 } from '@/services/prescripciones'
+import { etiquetaDeSeveridad } from '@/services/alergias'
 import { listarMedicamentos, type MedicamentoCatalogoDto } from '@/services/medicamentos'
 import type { OpcionPaciente } from './ConsultationForm'
 import { SelectorDeMedicamento } from './SelectorDeMedicamento'
@@ -127,6 +134,36 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
   const [cargandoCatalogo, setCargandoCatalogo] = useState(true)
   const [errorCatalogo, setErrorCatalogo] = useState<string | null>(null)
 
+  // ── HU-24 · Alerta de alergia ────────────────────────────────────────────
+  // Las alertas se piden al ELEGIR un medicamento (en el manejador, no en un
+  // efecto: es una consecuencia de un gesto del médico) y se guardan por
+  // paciente+medicamento. Lo que se muestra se DERIVA de las líneas actuales,
+  // así que quitar el medicamento o teclear de nuevo hace desaparecer su aviso
+  // sin ningún código de limpieza. Una respuesta vieja de otro paciente
+  // tampoco se cuela: la llave incluye al paciente.
+  const [alertasPorLlave, setAlertasPorLlave] = useState<Record<string, AlertaDeAlergiaDto[]>>({})
+  const [alertasNoComprobadas, setAlertasNoComprobadas] = useState(false)
+  const [justificacion, setJustificacion] = useState('')
+  const [confirmaSevera, setConfirmaSevera] = useState(false)
+
+  const llaveDeAlerta = (idPaciente: number, medicamentoId: number) =>
+    `${idPaciente}:${medicamentoId}`
+
+  /** El paciente de la receta: el de la consulta fija o el elegido en el desplegable. */
+  const pacienteDeLaReceta = (valor: string): number | null => {
+    if (consulta) return consulta.paciente.personaId
+    return valor ? Number(valor) : null
+  }
+
+  const pedirAlertas = async (idPaciente: number, medicamentoId: number) => {
+    try {
+      const alertas = await buscarAlertasDeAlergia(idPaciente, medicamentoId)
+      setAlertasPorLlave((prev) => ({ ...prev, [llaveDeAlerta(idPaciente, medicamentoId)]: alertas }))
+    } catch {
+      setAlertasNoComprobadas(true)
+    }
+  }
+
   const cargarCatalogo = useCallback(async () => {
     try {
       // El backend ya devuelve solo los activos; el filtro se repite porque
@@ -195,6 +232,24 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
     setPacienteId(valor)
     setCargandoConsultas(true)
     setConsultaId('')
+    // Las alergias son de ESE paciente: cambiarlo invalida lo que se mostraba
+    // y obliga a comprobar de nuevo los medicamentos ya elegidos.
+    setAlertasNoComprobadas(false)
+    const idNuevo = pacienteDeLaReceta(valor)
+    if (idNuevo !== null) {
+      for (const l of lineas) {
+        if (l.medicamento) void pedirAlertas(idNuevo, l.medicamento.medicamentoId)
+      }
+    }
+  }
+
+  const elegirMedicamento = (indice: number, m: MedicamentoCatalogoDto) => {
+    actualizarLinea(indice, { texto: m.descripcion, medicamento: m })
+    const idPaciente = pacienteDeLaReceta(pacienteId)
+    if (idPaciente !== null) {
+      setAlertasNoComprobadas(false)
+      void pedirAlertas(idPaciente, m.medicamentoId)
+    }
   }
 
   const actualizarLinea = (indice: number, cambios: Partial<LineaMedicamento>) => {
@@ -202,6 +257,18 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
     // Tocar la línea señalada es corregirla: deja de marcarse como inválida.
     if (indice === lineaDelError) setLineaDelError(null)
   }
+
+  // Alertas vigentes: las de los medicamentos que HAY en la receta ahora,
+  // sin repetir un medicamento que esté en dos líneas.
+  const idDelPaciente = pacienteDeLaReceta(pacienteId)
+  const idsElegidos = [
+    ...new Set(lineas.flatMap((l) => (l.medicamento ? [l.medicamento.medicamentoId] : []))),
+  ]
+  const alertas: AlertaDeAlergiaDto[] =
+    idDelPaciente === null
+      ? []
+      : idsElegidos.flatMap((m) => alertasPorLlave[llaveDeAlerta(idDelPaciente, m)] ?? [])
+  const alertasSeveras = alertas.filter((a) => a.severidad === 'SEVERA')
 
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -240,12 +307,35 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
       return
     }
 
+    // HU-24 criterios 2 y 3: con una alerta de alergia no se emite sin una
+    // justificación escrita y, si la alergia es severa, sin la casilla
+    // marcada. El backend lo vuelve a exigir; esto evita el viaje de ida y
+    // vuelta y dice qué falta.
+    if (alertas.length > 0) {
+      if (justificacion.trim() === '') {
+        setError(MENSAJE_FALTA_JUSTIFICACION)
+        return
+      }
+      if (alertasSeveras.length > 0 && !confirmaSevera) {
+        setError(MENSAJE_FALTA_CONFIRMACION)
+        return
+      }
+    }
+
     setError(null)
     setEnviando(true)
     try {
       const emitida = await crearPrescripcion({
         consultaId: Number(consultaId),
         medicamentos,
+        // Sin alerta no viaja nada de esto, aunque se hubiera escrito antes de
+        // quitar el medicamento: una justificación huérfana no es de nadie.
+        ...(alertas.length > 0
+          ? {
+              justificacionAlergia: justificacion,
+              confirmaAlergiaSevera: alertasSeveras.length > 0 && confirmaSevera,
+            }
+          : {}),
       })
       onCreada(emitida)
     } catch (err) {
@@ -377,7 +467,7 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
                   // Teclear de nuevo deshace la elección: lo escrito vuelve a
                   // ser solo una búsqueda hasta que se elija otra opción.
                   onCambiarTexto={(texto) => actualizarLinea(i, { texto, medicamento: null })}
-                  onElegir={(m) => actualizarLinea(i, { texto: m.descripcion, medicamento: m })}
+                  onElegir={(m) => elegirMedicamento(i, m)}
                   invalido={lineaDelError === i}
                   descritoPor={lineaDelError === i ? id('error') : undefined}
                   deshabilitado={cargandoCatalogo || errorCatalogo !== null}
@@ -449,11 +539,73 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
           ))}
         </div>
 
+        {alertasNoComprobadas && (
+          <p role="alert" className="text-xs text-amber-700 mt-2">
+            {MENSAJE_ALERTAS_NO_COMPROBADAS}
+          </p>
+        )}
+
         <p className="text-xs text-slate-400 mt-2">
           El medicamento se elige del catálogo. Dosis, frecuencia y duración son opcionales; lo
           que se deje en blanco no se guarda.
         </p>
       </div>
+
+      {alertas.length > 0 && (
+        <section
+          role="alert"
+          aria-labelledby={id('alerta-titulo')}
+          className="rounded-xl border-2 border-red-200 bg-red-50 px-4 py-3 space-y-3"
+        >
+          <h3 id={id('alerta-titulo')} className="text-sm font-bold text-red-800">
+            Alergia registrada del paciente
+          </h3>
+          <ul className="space-y-2 text-sm text-red-900">
+            {alertas.map((a) => (
+              <li key={`${a.alergiaId}-${a.medicamentoId}`}>
+                <span className="font-semibold">{a.sustancia}</span>
+                {' · '}Severidad: <span className="font-semibold">{etiquetaDeSeveridad(a.severidad)}</span>
+                {' · '}Reacción: {a.reaccion}
+                <span className="block text-xs text-red-700">En: {a.medicamento}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div>
+            <label htmlFor={id('justificacion')} className={labelClass}>
+              Justificación para recetarlo de todos modos
+              <Obligatorio />
+            </label>
+            <textarea
+              id={id('justificacion')}
+              value={justificacion}
+              onChange={(e) => setJustificacion(e.target.value)}
+              maxLength={MAXIMO_JUSTIFICACION_ALERGIA}
+              rows={3}
+              aria-required="true"
+              className={`${inputClass} resize-y`}
+            />
+            <p className="text-xs text-red-700 mt-1">
+              Queda guardada junto a la receta y esta decisión se registra en la bitácora.
+            </p>
+          </div>
+
+          {alertasSeveras.length > 0 && (
+            <label className="flex items-start gap-2 text-sm font-semibold text-red-900 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={confirmaSevera}
+                onChange={(e) => setConfirmaSevera(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                Confirmo que receto {[...new Set(alertasSeveras.map((a) => a.medicamento))].join(', ')} pese
+                a la alergia severa a {[...new Set(alertasSeveras.map((a) => a.sustancia))].join(', ')}
+              </span>
+            </label>
+          )}
+        </section>
+      )}
 
       {/* Sin campo de «indicaciones adicionales»: el contrato de
           `POST /prescripciones` no lo tiene, así que lo que se escribiera ahí
