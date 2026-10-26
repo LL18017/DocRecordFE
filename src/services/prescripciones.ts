@@ -279,6 +279,30 @@ export async function buscarAlertasDeAlergia(
   }
 }
 
+/**
+ * HU-24 criterio 5: el médico vio la alerta y NO recetó. Deja constancia en la
+ * bitácora (`POST /prescripciones/alertas-de-alergia/decision`); si recetó
+ * pese a la alerta, ese registro lo escribe el backend al emitir la receta.
+ *
+ * Es un aviso de mejor esfuerzo: si falla, la pantalla no debe trabar al
+ * médico que ya decidió no recetar, así que no lanza. Devuelve si quedó
+ * registrado, para quien quiera reintentar o avisar.
+ */
+export async function registrarDesistimientoDeAlerta(
+  pacienteId: number,
+  medicamentoId: number,
+): Promise<boolean> {
+  try {
+    await apiFetch<void>('/prescripciones/alertas-de-alergia/decision', {
+      method: 'POST',
+      body: { pacienteId, medicamentoId, decision: 'DESISTIO' },
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Texto de una alerta para mostrarla o registrarla: «Penicilina (Severa) · Urticaria». */
 export function resumenDeAlerta(alerta: AlertaDeAlergiaDto): string {
   return `${alerta.sustancia} (${etiquetaDeSeveridad(alerta.severidad)}) · ${alerta.reaccion}`

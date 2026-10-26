@@ -1,14 +1,14 @@
 'use client'
 
 // ─── HU-14 · Hábitos y estilo de vida ───────────────────────────────────────
-// Cada hábito con su tipo (del catálogo), una descripción y un nivel de riesgo
-// (criterio 1). Los de riesgo alto salen primero y destacados en rojo
-// (criterio 3). Registran y editan el médico y la enfermera; eliminar es solo
-// del médico, y el administrador consulta.
-//
-// Lo que esta sección NO hace todavía, porque el backend no lo guarda: la
-// fecha de actualización y el historial de valores anteriores (criterio 2).
-// Editar sobrescribe. No se finge un historial que no existe.
+// Cada hábito con su tipo (del catálogo), nivel de riesgo, descripción,
+// frecuencia y observaciones, y la fecha en que se actualizó con quién lo hizo
+// (criterio 1). Al editar, el backend conserva el valor anterior y «Ver
+// historial» lo muestra, de la versión más reciente a la más antigua, para ver
+// la evolución en el tiempo (criterio 2). Los de riesgo alto salen primero y
+// destacados en rojo (criterio 3). Registran y editan el médico y la
+// enfermera; eliminar es solo del médico, y el administrador consulta (y ve el
+// historial).
 
 import React, { useCallback, useEffect, useId, useState } from 'react'
 import {
@@ -19,16 +19,19 @@ import {
   Obligatorio,
   SeccionDeExpediente,
 } from '@/components/clinico/SeccionDeExpediente'
+import { formatearFechaHora } from '@/services/consultas'
 import {
   actualizarHabito,
   eliminarHabito,
   etiquetaDeNivel,
   listarHabitos,
+  listarHistorialDeHabito,
   listarTiposDeHabito,
   NIVELES,
   ordenarPorRiesgo,
   registrarHabito,
   type HabitoDto,
+  type HabitoHistorialDto,
   type NivelDeHabito,
   type TipoDeHabitoDto,
 } from '@/services/habitos'
@@ -160,6 +163,7 @@ const FilaDeHabito: React.FC<{
   const [confirmando, setConfirmando] = useState(false)
   const [eliminando, setEliminando] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [historialAbierto, setHistorialAbierto] = useState(false)
 
   if (editando) {
     return (
@@ -211,6 +215,18 @@ const FilaDeHabito: React.FC<{
             </span>
           </div>
           <p className="mt-0.5 text-xs text-slate-600 break-words">{h.descripcion}</p>
+          <p className="mt-0.5 text-xs text-slate-600 break-words">
+            <span className="font-semibold text-slate-500">Frecuencia:</span> {h.frecuencia}
+          </p>
+          {h.observaciones && (
+            <p className="mt-0.5 text-xs text-slate-600 break-words">
+              <span className="font-semibold text-slate-500">Observaciones:</span> {h.observaciones}
+            </p>
+          )}
+          <p className="mt-1 text-[11px] text-slate-400">
+            Actualizado el {formatearFechaHora(h.actualizadoEn)}
+            {h.actualizadoPor ? ` por ${h.actualizadoPor}` : ''}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-3 text-xs">
           {confirmando ? (
@@ -232,6 +248,14 @@ const FilaDeHabito: React.FC<{
             </>
           ) : (
             <>
+              <button
+                onClick={() => setHistorialAbierto((v) => !v)}
+                aria-expanded={historialAbierto}
+                aria-label={`${historialAbierto ? 'Ocultar' : 'Ver'} historial del hábito: ${h.tipoHabito.descripcion}`}
+                className="font-semibold text-slate-400 hover:text-doc-blue cursor-pointer"
+              >
+                {historialAbierto ? 'Ocultar historial' : 'Ver historial'}
+              </button>
               {puedeEditar && (
                 <button
                   onClick={() => setEditando(true)}
@@ -259,7 +283,66 @@ const FilaDeHabito: React.FC<{
           {error}
         </p>
       )}
+      {historialAbierto && <HistorialDeHabito habito={h} />}
     </li>
+  )
+}
+
+/**
+ * Las versiones anteriores de un hábito (criterio 2). Se piden al abrir, y
+ * otra vez si el hábito se editó mientras estaba abierto (cambia
+ * `actualizadoEn`): la versión que se acaba de reemplazar tiene que aparecer.
+ */
+const HistorialDeHabito: React.FC<{ habito: HabitoDto }> = ({ habito }) => {
+  const [versiones, setVersiones] = useState<HabitoHistorialDto[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let vigente = true
+    listarHistorialDeHabito(habito.id)
+      .then((lista) => {
+        if (!vigente) return
+        setVersiones(lista)
+        setError(null)
+      })
+      .catch((err) => {
+        if (vigente) setError(mensajeDe(err, 'No se pudo cargar el historial del hábito.'))
+      })
+    return () => {
+      vigente = false
+    }
+  }, [habito.id, habito.actualizadoEn])
+
+  return (
+    <div className="mt-2 border-t border-slate-200 pt-2" aria-label={`Historial de ${habito.tipoHabito.descripcion}`}>
+      {error ? (
+        <p role="alert" className="text-xs text-red-700">
+          {error}
+        </p>
+      ) : versiones === null ? (
+        <p className="text-xs text-slate-400">Cargando historial…</p>
+      ) : versiones.length === 0 ? (
+        <p className="text-xs text-slate-500">Este hábito no se ha modificado: no hay versiones anteriores.</p>
+      ) : (
+        <ol className="space-y-1.5">
+          {versiones.map((v) => (
+            <li key={v.historialId} className="rounded-lg bg-white/70 px-2.5 py-1.5 text-xs text-slate-600">
+              <p className="font-semibold text-slate-700">
+                {formatearFechaHora(v.actualizadoEn)} · {etiquetaDeNivel(v.nivel)}
+                {v.actualizadoPor ? ` · ${v.actualizadoPor}` : ''}
+              </p>
+              <p className="break-words">{v.descripcion}</p>
+              <p className="break-words">Frecuencia: {v.frecuencia}</p>
+              {v.observaciones && <p className="break-words">Observaciones: {v.observaciones}</p>}
+              <p className="text-[11px] text-slate-400">
+                Reemplazado el {formatearFechaHora(v.reemplazadoEn)}
+                {v.reemplazadoPor ? ` por ${v.reemplazadoPor}` : ''}
+              </p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
   )
 }
 
@@ -276,19 +359,30 @@ const FormularioDeHabito: React.FC<{
   const [tipoHabitoId, setTipoHabitoId] = useState(inicial ? String(inicial.tipoHabito.id) : '')
   const [nivel, setNivel] = useState<NivelDeHabito | ''>(inicial?.nivel ?? '')
   const [descripcion, setDescripcion] = useState(inicial?.descripcion ?? '')
+  const [frecuencia, setFrecuencia] = useState(inicial?.frecuencia ?? '')
+  const [observaciones, setObservaciones] = useState(inicial?.observaciones ?? '')
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const enviar = async (e: React.FormEvent) => {
     e.preventDefault()
     const texto = descripcion.trim()
-    if (!tipoHabitoId || !nivel || !texto) {
-      setError('El tipo, el nivel de riesgo y la descripción son obligatorios.')
+    const cadaCuanto = frecuencia.trim()
+    if (!tipoHabitoId || !nivel || !texto || !cadaCuanto) {
+      setError('El tipo, el nivel de riesgo, la descripción y la frecuencia son obligatorios.')
       return
     }
     setEnviando(true)
     setError(null)
-    const payload = { pacienteId, tipoHabitoId: Number(tipoHabitoId), nivel, descripcion: texto }
+    const payload = {
+      pacienteId,
+      tipoHabitoId: Number(tipoHabitoId),
+      nivel,
+      descripcion: texto,
+      frecuencia: cadaCuanto,
+      // Opcionales: en blanco no viajan.
+      ...(observaciones.trim() ? { observaciones: observaciones.trim() } : {}),
+    }
     try {
       onGuardado(inicial ? await actualizarHabito(inicial.id, payload) : await registrarHabito(payload))
     } catch (err) {
@@ -345,7 +439,7 @@ const FormularioDeHabito: React.FC<{
         </div>
         <div className="sm:col-span-2">
           <label htmlFor={id('descripcion')} className={labelClass}>
-            Descripción y frecuencia
+            Descripción
             <Obligatorio />
           </label>
           <input
@@ -353,7 +447,34 @@ const FormularioDeHabito: React.FC<{
             maxLength={255}
             value={descripcion}
             onChange={(e) => setDescripcion(e.target.value)}
-            placeholder="Ej.: Fuma 10 cigarrillos al día desde hace 5 años"
+            placeholder="Ej.: Fuma cigarrillos desde hace 5 años"
+            className={campoBase}
+          />
+        </div>
+        <div>
+          <label htmlFor={id('frecuencia')} className={labelClass}>
+            Frecuencia
+            <Obligatorio />
+          </label>
+          <input
+            id={id('frecuencia')}
+            maxLength={100}
+            value={frecuencia}
+            onChange={(e) => setFrecuencia(e.target.value)}
+            placeholder="Ej.: A diario, 3 veces por semana"
+            className={campoBase}
+          />
+        </div>
+        <div>
+          <label htmlFor={id('observaciones')} className={labelClass}>
+            Observaciones
+          </label>
+          <input
+            id={id('observaciones')}
+            maxLength={500}
+            value={observaciones}
+            onChange={(e) => setObservaciones(e.target.value)}
+            placeholder="Opcional"
             className={campoBase}
           />
         </div>

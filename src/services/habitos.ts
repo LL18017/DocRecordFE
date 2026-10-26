@@ -1,7 +1,9 @@
 // ─── Servicio de hábitos y estilo de vida (HU-14) ──────────────────────────
 // `/api/habitos-estilo-de-vida` —el `/api` es parte de la ruta del backend,
 // no el prefijo del proxy—: tabaquismo, alcohol, actividad física… cada uno
-// con su tipo, una descripción y un nivel de riesgo.
+// con su tipo, una descripción, una frecuencia, observaciones y un nivel de
+// riesgo. Cada alta y cada edición quedan con su fecha y su autor, y al editar
+// el backend conserva la versión anterior (`/{id}/historial`).
 //
 // QUIÉN PUEDE QUÉ (lo impone el backend, esto solo lo refleja):
 //   · Registrar y editar → MÉDICO y ENFERMERA.
@@ -32,8 +34,34 @@ export interface HabitoDto {
   id: number
   descripcion: string
   nivel: NivelDeHabito
+  /** Cada cuánto ocurre («a diario», «3 veces por semana»). Obligatoria. */
+  frecuencia: string
+  observaciones: string | null
+  /** Instante de la última escritura (alta o edición). */
+  actualizadoEn: string
+  /** Quién escribió esa última versión; null en los hábitos anteriores a que se guardara. */
+  actualizadoPor: string | null
   pacienteId: number
   tipoHabito: TipoDeHabitoDto
+}
+
+/**
+ * Una versión ANTERIOR de un hábito (`HabitoHistorialResponse`): los valores
+ * que tenía entonces, cuándo y quién los escribió, y cuándo y quién los
+ * reemplazó. El backend las devuelve de la más reciente a la más antigua.
+ */
+export interface HabitoHistorialDto {
+  historialId: number
+  habitoId: number
+  tipoHabito: TipoDeHabitoDto
+  descripcion: string
+  nivel: NivelDeHabito
+  frecuencia: string
+  observaciones: string | null
+  actualizadoEn: string
+  actualizadoPor: string | null
+  reemplazadoEn: string
+  reemplazadoPor: string | null
 }
 
 export interface HabitoPayload {
@@ -41,12 +69,19 @@ export interface HabitoPayload {
   tipoHabitoId: number
   nivel: NivelDeHabito
   descripcion: string
+  frecuencia: string
+  observaciones?: string
 }
 
 const RUTA = '/api/habitos-estilo-de-vida'
 
 export function listarHabitos(pacienteId: number): Promise<HabitoDto[]> {
   return apiFetch<HabitoDto[]>(`${RUTA}/paciente/${pacienteId}`)
+}
+
+/** Versiones anteriores de un hábito, la más reciente primero (criterio 2). */
+export function listarHistorialDeHabito(id: number): Promise<HabitoHistorialDto[]> {
+  return apiFetch<HabitoHistorialDto[]>(`${RUTA}/${id}/historial`)
 }
 
 export function listarTiposDeHabito(): Promise<TipoDeHabitoDto[]> {

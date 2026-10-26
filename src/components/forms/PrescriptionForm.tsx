@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useId, useState } from 'react'
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Icon } from '@/components/ui/Icon'
 import {
   formatearFechaHora,
@@ -18,6 +18,7 @@ import {
   MENSAJE_FALTA_JUSTIFICACION,
   MENSAJE_RECETA_VACIA,
   mensajeFueraDelCatalogo,
+  registrarDesistimientoDeAlerta,
   type AlertaDeAlergiaDto,
   type MedicamentoPayload,
   type PrescripcionDto,
@@ -155,6 +156,34 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
     return valor ? Number(valor) : null
   }
 
+  // Criterio 5: cuando el médico ve la alerta y NO receta, queda en la
+  // bitácora. Se guarda qué desistimientos ya se registraron para no repetir
+  // el mismo (quitar la línea y luego cancelar es una sola decisión); volver a
+  // elegir el medicamento reabre la decisión y lo borra de aquí.
+  const desistimientosRegistrados = useRef(new Set<string>())
+
+  /**
+   * Registra el desistimiento de cada medicamento con alerta que deja de
+   * estar en la receta. `quedan` son los ids que siguen en otras líneas: si el
+   * mismo medicamento sigue recetándose, no se desistió de él.
+   */
+  const registrarDesistimientos = (medicamentoIds: number[], quedan: number[] = []) => {
+    const idPaciente = pacienteDeLaReceta(pacienteId)
+    if (idPaciente === null) return
+    for (const medicamentoId of new Set(medicamentoIds)) {
+      const llave = llaveDeAlerta(idPaciente, medicamentoId)
+      if (quedan.includes(medicamentoId)) continue
+      if ((alertasPorLlave[llave] ?? []).length === 0) continue
+      if (desistimientosRegistrados.current.has(llave)) continue
+      desistimientosRegistrados.current.add(llave)
+      void registrarDesistimientoDeAlerta(idPaciente, medicamentoId)
+    }
+  }
+
+  /** Ids de los medicamentos elegidos en las líneas, salvo la `salvo`. */
+  const idsEnLineas = (salvo?: number) =>
+    lineas.flatMap((l, i) => (i !== salvo && l.medicamento ? [l.medicamento.medicamentoId] : []))
+
   const pedirAlertas = async (idPaciente: number, medicamentoId: number) => {
     try {
       const alertas = await buscarAlertasDeAlergia(idPaciente, medicamentoId)
@@ -247,6 +276,7 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
     actualizarLinea(indice, { texto: m.descripcion, medicamento: m })
     const idPaciente = pacienteDeLaReceta(pacienteId)
     if (idPaciente !== null) {
+      desistimientosRegistrados.current.delete(llaveDeAlerta(idPaciente, m.medicamentoId))
       setAlertasNoComprobadas(false)
       void pedirAlertas(idPaciente, m.medicamentoId)
     }
@@ -466,7 +496,14 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
                   seleccionado={linea.medicamento}
                   // Teclear de nuevo deshace la elección: lo escrito vuelve a
                   // ser solo una búsqueda hasta que se elija otra opción.
-                  onCambiarTexto={(texto) => actualizarLinea(i, { texto, medicamento: null })}
+                  onCambiarTexto={(texto) => {
+                    // Teclear sobre un medicamento ya elegido lo quita de la
+                    // receta: si tenía alerta, el médico desistió de él.
+                    if (linea.medicamento) {
+                      registrarDesistimientos([linea.medicamento.medicamentoId], idsEnLineas(i))
+                    }
+                    actualizarLinea(i, { texto, medicamento: null })
+                  }}
                   onElegir={(m) => elegirMedicamento(i, m)}
                   invalido={lineaDelError === i}
                   descritoPor={lineaDelError === i ? id('error') : undefined}
@@ -524,6 +561,9 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    if (linea.medicamento) {
+                      registrarDesistimientos([linea.medicamento.medicamentoId], idsEnLineas(i))
+                    }
                     setLineas((prev) => prev.filter((_, j) => j !== i))
                     // Los índices se corren al quitar una línea; la marca de
                     // error podría quedar sobre otra que no tiene nada malo.
@@ -614,7 +654,12 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
       <div className="flex gap-3 pt-4 border-t border-slate-100">
         <button
           type="button"
-          onClick={onCancel}
+          onClick={() => {
+            // Cancelar la receta con alertas a la vista es desistir de cada
+            // medicamento que las provocó.
+            registrarDesistimientos(idsElegidos)
+            onCancel()
+          }}
           className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 hover:border-slate-300 transition-colors cursor-pointer"
         >
           Cancelar
