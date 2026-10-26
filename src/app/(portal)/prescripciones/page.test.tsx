@@ -25,6 +25,7 @@ const listarPacientes = vi.fn<() => Promise<PacienteDto[]>>()
 const listarHistoricoDePrescripciones =
   vi.fn<(filtro?: FiltroHistoricoDeRecetas) => Promise<PaginaDto<PrescripcionDto>>>()
 const anularPrescripcion = vi.fn<(id: number, motivo: string) => Promise<PrescripcionDto>>()
+const enviarRecetaPorCorreo = vi.fn<(consultaId: number) => Promise<void>>()
 
 vi.mock('@/services/pacientes', () => ({
   listarPacientes: () => listarPacientes(),
@@ -39,8 +40,18 @@ vi.mock('@/services/prescripciones', async (importarOriginal) => {
     listarHistoricoDePrescripciones: (filtro?: FiltroHistoricoDeRecetas) =>
       listarHistoricoDePrescripciones(filtro),
     anularPrescripcion: (id: number, motivo: string) => anularPrescripcion(id, motivo),
+    enviarRecetaPorCorreo: (consultaId: number) => enviarRecetaPorCorreo(consultaId),
   }
 })
+
+// El formulario de emisión tiene sus propias pruebas; aquí solo importa lo
+// que la pantalla hace con la receta que devuelve.
+const recetaEmitida = vi.hoisted(() => ({ valor: null as unknown }))
+vi.mock('@/components/forms/PrescriptionForm', () => ({
+  PrescriptionForm: ({ onCreada }: { onCreada: (r: unknown) => void }) => (
+    <button onClick={() => onCreada(recetaEmitida.valor)}>Simular emisión</button>
+  ),
+}))
 
 function paciente(): PacienteDto {
   return {
@@ -106,6 +117,8 @@ beforeEach(() => {
   listarPacientes.mockReset()
   listarHistoricoDePrescripciones.mockReset()
   anularPrescripcion.mockReset()
+  enviarRecetaPorCorreo.mockReset()
+  enviarRecetaPorCorreo.mockResolvedValue(undefined)
   listarPacientes.mockResolvedValue([paciente()])
   listarHistoricoDePrescripciones.mockResolvedValue(sobre([receta()]))
   anularPrescripcion.mockImplementation(async (id, motivo) =>
@@ -499,5 +512,75 @@ describe('recetas · carga', () => {
 
     expect(await screen.findByText(/receta #11/i)).toBeInTheDocument()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
+describe('recetas · HU-25 envío por correo', () => {
+  it('muestra el estado del último envío junto al botón de reenviar', async () => {
+    listarHistoricoDePrescripciones.mockResolvedValue(
+      sobre([receta({ envioPorCorreo: 'ENVIADO', envioPorCorreoFecha: '2026-08-23T15:02:00' })]),
+    )
+    montar()
+
+    expect(await screen.findByText(/enviada por correo/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /reenviar por correo la receta 11/i })).toBeInTheDocument()
+  })
+
+  it('un envío fallido se ve como fallido y se puede reenviar', async () => {
+    listarHistoricoDePrescripciones.mockResolvedValue(
+      sobre([receta({ envioPorCorreo: 'FALLIDO', envioPorCorreoFecha: '2026-08-23T15:02:00' })]),
+    )
+    const user = montar()
+
+    expect(await screen.findByText(/el envío por correo falló/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /reenviar por correo la receta 11/i }))
+
+    await waitFor(() => expect(enviarRecetaPorCorreo).toHaveBeenCalledWith(7))
+    expect(await screen.findByText(/envío por correo pendiente/i)).toBeInTheDocument()
+  })
+
+  it('si el reenvío no lo acepta el servidor, muestra el motivo y no cambia el estado', async () => {
+    enviarRecetaPorCorreo.mockRejectedValue(new ApiError(422, 'El paciente no tiene un correo registrado'))
+    listarHistoricoDePrescripciones.mockResolvedValue(sobre([receta({ envioPorCorreo: 'FALLIDO' })]))
+    const user = montar()
+
+    await user.click(await screen.findByRole('button', { name: /reenviar por correo la receta 11/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('El paciente no tiene un correo registrado')
+    expect(screen.getByText(/el envío por correo falló/i)).toBeInTheDocument()
+  })
+
+  it('un paciente sin correo no se puede enviar: se dice y se ofrece imprimir', async () => {
+    listarHistoricoDePrescripciones.mockResolvedValue(sobre([receta({ envioPorCorreo: 'SIN_CORREO' })]))
+    montar()
+
+    expect(await screen.findByText(/el paciente no tiene correo registrado/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /enviar por correo la receta 11/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /imprimir la receta 11/i })).toBeEnabled()
+  })
+
+  it('al emitir la receta de un paciente sin correo avisa y ofrece imprimirla', async () => {
+    recetaEmitida.valor = receta({ prescripcionId: 12, envioPorCorreo: 'SIN_CORREO' })
+    const user = montar()
+    await screen.findByText(/receta #11/i)
+
+    await user.click(screen.getByRole('button', { name: /nueva prescripción/i }))
+    await user.click(await screen.findByRole('button', { name: /simular emisión/i }))
+
+    const aviso = await screen.findByText(/la receta #12 se emitió, pero el paciente no tiene un correo/i)
+    expect(aviso).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /imprimir receta/i })).toBeInTheDocument()
+  })
+
+  it('al emitir la receta de un paciente con correo no muestra el aviso de impresión', async () => {
+    recetaEmitida.valor = receta({ prescripcionId: 12, envioPorCorreo: 'PENDIENTE' })
+    const user = montar()
+    await screen.findByText(/receta #11/i)
+
+    await user.click(screen.getByRole('button', { name: /nueva prescripción/i }))
+    await user.click(await screen.findByRole('button', { name: /simular emisión/i }))
+
+    await waitFor(() => expect(listarHistoricoDePrescripciones).toHaveBeenCalledTimes(2))
+    expect(screen.queryByText(/no tiene un correo/i)).toBeNull()
   })
 })

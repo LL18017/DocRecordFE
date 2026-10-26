@@ -9,7 +9,7 @@
 // 404 «La URL solicitada no existe»).
 
 import { ApiError, apiFetch } from '@/lib/api'
-import { formatearFechaHora, type ConsultaClinicaDto } from './consultas'
+import { formatearFechaHora, textoOpcional, type ConsultaClinicaDto } from './consultas'
 import { etiquetaDeSeveridad, type SeveridadDeAlergia } from './alergias'
 
 /**
@@ -80,6 +80,13 @@ export interface PrescripcionPacienteDto {
 }
 
 /**
+ * HU-25: cómo va el envío de la receta al correo del paciente.
+ * `SIN_CORREO` no es un envío: el paciente no tiene correo y la receta solo se
+ * puede imprimir.
+ */
+export type EstadoDeEnvioDeReceta = 'PENDIENTE' | 'ENVIADO' | 'FALLIDO' | 'SIN_CORREO'
+
+/**
  * Espejo de `PrescripcionDto`.
  *
  * `paciente` es un campo ADITIVO: antes de él, esta pantalla no podía decir
@@ -108,6 +115,13 @@ export interface PrescripcionDto {
   motivoAnulacion: string | null
   anuladaEn: string | null
   anuladaPor: string | null
+  /**
+   * HU-25: último envío por correo de las recetas de la consulta. `null` o
+   * ausente en las recetas anteriores al envío automático.
+   */
+  envioPorCorreo?: EstadoDeEnvioDeReceta | null
+  /** Cuándo se encoló el envío (PENDIENTE) o cuándo terminó (ENVIADO, FALLIDO). */
+  envioPorCorreoFecha?: string | null
 }
 
 /**
@@ -471,6 +485,63 @@ export async function enviarRecetaPorCorreo(consultaId: number): Promise<void> {
 }
 
 // ─── Ayudas de presentación ────────────────────────────────────────────────
+
+/**
+ * Frase corta del último envío por correo, sin la fecha (HU-25, criterio 4).
+ * `null` cuando no hay nada que decir (receta anterior al envío automático).
+ */
+export function textoDeEnvioDeReceta(estado: EstadoDeEnvioDeReceta | null | undefined): string | null {
+  switch (estado) {
+    case 'PENDIENTE':
+      return 'Envío por correo pendiente'
+    case 'ENVIADO':
+      return 'Enviada por correo'
+    case 'FALLIDO':
+      return 'El envío por correo falló'
+    case 'SIN_CORREO':
+      return 'El paciente no tiene correo registrado'
+    default:
+      return null
+  }
+}
+
+function escaparHtml(texto: string): string {
+  return texto
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/**
+ * HU-25, criterio 2: la receta lista para imprimir cuando el paciente no tiene
+ * correo. Lleva lo mismo que el correo —paciente, fecha, médico y
+ * medicamentos— y nada del diagnóstico, que ni siquiera viaja en la receta.
+ */
+export function htmlDeRecetaParaImprimir(prescripcion: PrescripcionDto, fechaLegible: string): string {
+  const filas = prescripcion.medicamentos
+    .map(
+      (m) =>
+        `<tr><td>${escaparHtml(m.medicamento)}</td><td>${escaparHtml(textoOpcional(m.dosis))}</td>` +
+        `<td>${escaparHtml(textoOpcional(m.frecuencia))}</td><td>${escaparHtml(textoOpcional(m.duracion))}</td></tr>`,
+    )
+    .join('')
+  const paciente = `${prescripcion.paciente.nombres} ${prescripcion.paciente.apellidos}`.trim()
+  const medico = `${prescripcion.medico.nombres} ${prescripcion.medico.apellidos}`.trim()
+  return (
+    `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">` +
+    `<title>Receta ${prescripcion.prescripcionId}</title>` +
+    `<style>body{font-family:Arial,Helvetica,sans-serif;margin:32px;color:#1e293b}` +
+    `h1{color:#1e3a5f;font-size:22px}table{border-collapse:collapse;width:100%;margin-top:16px}` +
+    `th,td{border:1px solid #cbd5e1;padding:8px;text-align:left;font-size:14px}th{background:#f1f5f9}</style>` +
+    `</head><body><h1>DocRecord Sv · Receta médica</h1>` +
+    `<p><strong>Paciente:</strong> ${escaparHtml(paciente)}</p>` +
+    `<p><strong>Fecha:</strong> ${escaparHtml(fechaLegible)}</p>` +
+    `<p><strong>Médico:</strong> ${escaparHtml(medico)}</p>` +
+    `<table><thead><tr><th>Medicamento</th><th>Dosis</th><th>Frecuencia</th><th>Duración</th></tr></thead>` +
+    `<tbody>${filas}</tbody></table></body></html>`
+  )
+}
 
 /** Nombre completo del médico que firma. */
 export function nombreDeMedicoQueReceta(prescripcion: PrescripcionDto): string {
