@@ -505,7 +505,7 @@ describe('HU-25 · envío de la receta por correo', () => {
     const html = htmlDeRecetaParaImprimir(
       receta({
         medicamentos: [
-          { id: 1, medicamento: 'Amoxicilina <b>', dosis: null, frecuencia: 'cada 8 h', duracion: null },
+          { id: 1, medicamento: 'Amoxicilina <b>', dosis: '500 mg', viaAdministracion: 'Oral', frecuencia: 'cada 8 h', duracion: '7 días' },
         ],
       }),
       '23 ago 2026, 15:00',

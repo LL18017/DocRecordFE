@@ -21,7 +21,6 @@ import {
   nombreDeMedicoQueReceta,
   nombreDePacienteDeReceta,
   textoDeEnvioDeReceta,
-  textoOpcional,
   type EstadoDeEnvioDeReceta,
   type FiltroHistoricoDeRecetas,
   type PrescripcionDto,
