@@ -47,6 +47,11 @@ export interface RegistroPayload {
   email: string
   password: string
   especialidadId: number
+  /**
+   * Número de registro en la Junta de Vigilancia (HU-02 criterio 1). El backend
+   * lo exige y lo guarda en mayúsculas; su formato es el de `formatoDeJuntaValido` (lib/registroJunta).
+   */
+  registroJunta: string
 }
 
 /**

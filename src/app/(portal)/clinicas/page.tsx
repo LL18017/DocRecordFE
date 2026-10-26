@@ -17,6 +17,7 @@ import { tieneUbicacion } from '@/lib/mapaClinicas'
 import {
   MAX_LARGO_NOMBRE_CLINICA,
   actualizarClinica,
+  cambiarEstadoClinica,
   clinicaDtoAClinica,
   crearClinica,
   eliminarClinica,
@@ -59,6 +60,8 @@ export default function ClinicasPage() {
   const [workModal, setWorkModal] = useState<Clinica | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<Clinica | null>(null)
   const [eliminando, setEliminando] = useState(false)
+  // Id de la sede que se está reactivando, para deshabilitar solo su botón.
+  const [reactivandoId, setReactivandoId] = useState<number | null>(null)
 
   // Sin setState antes del primer await: hacerlo de forma síncrona dentro del
   // efecto provoca renders en cascada y lo prohíbe react-hooks/set-state-in-effect.
@@ -124,10 +127,14 @@ export default function ClinicasPage() {
     setError(null)
     try {
       await eliminarClinica(clinica.id)
-      setList((prev) => prev.filter((c) => c.id !== clinica.id))
-      if (selectedId === clinica.id) setSelectedId(null)
-      // La sede activa acaba de dejar de existir: seguir "operando" en ella
-      // dejaría la sesión apuntando a una clínica borrada.
+      // La baja es lógica: la sede sigue en la lista, marcada INACTIVA, para
+      // poder reactivarla desde aquí (HU-27 criterio 4). Quitarla de la lista
+      // dejaría el botón «Reactivar» sin lugar donde estar hasta recargar.
+      setList((prev) =>
+        prev.map((c) => (c.id === clinica.id ? { ...c, estado: 'INACTIVA' as const } : c)),
+      )
+      // La sede activa acaba de dejar de ofrecerse: seguir "operando" en ella
+      // dejaría la sesión apuntando a una clínica dada de baja.
       if (activeClinic?.id === clinica.id) setActiveClinic(null)
       setDeleteConfirm(null)
     } catch (err) {
@@ -135,6 +142,20 @@ export default function ClinicasPage() {
       setDeleteConfirm(null)
     } finally {
       setEliminando(false)
+    }
+  }
+
+  const handleReactivar = async (clinica: Clinica) => {
+    setReactivandoId(clinica.id)
+    setError(null)
+    try {
+      const dto = await cambiarEstadoClinica(clinica.id, 'ACTIVA')
+      const reactivada = clinicaDtoAClinica(dto)
+      setList((prev) => prev.map((c) => (c.id === reactivada.id ? reactivada : c)))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo reactivar la clínica.')
+    } finally {
+      setReactivandoId(null)
     }
   }
 
@@ -211,6 +232,7 @@ export default function ClinicasPage() {
             const isActive = activeClinic?.id === c.id
             const isSelected = selected?.id === c.id
             const coordenadas = formatearCoordenadas(c.lat, c.lng)
+            const inactiva = c.estado === 'INACTIVA'
             return (
               <div
                 key={c.id}
@@ -218,7 +240,7 @@ export default function ClinicasPage() {
                   isSelected
                     ? 'border-blue-400 bg-blue-50/70 shadow-xs'
                     : 'border-slate-200 bg-white hover:border-slate-300'
-                }`}
+                } ${inactiva ? 'opacity-80' : ''}`}
               >
                 <button
                   type="button"
@@ -240,6 +262,7 @@ export default function ClinicasPage() {
                       <div className="flex items-center gap-2">
                         <p className="font-semibold text-slate-800 text-sm truncate font-outfit">{c.name}</p>
                         {isActive && <Badge color="green">Activa</Badge>}
+                        {inactiva && <Badge color="gray">Inactiva</Badge>}
                       </div>
                       {/* El backend solo guarda coordenadas; no hay dirección ni
                           teléfono que mostrar, y una clínica puede no tener ni
@@ -256,6 +279,17 @@ export default function ClinicasPage() {
                 </button>
 
                 <div className="flex items-center gap-2 px-4 pb-3">
+                  {/* Una sede dada de baja no se ofrece para trabajar: lo único
+                      que se le puede hacer en grande es reactivarla. */}
+                  {inactiva ? (
+                    <button
+                      onClick={() => void handleReactivar(c)}
+                      disabled={reactivandoId === c.id}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-xs cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {reactivandoId === c.id ? 'Reactivando…' : 'Reactivar'}
+                    </button>
+                  ) : (
                   <button
                     onClick={() => setWorkModal(c)}
                     className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold text-white transition-all shadow-xs cursor-pointer ${
@@ -272,6 +306,7 @@ export default function ClinicasPage() {
                       </>
                     )}
                   </button>
+                  )}
                   <button
                     onClick={() => setMedicosDe(c)}
                     aria-label={`Médicos y horarios de ${c.name}`}
@@ -287,13 +322,15 @@ export default function ClinicasPage() {
                   >
                     <Icon name="edit" size={14} />
                   </button>
-                  <button
-                    onClick={() => setDeleteConfirm(c)}
-                    className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors cursor-pointer"
-                    title="Desactivar clínica"
-                  >
-                    <Icon name="delete" size={14} />
-                  </button>
+                  {!inactiva && (
+                    <button
+                      onClick={() => setDeleteConfirm(c)}
+                      className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors cursor-pointer"
+                      title="Desactivar clínica"
+                    >
+                      <Icon name="delete" size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
             )
@@ -308,6 +345,7 @@ export default function ClinicasPage() {
                 <div className="flex items-center gap-2">
                   <h3 className="font-bold text-slate-800 font-outfit">{selected.name}</h3>
                   {activeClinic?.id === selected.id && <Badge color="green">Clínica activa</Badge>}
+                  {selected.estado === 'INACTIVA' && <Badge color="gray">Inactiva</Badge>}
                 </div>
                 <p
                   className={`text-xs mt-0.5 ${
@@ -320,6 +358,15 @@ export default function ClinicasPage() {
                 </p>
               </div>
               <div className="flex items-center gap-3">
+                {selected.estado === 'INACTIVA' ? (
+                  <button
+                    onClick={() => void handleReactivar(selected)}
+                    disabled={reactivandoId === selected.id}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-white text-xs font-semibold bg-emerald-600 hover:opacity-90 transition-all shadow-xs cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {reactivandoId === selected.id ? 'Reactivando…' : 'Reactivar'}
+                  </button>
+                ) : (
                 <button
                   onClick={() => setWorkModal(selected)}
                   className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-white text-xs font-semibold transition-all shadow-xs cursor-pointer ${
@@ -329,6 +376,7 @@ export default function ClinicasPage() {
                   <Icon name="clinicas" size={13} color="white" />
                   {activeClinic?.id === selected.id ? 'Activa' : 'Trabajar aquí'}
                 </button>
+                )}
               </div>
             </div>
           )}

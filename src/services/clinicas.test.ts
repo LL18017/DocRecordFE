@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import {
   actualizarClinica,
+  cambiarEstadoClinica,
   clinicaDtoAClinica,
   crearClinica,
   eliminarClinica,
@@ -175,7 +176,7 @@ describe('clínicas · códigos que el backend no explica', () => {
 
     const error = await errorDe(eliminarClinica(7))
 
-    expect(error.message).toContain('eliminar esta clínica')
+    expect(error.message).toContain('dar de baja esta clínica')
     expect(error.message).toContain('propietario')
   })
 
@@ -197,22 +198,21 @@ describe('clínicas · códigos que el backend no explica', () => {
   })
 })
 
-describe('clínicas · el 409 solo habla de eliminar cuando se está eliminando', () => {
-  it('traduce la restricción de integridad al eliminar', async () => {
-    apiFetch.mockRejectedValue(
-      new ApiError(409, 'could not execute statement; constraint [fk_citas_clinica]'),
-    )
+describe('clínicas · el 409 conserva el motivo del backend', () => {
+  const MOTIVO_DE_LAS_CITAS =
+    'No se puede dar de baja la clínica: tiene 2 citas futuras agendadas. Reprográmelas o ' +
+    'cancélelas primero. Primeras citas: 05/11/2026 a las 09:00 - Ana Pérez; 06/11/2026 a las 10:00 - Luis Ruiz.'
 
-    const error = await errorDe(eliminarClinica(7))
+  it('al dar de baja muestra la cantidad y las citas que impiden la baja (HU-27 c3)', async () => {
+    apiFetch.mockRejectedValue(new ApiError(409, MOTIVO_DE_LAS_CITAS))
 
-    expect(error.message).toBe(
-      'No se puede eliminar la clínica porque tiene información asociada.',
-    )
+    expect((await errorDe(eliminarClinica(7))).message).toBe(MOTIVO_DE_LAS_CITAS)
+    expect((await errorDe(cambiarEstadoClinica(7, 'INACTIVA'))).message).toBe(MOTIVO_DE_LAS_CITAS)
   })
 
   it('no le cuenta al usuario que algo «no se puede eliminar» mientras crea o edita', async () => {
-    // Un 409 al crear (p. ej. un nombre repetido) con el texto de borrado
-    // describiría una operación que nadie pidió. Mejor el motivo del backend.
+    // Un 409 al crear (p. ej. un nombre repetido) describe lo que de verdad
+    // pasó: el motivo del backend, sin adornos.
     apiFetch.mockRejectedValue(new ApiError(409, 'Ya existe una clínica con ese nombre.'))
 
     expect((await errorDe(crearClinica(PAYLOAD))).message).toBe(
@@ -221,6 +221,29 @@ describe('clínicas · el 409 solo habla de eliminar cuando se está eliminando'
     expect((await errorDe(actualizarClinica(7, PAYLOAD))).message).toBe(
       'Ya existe una clínica con ese nombre.',
     )
+  })
+})
+
+describe('clínicas · cambiar el estado (HU-27 criterio 4)', () => {
+  it('reactiva con PATCH /clinics/{id}/estado y devuelve la clínica', async () => {
+    apiFetch.mockResolvedValue({ clinicaId: 7, estado: 'ACTIVA' })
+
+    const clinica = await cambiarEstadoClinica(7, 'ACTIVA')
+
+    expect(apiFetch).toHaveBeenCalledWith('/clinics/7/estado', {
+      method: 'PATCH',
+      body: { estado: 'ACTIVA' },
+    })
+    expect(clinica.estado).toBe('ACTIVA')
+  })
+
+  it('nombra la acción real en el 403 de reactivar y de dar de baja', async () => {
+    apiFetch.mockRejectedValue(
+      new ApiError(403, 'El usuario no tiene permiso para modificar esta clínica'),
+    )
+
+    expect((await errorDe(cambiarEstadoClinica(7, 'ACTIVA'))).message).toContain('reactivar esta clínica')
+    expect((await errorDe(cambiarEstadoClinica(7, 'INACTIVA'))).message).toContain('dar de baja esta clínica')
   })
 })
 
