@@ -75,7 +75,16 @@ export interface ConsultaDto {
    * «no coincide», nunca dejar que reviente.
    */
   motivo: string | null
+  /**
+   * Null mientras la consulta sigue PENDIENTE (las anteriores a HU-19, que
+   * nacían sin diagnóstico) y también para enfermería: el servidor no le
+   * entrega el texto (HU-20 c4).
+   */
   diagnostico: string | null
+  /** Opcional al registrar (HU-19): null si no se anotó. */
+  exploracionFisica: string | null
+  /** Opcional al registrar (HU-19): null si no se anotaron. */
+  indicaciones: string | null
   estado: EstadoConsulta
   paciente: ConsultaPacienteDto
   medico: ConsultaMedicoDto
@@ -85,17 +94,23 @@ export interface ConsultaDto {
 /**
  * Cuerpo de `POST /consultas`.
  *
- * Solo `pacienteId` y `motivo` son obligatorios. `clinicaId` se omite cuando
- * no hay sede activa; `diagnostico` cuando quien registra no es médico (ver
- * `puedeRegistrarDiagnostico`); `fecha` cuando se atiende ahora mismo, que es
- * lo normal: dejar que la ponga el servidor evita que el reloj mal puesto de
- * una computadora de clínica fabrique consultas en el futuro.
+ * HU-19 c1: `pacienteId`, `motivo` y `diagnostico` son obligatorios (el
+ * servidor responde 400 sin los dos últimos). `diagnostico` es opcional en el
+ * TIPO solo porque quien no puede escribirlo (enfermería) no lo manda y el
+ * servidor le responde 403; el formulario no deja a un médico enviar sin él.
+ * `exploracionFisica` e
+ * `indicaciones` son opcionales. `clinicaId` se omite cuando no hay sede
+ * activa; `fecha` cuando se atiende ahora mismo, que es lo normal: dejar que
+ * la ponga el servidor evita que el reloj mal puesto de una computadora de
+ * clínica fabrique consultas en el futuro.
  */
 export interface CrearConsultaPayload {
   pacienteId: number
   clinicaId?: number
   motivo: string
   diagnostico?: string
+  exploracionFisica?: string
+  indicaciones?: string
   fecha?: string
 }
 
@@ -105,13 +120,14 @@ export interface CrearConsultaPayload {
  * El backend completa sin destruir: un campo ausente significa «no lo estoy
  * tocando», no «bórralo». Por eso se manda únicamente lo que cambió y por eso
  * el paciente no aparece: una consulta no cambia de paciente, se anula y se
- * registra otra.
+ * registra otra. Tampoco aparecen la clínica ni la fecha (HU-19 c3): junto con
+ * el médico son la firma de la consulta y no se editan.
  */
 export interface ActualizarConsultaPayload {
-  clinicaId?: number
   motivo?: string
   diagnostico?: string
-  fecha?: string
+  exploracionFisica?: string
+  indicaciones?: string
 }
 
 /**
@@ -137,6 +153,17 @@ export function puedeRegistrarDiagnostico(rol: Role): boolean {
 }
 
 /**
+ * Filtros opcionales del historial (HU-20 c2), combinables entre sí y con el
+ * paciente. `desde` y `hasta` son fechas civiles `YYYY-MM-DD`, tal cual las
+ * entrega un `<input type="date">`; `hasta` incluye el día completo.
+ */
+export interface FiltroDeConsultas {
+  medicoId?: number
+  desde?: string
+  hasta?: string
+}
+
+/**
  * Lista consultas, más reciente primero (el orden lo garantiza el backend).
  *
  * Sin `pacienteId` pide la lista completa que el backend deja ver a la cuenta
@@ -145,10 +172,42 @@ export function puedeRegistrarDiagnostico(rol: Role): boolean {
  * permitido, el error llega a la pantalla tal cual y se ve en el aviso con
  * «Reintentar», sin inventar aquí una lista vacía que fingiría que el
  * paciente no tiene consultas.
+ *
+ * El filtro va como segundo parámetro, y no mezclado con el paciente, para que
+ * quien solo pide el historial de un paciente siga llamando `listarConsultas(id)`.
  */
-export async function listarConsultas(pacienteId?: number): Promise<ConsultaDto[]> {
-  const query = pacienteId === undefined ? '' : `?pacienteId=${encodeURIComponent(pacienteId)}`
-  return apiFetch<ConsultaDto[]>(`/consultas${query}`)
+export async function listarConsultas(
+  pacienteId?: number,
+  filtro: FiltroDeConsultas = {},
+): Promise<ConsultaDto[]> {
+  const params = new URLSearchParams()
+  if (pacienteId !== undefined) params.set('pacienteId', String(pacienteId))
+  if (filtro.medicoId !== undefined) params.set('medicoId', String(filtro.medicoId))
+  if (filtro.desde) params.set('desde', filtro.desde)
+  if (filtro.hasta) params.set('hasta', filtro.hasta)
+  const query = params.toString()
+  return apiFetch<ConsultaDto[]>(`/consultas${query ? `?${query}` : ''}`)
+}
+
+/**
+ * Aplica los mismos filtros a una lista ya cargada: el expediente trae el
+ * historial completo de UN paciente y filtra en el cliente, sin volver al
+ * servidor en cada cambio de fecha. Misma semántica que el backend: `hasta`
+ * incluye el día completo, y se compara la fecha civil local de la consulta
+ * (los primeros diez caracteres del instante ISO) para que una consulta de las
+ * 23:59 de «hasta» no se pierda.
+ */
+export function filtrarConsultas(
+  consultas: readonly ConsultaDto[],
+  filtro: FiltroDeConsultas,
+): ConsultaDto[] {
+  return consultas.filter((c) => {
+    const dia = c.fecha.slice(0, 10)
+    if (filtro.desde && dia < filtro.desde) return false
+    if (filtro.hasta && dia > filtro.hasta) return false
+    if (filtro.medicoId !== undefined && c.medico.personaId !== filtro.medicoId) return false
+    return true
+  })
 }
 
 /** Obtiene una consulta. Lanza `ApiError` 404 si no existe. */
@@ -202,6 +261,22 @@ export async function actualizarConsulta(
 /** Nombre completo del paciente de una consulta. */
 export function nombreDePaciente(consulta: ConsultaDto): string {
   return `${consulta.paciente.nombres} ${consulta.paciente.apellidos}`.trim()
+}
+
+/**
+ * Los médicos que aparecen en una lista de consultas, sin repetir y por orden
+ * de aparición. Es lo que ofrece el filtro de médico: no existe un catálogo del
+ * personal médico que estas pantallas puedan pedir, así que solo se puede
+ * elegir a quien ya se vio atender.
+ */
+export function medicosDeConsultas(
+  consultas: readonly ConsultaDto[],
+): { personaId: number; nombre: string }[] {
+  const vistos = new Map<number, string>()
+  for (const c of consultas) {
+    if (!vistos.has(c.medico.personaId)) vistos.set(c.medico.personaId, nombreDeMedico(c))
+  }
+  return Array.from(vistos, ([personaId, nombre]) => ({ personaId, nombre }))
 }
 
 /** Nombre completo del médico que atendió. */

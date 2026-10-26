@@ -11,6 +11,7 @@ import {
 import {
   buscarAlertasDeAlergia,
   crearPrescripcion,
+  datoQueFalta,
   normalizarMedicamentos,
   MAXIMO_JUSTIFICACION_ALERGIA,
   MENSAJE_ALERTAS_NO_COMPROBADAS,
@@ -52,6 +53,7 @@ interface LineaMedicamento {
   texto: string
   medicamento: MedicamentoCatalogoDto | null
   dosis: string
+  viaAdministracion: string
   frecuencia: string
   duracion: string
 }
@@ -60,9 +62,23 @@ const LINEA_VACIA: LineaMedicamento = {
   texto: '',
   medicamento: null,
   dosis: '',
+  viaAdministracion: '',
   frecuencia: '',
   duracion: '',
 }
+
+/** Vías de administración más comunes; se puede escribir otra (el campo es libre). */
+const VIAS_DE_ADMINISTRACION = [
+  'Oral',
+  'Intramuscular',
+  'Intravenosa',
+  'Subcutánea',
+  'Tópica',
+  'Oftálmica',
+  'Inhalada',
+  'Rectal',
+  'Sublingual',
+]
 
 const campoBase =
   'border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:border-purple-400 focus-visible:ring-2 focus-visible:ring-purple-400/40'
@@ -323,6 +339,7 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
       lineas.map((l) => ({
         medicamentoId: l.medicamento?.medicamentoId ?? null,
         dosis: l.dosis,
+        viaAdministracion: l.viaAdministracion,
         frecuencia: l.frecuencia,
         duracion: l.duracion,
       })),
@@ -330,6 +347,14 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
     setLineaDelError(null)
     if (medicamentos.length === 0) {
       setError(MENSAJE_RECETA_VACIA)
+      return
+    }
+    // HU-22 c2: dosis, vía, frecuencia y duración son obligatorias en CADA
+    // medicamento. Se señala la línea y se dice qué dato falta; el servidor
+    // vuelve a exigirlo.
+    const incompleta = medicamentos.findIndex((m) => datoQueFalta(m) !== null)
+    if (incompleta !== -1) {
+      setError(`Cada medicamento debe indicar ${datoQueFalta(medicamentos[incompleta])}.`)
       return
     }
     if (!consultaId) {
@@ -534,6 +559,19 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
                 />
               </div>
               <div>
+                <label htmlFor={id(`via-${i}`)} className="sr-only">
+                  Vía de administración del medicamento {i + 1}
+                </label>
+                <input
+                  id={id(`via-${i}`)}
+                  list={id('vias')}
+                  placeholder="Vía (oral, intramuscular…)"
+                  value={linea.viaAdministracion}
+                  onChange={(e) => actualizarLinea(i, { viaAdministracion: e.target.value })}
+                  className={inputLineaClass}
+                />
+              </div>
+              <div>
                 <label htmlFor={id(`frecuencia-${i}`)} className="sr-only">
                   Frecuencia del medicamento {i + 1}
                 </label>
@@ -545,7 +583,7 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
                   className={inputLineaClass}
                 />
               </div>
-              <div className={lineas.length > 1 ? '' : 'col-span-2'}>
+              <div>
                 <label htmlFor={id(`duracion-${i}`)} className="sr-only">
                   Duración del medicamento {i + 1}
                 </label>
@@ -570,7 +608,7 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
                     setLineaDelError(null)
                   }}
                   aria-label={`Quitar el medicamento ${i + 1}`}
-                  className="flex items-center justify-center border border-red-200 rounded-lg text-red-500 hover:bg-red-50 transition-colors bg-white cursor-pointer"
+                  className="col-span-2 flex items-center justify-center gap-1 py-1.5 border border-red-200 rounded-lg text-red-500 hover:bg-red-50 transition-colors bg-white cursor-pointer"
                 >
                   <Icon name="delete" size={13} />
                 </button>
@@ -585,9 +623,15 @@ export const PrescriptionForm: React.FC<PrescriptionFormProps> = ({
           </p>
         )}
 
+        <datalist id={id('vias')}>
+          {VIAS_DE_ADMINISTRACION.map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
+
         <p className="text-xs text-slate-400 mt-2">
-          El medicamento se elige del catálogo. Dosis, frecuencia y duración son opcionales; lo
-          que se deje en blanco no se guarda.
+          El medicamento se elige del catálogo. Dosis, vía de administración, frecuencia y duración
+          son obligatorias en cada medicamento.
         </p>
       </div>
 

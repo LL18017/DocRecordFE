@@ -8,14 +8,19 @@ import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { ConsultationForm, type OpcionPaciente } from '@/components/forms/ConsultationForm'
+import { DetalleDeConsulta } from '@/components/clinico/DetalleDeConsulta'
+import { FiltrosDeConsultas, type OpcionMedico } from '@/components/clinico/FiltrosDeConsultas'
 import { listarPacientes } from '@/services/pacientes'
 import {
   formatearFechaHora,
   listarConsultas,
+  medicosDeConsultas,
   nombreDeClinica,
+  nombreDeMedico,
   nombreDePaciente,
   textoOpcional,
   type ConsultaDto,
+  type FiltroDeConsultas,
 } from '@/services/consultas'
 
 /** Cómo se pinta cada estado. El backend solo maneja estos dos. */
@@ -31,6 +36,14 @@ export default function ConsultasPage() {
   const [error, setError] = useState<string | null>(null)
   const [registrando, setRegistrando] = useState(false)
   const [editando, setEditando] = useState<ConsultaDto | null>(null)
+  const [viendo, setViendo] = useState<ConsultaDto | null>(null)
+
+  // HU-20 c2: filtros por rango de fechas y por médico, que se aplican en el
+  // servidor. Los médicos que se pueden elegir se ACUMULAN: si solo se
+  // armaran con la lista filtrada, elegir a uno haría desaparecer a los demás
+  // del selector y no habría cómo volver a cambiar de médico sin limpiar.
+  const [filtro, setFiltro] = useState<FiltroDeConsultas>({})
+  const [medicosConocidos, setMedicosConocidos] = useState<OpcionMedico[]>([])
 
   // Ningún setState ocurre antes del primer await: hacerlo de forma síncrona
   // dentro del efecto provoca renders en cascada y lo prohíbe la regla
@@ -41,7 +54,7 @@ export default function ConsultasPage() {
   // lo principal de esta pantalla) y el aviso explica qué se quedó sin cargar.
   const cargar = useCallback(async () => {
     const [resConsultas, resPacientes] = await Promise.allSettled([
-      listarConsultas(),
+      listarConsultas(undefined, filtro),
       listarPacientes(),
     ])
 
@@ -49,6 +62,12 @@ export default function ConsultasPage() {
 
     if (resConsultas.status === 'fulfilled') {
       setConsultas(resConsultas.value)
+      setMedicosConocidos((prev) => {
+        const nuevos = medicosDeConsultas(resConsultas.value).filter(
+          (m) => !prev.some((p) => p.personaId === m.personaId),
+        )
+        return nuevos.length === 0 ? prev : [...prev, ...nuevos]
+      })
     } else {
       problemas.push(describir('No se pudieron cargar las consultas', resConsultas.reason))
     }
@@ -67,7 +86,7 @@ export default function ConsultasPage() {
 
     setError(problemas.length > 0 ? problemas.join(' ') : null)
     setCargando(false)
-  }, [])
+  }, [filtro])
 
   // Ver el comentario equivalente en (portal)/pacientes/page.tsx: cargar datos
   // remotos al montar es el caso que la regla no puede modelar, y el setState
@@ -76,6 +95,13 @@ export default function ConsultasPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ver comentario arriba
     void cargar()
   }, [cargar])
+
+  // Cambiar un filtro es un gesto del usuario, no un efecto: aquí sí se marca
+  // la carga antes de que `cargar` (que depende del filtro) se vuelva a ejecutar.
+  const cambiarFiltro = (nuevo: FiltroDeConsultas) => {
+    setCargando(true)
+    setFiltro(nuevo)
+  }
 
   // Reintentar sí es un manejador de evento: aquí marcar el estado de carga
   // antes de pedir es correcto y da respuesta inmediata.
@@ -121,6 +147,10 @@ export default function ConsultasPage() {
             {nombreDePaciente(c)}
           </Link>
         ),
+      },
+      {
+        header: 'Médico',
+        cell: (c) => <span className="text-slate-600">{nombreDeMedico(c)}</span>,
       },
       {
         header: 'Motivo',
@@ -175,6 +205,14 @@ export default function ConsultasPage() {
         cell: (c) => (
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setViendo(c)}
+              aria-label={`Ver la consulta de ${nombreDePaciente(c)}`}
+              title="Ver consulta y sus recetas"
+              className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-doc-blue hover:bg-blue-100 transition-colors cursor-pointer"
+            >
+              <Icon name="eye" size={14} />
+            </button>
+            <button
               onClick={() => setEditando(c)}
               aria-label={`Editar la consulta de ${nombreDePaciente(c)}`}
               title="Editar consulta"
@@ -221,6 +259,8 @@ export default function ConsultasPage() {
         </div>
       )}
 
+      <FiltrosDeConsultas filtro={filtro} medicos={medicosConocidos} onChange={cambiarFiltro} />
+
       {cargando ? (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-16 text-center text-sm text-slate-500">
           Cargando consultas…
@@ -262,6 +302,18 @@ export default function ConsultasPage() {
           onGuardada={handleRegistrada}
           onCancel={() => setRegistrando(false)}
         />
+      </Modal>
+
+      <Modal
+        isOpen={viendo !== null}
+        onClose={() => setViendo(null)}
+        title="Consulta médica"
+        subtitle="Datos de la consulta y recetas emitidas"
+        icon="consultas"
+        headerGradient="bg-gradient-to-r from-doc-blue to-doc-blue-light"
+        maxWidth="2xl"
+      >
+        {viendo && <DetalleDeConsulta consulta={viendo} />}
       </Modal>
 
       <Modal

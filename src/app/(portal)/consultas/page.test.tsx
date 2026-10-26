@@ -45,6 +45,8 @@ function consulta(cambios: Partial<ConsultaDto> = {}): ConsultaDto {
     fecha: '2026-08-23T14:30:00',
     motivo: 'Dolor de garganta',
     diagnostico: 'Faringitis aguda',
+    exploracionFisica: null,
+    indicaciones: null,
     estado: 'FINALIZADA',
     paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
     medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra', especialidad: null },

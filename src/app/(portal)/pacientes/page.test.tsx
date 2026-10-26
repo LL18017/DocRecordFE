@@ -78,6 +78,8 @@ function consulta(consultaId: number, pacienteId: number): ConsultaDto {
     fecha: '2026-08-20T10:00:00',
     motivo: 'Control',
     diagnostico: null,
+    exploracionFisica: null,
+    indicaciones: null,
     estado: 'FINALIZADA',
     paciente: {
       personaId: pacienteId,
