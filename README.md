@@ -1,4 +1,4 @@
-[![CI](https://github.com/LL18017/DocRecordFE/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/LL18017/DocRecordFE/actions/workflows/ci.yml)
+[![CI](https://github.com/LL18017/DocRecordFE/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LL18017/DocRecordFE/actions/workflows/ci.yml)
 
 This is a [Next.js](https://nextjs.org) project
 

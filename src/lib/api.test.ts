@@ -345,6 +345,65 @@ describe('apiFetch · traducción de errores', () => {
     expect(error.message).toContain('La longitud es obligatoria')
   })
 
+  it('sigue mostrando `message` cuando el backend agrega codigo, timestamp y ruta', async () => {
+    const api = await cargarApi()
+    // Cuerpo completo del manejador global de DocRecordBE (TT-01): a
+    // {error, message} se sumaron `codigo`, `timestamp` y `ruta`. Son
+    // metadatos; lo que se muestra sigue siendo `message`.
+    fetchMock.mockResolvedValueOnce(
+      respuesta(409, {
+        error: 'Conflicto',
+        message: 'La cita ya fue cancelada.',
+        codigo: 409,
+        timestamp: '2026-10-26T04:17:09.221Z',
+        ruta: '/citas/12',
+      }),
+    )
+
+    const error = await errorDe(api.apiFetch('/citas/12', { method: 'PATCH', body: {} }))
+
+    expect(error.message).toBe('La cita ya fue cancelada.')
+    expect(error.status).toBe(409)
+  })
+
+  it('una validación con los metadatos nuevos muestra el motivo, no la ruta ni la fecha', async () => {
+    const api = await cargarApi()
+    fetchMock.mockResolvedValueOnce(
+      respuesta(400, {
+        persona: 'La persona es obligatoria',
+        error: 'Datos inválidos',
+        message: 'La persona es obligatoria.',
+        codigo: 400,
+        timestamp: '2026-10-26T04:17:09.221Z',
+        ruta: '/pacientes',
+      }),
+    )
+
+    const error = await errorDe(api.apiFetch('/pacientes', { method: 'POST', body: {} }))
+
+    expect(error.message).toBe('La persona es obligatoria.')
+  })
+
+  it('un 500 muestra el mensaje con el código de error que trae el backend', async () => {
+    const api = await cargarApi()
+    fetchMock.mockResolvedValueOnce(
+      respuesta(500, {
+        error: 'Error interno',
+        message:
+          'Ocurrió un error inesperado en el servidor. Si el problema continúa, indique el código de error: 77b6db37-a2ba-499f-a682-21b724fdd476',
+        codigo: 500,
+        timestamp: '2026-10-26T04:17:09.221Z',
+        ruta: '/pacientes',
+        idError: '77b6db37-a2ba-499f-a682-21b724fdd476',
+      }),
+    )
+
+    const error = await errorDe(api.apiFetch('/pacientes'))
+
+    // El usuario puede leerle el identificador a quien da soporte.
+    expect(error.message).toContain('77b6db37-a2ba-499f-a682-21b724fdd476')
+  })
+
   it('no confunde un cuerpo de error genérico con una validación', async () => {
     const api = await cargarApi()
     // Forma por defecto de Spring ante un fallo no controlado: son metadatos,
