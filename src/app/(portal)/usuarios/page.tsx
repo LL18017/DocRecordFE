@@ -8,6 +8,7 @@ import { Icon } from '@/components/ui/Icon'
 import { sinTildes } from '@/lib/texto'
 import { Modal } from '@/components/ui/Modal'
 import { ApiError } from '@/lib/api'
+import { AYUDA_CONTRASENA, motivoContrasenaInvalida } from '@/lib/contrasena'
 import { useUsuarioAutenticado } from '@/context/AppContext'
 import { etiquetaDeRoles } from '@/lib/roles'
 import {
@@ -21,10 +22,12 @@ import {
   listarUsuarios,
   quitarClinica,
   quitarRol,
+  reenviarConfirmacion,
   type AltaUsuarioDto,
   type RolDto,
   type UsuarioDto,
 } from '@/services/usuarios'
+import { HistorialDeUsuario } from '@/components/usuarios/HistorialDeUsuario'
 import { listarTodasLasClinicas, type ClinicaDto } from '@/services/clinicas'
 import { listarEspecialidades, type EspecialidadDto } from '@/services/personas'
 
@@ -185,6 +188,7 @@ export default function UsuariosPage() {
   const [usuarioParaRol, setUsuarioParaRol] = useState<UsuarioDto | null>(null)
   const [usuarioParaContrasena, setUsuarioParaContrasena] = useState<UsuarioDto | null>(null)
   const [usuarioParaClinicas, setUsuarioParaClinicas] = useState<UsuarioDto | null>(null)
+  const [usuarioParaHistorial, setUsuarioParaHistorial] = useState<UsuarioDto | null>(null)
   // El id de la fila en vuelo, no un booleano compartido: con un booleano,
   // pulsar una fila deshabilitaria el boton de todas.
   const [cambiandoEstado, setCambiandoEstado] = useState<number | null>(null)
@@ -396,6 +400,15 @@ export default function UsuariosPage() {
             >
               <Icon name="clinicas" size={13} /> {sinSede ? 'Sin sede' : 'Sedes'}
             </button>
+            {/* Historial de administración de la cuenta (HU-05 criterio 5). */}
+            <button
+              type="button"
+              onClick={() => setUsuarioParaHistorial(u)}
+              title="Ver quién y cuándo dio de alta, activó o cambió los roles de esta cuenta"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
+            >
+              <Icon name="history" size={13} /> Historial
+            </button>
             {puedeAsignarContrasena ? (
               <button
                 type="button"
@@ -586,6 +599,23 @@ export default function UsuariosPage() {
               setUsuarioParaContrasena(null)
             }}
             onCancel={() => setUsuarioParaContrasena(null)}
+          />
+        )}
+      </Modal>
+
+      {/* Modal: historial de administración de la cuenta */}
+      <Modal
+        isOpen={usuarioParaHistorial !== null}
+        onClose={() => setUsuarioParaHistorial(null)}
+        title="Historial de la cuenta"
+        subtitle="Quién y cuándo hizo cada cambio"
+        icon="history"
+      >
+        {usuarioParaHistorial && (
+          <HistorialDeUsuario
+            userId={usuarioParaHistorial.userId}
+            userName={usuarioParaHistorial.userName}
+            onCerrar={() => setUsuarioParaHistorial(null)}
           />
         )}
       </Modal>
@@ -803,16 +833,37 @@ const FormularioNuevoUsuario: React.FC<FormularioNuevoUsuarioProps> = ({
   // la cuenta que acaba de crear. En vez de eso, el mismo modal pasa a este
   // segundo paso.
   const [creado, setCreado] = useState<AltaUsuarioDto | null>(null)
+  // El reenvío puede cambiar la respuesta a «¿salió el correo?», así que se
+  // guarda aparte de `creado`, que es lo que contestó el alta.
+  const [correoReenviado, setCorreoReenviado] = useState<boolean | null>(null)
+  const [reenviando, setReenviando] = useState(false)
+  const [errorReenvio, setErrorReenvio] = useState<string | null>(null)
+
+  const reenviar = async (usuario: AltaUsuarioDto) => {
+    setReenviando(true)
+    setErrorReenvio(null)
+    try {
+      const respuesta = await reenviarConfirmacion(usuario.userId)
+      setCorreoReenviado(respuesta.correoDeVerificacionEnviado === true)
+    } catch (err) {
+      setErrorReenvio(err instanceof ApiError ? err.message : 'No se pudo reenviar el correo.')
+    } finally {
+      setReenviando(false)
+    }
+  }
 
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
     const nombre = nombreCompleto.trim()
     const correo = email.trim()
-    // Validación mínima: solo que no falte nada. El backend no exige ninguna
-    // regla de complejidad sobre la contraseña, así que aquí tampoco se
-    // inventa una.
     if (!nombre || !correo || !password) {
       setError('Complete nombre completo, correo y contraseña.')
+      return
+    }
+    // HU-03 criterio 2: la misma regla que aplica el backend.
+    const motivo = motivoContrasenaInvalida(password)
+    if (motivo) {
+      setError(motivo)
       return
     }
 
@@ -832,13 +883,46 @@ const FormularioNuevoUsuario: React.FC<FormularioNuevoUsuarioProps> = ({
   }
 
   if (creado) {
+    const correoSalio = correoReenviado ?? creado.correoDeVerificacionEnviado
     return (
       <div className="space-y-4">
         <div className="rounded-xl border-2 border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           Cuenta creada para <strong>{creado.userName}</strong> ({creado.email}).
         </div>
 
-        {!creado.correoDeVerificacionEnviado && (
+        {/* Crear la cuenta no basta para que entre: nace sin confirmar. Se
+            dice qué pasó con el correo y qué hace falta, en lugar de dejar
+            que «creada» se lea como «lista para usar». */}
+        {correoSalio && (
+          <div
+            role="status"
+            className="rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 space-y-2.5"
+          >
+            <p>
+              Se envió un correo de confirmación a <strong>{creado.email}</strong>. El enlace vale
+              24 horas; hasta que lo use, la cuenta no puede iniciar sesión.
+            </p>
+            <button
+              type="button"
+              disabled={reenviando}
+              onClick={() => void reenviar(creado)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-60"
+            >
+              {reenviando ? 'Reenviando…' : 'Reenviar correo de confirmación'}
+            </button>
+          </div>
+        )}
+
+        {errorReenvio && (
+          <p
+            role="alert"
+            className="rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            {errorReenvio}
+          </p>
+        )}
+
+        {!correoSalio && (
           <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 space-y-2.5">
             {/* Nada de "revise su correo": ningún correo va a llegar. La
                 cuenta existe en la base, deshabilitada y sin enlace de
@@ -847,8 +931,16 @@ const FormularioNuevoUsuario: React.FC<FormularioNuevoUsuarioProps> = ({
                 de solo informar el fallo. */}
             <p>
               El correo de confirmación no se pudo enviar. La cuenta existe, pero está
-              deshabilitada y sin ningún enlace de confirmación posible.
+              deshabilitada hasta que se confirme: reintente el envío o asigne una contraseña.
             </p>
+            <button
+              type="button"
+              disabled={reenviando}
+              onClick={() => void reenviar(creado)}
+              className="mr-2 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-amber-800 bg-white border border-amber-400 hover:bg-amber-100 transition-colors cursor-pointer disabled:opacity-60"
+            >
+              {reenviando ? 'Reenviando…' : 'Reintentar el envío del correo'}
+            </button>
             <button
               type="button"
               onClick={() => onAsignarContrasenaAhora(creado)}
@@ -929,6 +1021,7 @@ const FormularioNuevoUsuario: React.FC<FormularioNuevoUsuarioProps> = ({
           onChange={(e) => setPassword(e.target.value)}
           className={inputClass}
         />
+        <p className="text-xs text-slate-500 mt-2">{AYUDA_CONTRASENA}</p>
       </div>
 
       {error && (
@@ -1404,6 +1497,11 @@ const FormularioAsignarContrasena: React.FC<FormularioAsignarContrasenaProps> = 
       setError('La contraseña no puede estar vacía.')
       return
     }
+    const motivo = motivoContrasenaInvalida(password)
+    if (motivo) {
+      setError(motivo)
+      return
+    }
     setAsignando(true)
     setError(null)
     try {
@@ -1447,6 +1545,7 @@ const FormularioAsignarContrasena: React.FC<FormularioAsignarContrasenaProps> = 
           onChange={(e) => setPassword(e.target.value)}
           className={inputClass}
         />
+        <p className="text-xs text-slate-500 mt-2">{AYUDA_CONTRASENA}</p>
       </div>
 
       {error && (

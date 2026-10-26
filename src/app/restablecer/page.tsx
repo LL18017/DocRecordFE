@@ -13,13 +13,11 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Icon } from '@/components/ui/Icon'
 import { ApiError } from '@/lib/api'
 import { restablecerContrasena } from '@/services/auth'
+import { AYUDA_CONTRASENA, LARGO_MINIMO_CONTRASENA, motivoContrasenaInvalida } from '@/lib/contrasena'
 
 const ID_PASSWORD = 'restablecer-password'
 const ID_CONFIRMACION = 'restablecer-confirmacion'
 const ID_ERROR = 'restablecer-error'
-
-/** El backend exige 8 como mínimo; comprobarlo aquí evita un viaje para nada. */
-const LARGO_MINIMO = 8
 
 const inputClass =
   'w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm bg-white focus:outline-none focus:border-doc-blue focus-visible:ring-2 focus-visible:ring-doc-blue/40 transition-colors'
@@ -47,8 +45,11 @@ function Formulario() {
       setError('Las dos contraseñas no coinciden.')
       return
     }
-    if (password.length < LARGO_MINIMO) {
-      setError(`La contraseña debe tener al menos ${LARGO_MINIMO} caracteres.`)
+    // La regla completa (8 caracteres, mayúscula y número) vive en
+    // lib/contrasena.ts y es la misma que aplica el backend.
+    const motivo = motivoContrasenaInvalida(password)
+    if (motivo) {
+      setError(motivo)
       return
     }
 
@@ -126,7 +127,7 @@ function Formulario() {
             id={ID_PASSWORD}
             type="password"
             required
-            minLength={LARGO_MINIMO}
+            minLength={LARGO_MINIMO_CONTRASENA}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
@@ -135,9 +136,7 @@ function Formulario() {
             aria-describedby={error ? ID_ERROR : undefined}
             className={inputClass}
           />
-          <p className="text-xs text-slate-500 mt-2">
-            Al menos {LARGO_MINIMO} caracteres.
-          </p>
+          <p className="text-xs text-slate-500 mt-2">{AYUDA_CONTRASENA}</p>
         </div>
         <div>
           <label htmlFor={ID_CONFIRMACION} className={labelClass}>

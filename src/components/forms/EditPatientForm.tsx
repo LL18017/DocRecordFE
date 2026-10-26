@@ -2,6 +2,7 @@
 
 import React, { useId, useMemo, useState } from 'react'
 import { ApiError } from '@/lib/api'
+import { hoyEnElSalvador, motivoNacimientoInvalido, motivoTelefonoInvalido } from '@/lib/validaciones'
 import {
   actualizarPaciente,
   type ActualizarPacientePayload,
@@ -71,9 +72,14 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
 
   const hayCambios = Object.keys(cambios).length > 0
 
+  // Observaciones de la tutora: se avisa junto al campo y no se deja guardar.
+  const hoy = hoyEnElSalvador()
+  const errorTelefono = motivoTelefonoInvalido(telefono)
+  const errorNacimiento = motivoNacimientoInvalido(fechaNacimiento, hoy)
+
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!hayCambios) return
+    if (!hayCambios || errorTelefono || errorNacimiento) return
 
     setError(null)
     setEnviando(true)
@@ -135,8 +141,15 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
             value={telefono}
             onChange={(e) => setTelefono(e.target.value)}
             placeholder="7000-0000"
+            aria-invalid={errorTelefono ? true : undefined}
+            aria-describedby={errorTelefono ? id('telefono-error') : undefined}
             className={inputClass}
           />
+          {errorTelefono && (
+            <p id={id('telefono-error')} role="alert" className="text-xs text-red-600 mt-1">
+              {errorTelefono}
+            </p>
+          )}
         </div>
         <div>
           <label htmlFor={id('fecha-nacimiento')} className={labelClass}>
@@ -146,10 +159,18 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
             required
             type="date"
             id={id('fecha-nacimiento')}
+            max={hoy}
             value={fechaNacimiento}
             onChange={(e) => setFechaNacimiento(e.target.value)}
+            aria-invalid={errorNacimiento ? true : undefined}
+            aria-describedby={errorNacimiento ? id('fecha-nacimiento-error') : undefined}
             className={inputClass}
           />
+          {errorNacimiento && (
+            <p id={id('fecha-nacimiento-error')} role="alert" className="text-xs text-red-600 mt-1">
+              {errorNacimiento}
+            </p>
+          )}
         </div>
 
         <div className="col-span-2">

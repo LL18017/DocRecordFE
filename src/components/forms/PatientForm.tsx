@@ -2,6 +2,7 @@
 
 import React, { useId, useState } from 'react'
 import { ApiError } from '@/lib/api'
+import { hoyEnElSalvador, motivoNacimientoInvalido, motivoTelefonoInvalido } from '@/lib/validaciones'
 import { buscarPersonaPorDui, type PersonaDto } from '@/services/personas'
 import { crearPaciente, type CrearPacientePayload, type PacienteDto } from '@/services/pacientes'
 
@@ -9,6 +10,8 @@ interface PatientFormProps {
   /** Se llama cuando `POST /pacientes` responde con éxito. */
   onCreated: (paciente: PacienteDto) => void
   onCancel: () => void
+  /** Sede activa de quien registra; el paciente guarda en qué clínica se dio de alta. */
+  clinicaId?: number
 }
 
 // Clases compartidas de los controles. `focus-visible:ring-*` acompaña al
@@ -44,7 +47,7 @@ function formatearSexo(s: 'M' | 'F' | null): string {
   return '—'
 }
 
-export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel }) => {
+export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel, clinicaId }) => {
   // Un prefijo por instancia: la página de pacientes puede tener el modal de
   // alta abierto mientras otro formulario sigue montado, y dos `id` iguales
   // hacen que la etiqueta del segundo apunte al campo del primero.
@@ -116,8 +119,16 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
     setErrorBusqueda(null)
   }
 
+  // Se muestran junto al campo en cuanto hay algo que objetar, y bloquean
+  // el avance: mandarlos al backend solo traería el mismo rechazo más tarde.
+  const hoy = hoyEnElSalvador()
+  const errorTelefono = motivoTelefonoInvalido(telefono)
+  const errorNacimiento = motivoNacimientoInvalido(fechaNacimiento, hoy)
+
   const puedeAvanzarDesdePaso1 =
     busquedaHecha &&
+    errorTelefono === null &&
+    errorNacimiento === null &&
     (personaExistente
       ? !personaExistente.esPaciente && (personaExistente.fechaNacimiento !== null || fechaNacimiento !== '')
       : nombres.trim() !== '' && apellidos.trim() !== '' && fechaNacimiento !== '')
@@ -126,6 +137,7 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
     e.preventDefault()
 
     if (step === 1 && !puedeAvanzarDesdePaso1) return
+    if (errorTelefono || errorNacimiento) return
 
     if (step < 3) {
       setStep((s) => s + 1)
@@ -146,6 +158,7 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
               ...(personaExistente.sexo === null ? { sexo } : {}),
             },
             tipoSangre,
+            ...(clinicaId !== undefined ? { clinicaId } : {}),
           }
         : {
             persona: {
@@ -159,6 +172,7 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
               email: email.trim() || undefined,
             },
             tipoSangre,
+            ...(clinicaId !== undefined ? { clinicaId } : {}),
           }
 
       const paciente = await crearPaciente(payload)
@@ -278,10 +292,18 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
                           id={id('fecha-nacimiento')}
                           required
                           type="date"
+                          max={hoy}
                           value={fechaNacimiento}
                           onChange={(e) => setFechaNacimiento(e.target.value)}
+                          aria-invalid={errorNacimiento ? true : undefined}
+                          aria-describedby={errorNacimiento ? id('fecha-nacimiento-error') : undefined}
                           className={inputClass}
                         />
+                        {errorNacimiento && (
+                          <p id={id('fecha-nacimiento-error')} role="alert" className="text-xs text-red-600 mt-1">
+                            {errorNacimiento}
+                          </p>
+                        )}
                       </>
                     )}
                   </div>
@@ -369,8 +391,15 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
                     value={telefono}
                     onChange={(e) => setTelefono(e.target.value)}
                     placeholder="7000-0000"
+                    aria-invalid={errorTelefono ? true : undefined}
+                    aria-describedby={errorTelefono ? id('telefono-error') : undefined}
                     className={inputClass}
                   />
+                  {errorTelefono && (
+                    <p id={id('telefono-error')} role="alert" className="text-xs text-red-600 mt-1">
+                      {errorTelefono}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label htmlFor={id('fecha-nacimiento')} className={labelClass}>
@@ -380,10 +409,18 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel })
                     id={id('fecha-nacimiento')}
                     required
                     type="date"
+                    max={hoy}
                     value={fechaNacimiento}
                     onChange={(e) => setFechaNacimiento(e.target.value)}
+                    aria-invalid={errorNacimiento ? true : undefined}
+                    aria-describedby={errorNacimiento ? id('fecha-nacimiento-error') : undefined}
                     className={inputClass}
                   />
+                  {errorNacimiento && (
+                    <p id={id('fecha-nacimiento-error')} role="alert" className="text-xs text-red-600 mt-1">
+                      {errorNacimiento}
+                    </p>
+                  )}
                 </div>
                 <div className="col-span-2">
                   <label htmlFor={id('direccion')} className={labelClass}>

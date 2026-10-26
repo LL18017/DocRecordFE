@@ -13,6 +13,7 @@ import { ApiError } from '@/lib/api'
 import type { PersonaDto } from '@/services/personas'
 import type { CrearPacientePayload, PacienteDto } from '@/services/pacientes'
 import { PatientForm } from './PatientForm'
+import { hoyEnElSalvador } from '@/lib/validaciones'
 
 const buscarPersonaPorDui = vi.fn<(dui: string) => Promise<PersonaDto | null>>()
 const crearPaciente = vi.fn()
@@ -428,5 +429,51 @@ describe('PatientForm · accesibilidad de los campos', () => {
       .filter(Boolean)
       .map((idDescripcion) => document.getElementById(idDescripcion)?.textContent ?? '')
     expect(descripciones.join(' ')).toContain('La base de datos no responde')
+  })
+})
+
+describe('PatientForm · observaciones de la tutora: teléfono y nacimiento', () => {
+  async function conPersonaNueva(user: ReturnType<typeof userEvent.setup>) {
+    buscarPersonaPorDui.mockResolvedValue(null)
+    await buscarDui(user)
+    await user.type(await screen.findByLabelText(/^nombres/i), 'Ana')
+    await user.type(campoApellidos(), 'Rivas')
+  }
+
+  it('un teléfono de 9 dígitos se rechaza junto al campo y no deja avanzar', async () => {
+    const user = montar()
+    await conPersonaNueva(user)
+    await user.type(campoFechaNacimiento(), '2000-03-02')
+
+    await user.type(screen.getByLabelText(/^teléfono/i), '222222222')
+
+    expect(await screen.findByText(/el teléfono debe tener 8 dígitos/i)).toBeVisible()
+    expect(screen.getByLabelText(/^teléfono/i)).toHaveAttribute('aria-invalid', 'true')
+    await user.click(botonSiguiente())
+    expect(crearPaciente).not.toHaveBeenCalled()
+    // Sigue en el paso 1: el campo del DUI aún está a la vista.
+    expect(campoDui()).toBeVisible()
+  })
+
+  it.each(['2222-2222', '22222222'])('acepta el teléfono %s', async (telefono) => {
+    const user = montar()
+    await conPersonaNueva(user)
+    await user.type(campoFechaNacimiento(), '2000-03-02')
+    await user.type(screen.getByLabelText(/^teléfono/i), telefono)
+
+    expect(screen.queryByText(/el teléfono debe tener 8 dígitos/i)).toBeNull()
+    expect(botonSiguiente()).toBeEnabled()
+  })
+
+  it('el input de fecha tiene como máximo hoy y una fecha futura se rechaza con mensaje', async () => {
+    const user = montar()
+    await conPersonaNueva(user)
+
+    expect(campoFechaNacimiento()).toHaveAttribute('max', hoyEnElSalvador())
+
+    await user.type(campoFechaNacimiento(), '2999-01-01')
+
+    expect(await screen.findByText(/no puede ser posterior a hoy/i)).toBeVisible()
+    expect(botonSiguiente()).toBeDisabled()
   })
 })

@@ -737,3 +737,32 @@ describe('expediente · nombre accesible de los datos personales', () => {
     expect(screen.getByLabelText(/^tipo sanguíneo$/i)).toHaveFocus()
   })
 })
+
+describe('ficha · HU-07 y HU-09 criterio 4 · trazabilidad del registro', () => {
+  it('muestra quién lo registró, en qué clínica y quién lo modificó por última vez', async () => {
+    obtenerPaciente.mockResolvedValue({
+      ...PACIENTE,
+      registradoPor: 'medico@docrecord.sv',
+      clinicaRegistroId: 5,
+      clinicaRegistro: 'Clínica Escalón',
+      modificadoPor: 'admin@docrecord.sv',
+      modificadoEn: '2026-02-01T09:15:00',
+    })
+    await montar()
+
+    const tarjeta = screen.getByLabelText('Trazabilidad del registro')
+    expect(tarjeta).toHaveTextContent('medico@docrecord.sv')
+    expect(tarjeta).toHaveTextContent('Clínica Escalón')
+    expect(tarjeta).toHaveTextContent('admin@docrecord.sv')
+    expect(tarjeta).not.toHaveTextContent('Sin modificaciones')
+  })
+
+  it('en un paciente anterior a la trazabilidad dice que no consta, sin inventar un autor', async () => {
+    await montar()
+
+    const tarjeta = screen.getByLabelText('Trazabilidad del registro')
+    expect(tarjeta).toHaveTextContent(/registrado por\s*no consta/i)
+    expect(tarjeta).toHaveTextContent(/clínica de registro\s*no consta/i)
+    expect(tarjeta).toHaveTextContent(/última modificación por\s*sin modificaciones/i)
+  })
+})

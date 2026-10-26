@@ -65,7 +65,9 @@ function calcularEdad(fechaISO: string): number {
     hoy.getMonth() < nacimiento.getMonth() ||
     (hoy.getMonth() === nacimiento.getMonth() && hoy.getDate() < nacimiento.getDate())
   if (noHaCumplidoAun) edad--
-  return edad
+  // Nunca negativa: una fecha futura (dato viejo guardado antes de que el
+  // backend la rechazara) mostraba «-1 años» en la lista.
+  return Math.max(0, edad)
 }
 
 function formatearFecha(fechaISO: string): string {

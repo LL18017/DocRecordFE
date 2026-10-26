@@ -40,6 +40,12 @@ export interface PersonaParaPaciente {
 export interface CrearPacientePayload {
   persona: PersonaParaPaciente
   tipoSangre: string
+  /**
+   * La sede activa de quien registra (HU-07 criterio 4): el paciente guarda en
+   * qué clínica se dio de alta. Opcional porque un administrador puede no tener
+   * ninguna activa. Quién registra NO viaja aquí: el backend lo toma del token.
+   */
+  clinicaId?: number
   // Sin `expediente`: lo genera el backend con un correlativo. Pedirle a quien
   // registra que invente un número único garantiza colisiones, porque no puede
   // saber cuál es el siguiente libre.
@@ -64,6 +70,20 @@ export interface PacienteDto {
    */
   estado: 'ACTIVO' | 'INACTIVO'
   persona: Omit<PersonaDto, 'esMedico' | 'esEnfermera' | 'esPaciente'>
+  /**
+   * Trazabilidad (HU-07 y HU-09, criterio 4). Todos pueden ser `null`: los
+   * pacientes anteriores a la migración V27 no guardaron quién los registró,
+   * y uno que nunca se modificó no tiene `modificadoPor` ni `modificadoEn`.
+   * Opcionales además porque un backend anterior simplemente no los manda.
+   */
+  /** Correo de quien registró al paciente. */
+  registradoPor?: string | null
+  clinicaRegistroId?: number | null
+  /** Nombre de la clínica (sede activa) donde se registró. */
+  clinicaRegistro?: string | null
+  /** Correo de quien lo modificó por última vez. */
+  modificadoPor?: string | null
+  modificadoEn?: string | null
 }
 
 /** Todo opcional: se envía únicamente lo que cambió. */
