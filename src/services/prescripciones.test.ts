@@ -9,6 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import {
+  buscarAlertasDeAlergia,
   crearPrescripcion,
   eliminarPrescripcion,
   formatearFechaEmision,
@@ -335,5 +336,76 @@ describe('prescripciones · traducción de errores', () => {
     )
 
     expect(error.message).toBe('Solo el médico que atendió la consulta puede recetar')
+  })
+})
+
+describe('buscarAlertasDeAlergia · HU-24', () => {
+  it('pide las alertas del paciente y el medicamento y devuelve la lista tal cual', async () => {
+    const alertas = [
+      {
+        alergiaId: 4,
+        sustancia: 'Penicilina',
+        severidad: 'SEVERA',
+        reaccion: 'Anafilaxia',
+        medicamentoId: 6,
+        medicamento: 'Penicilina V 500 mg',
+      },
+    ]
+    apiFetch.mockResolvedValue(alertas)
+
+    await expect(buscarAlertasDeAlergia(42, 6)).resolves.toEqual(alertas)
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/prescripciones/alertas-de-alergia?pacienteId=42&medicamentoId=6',
+    )
+  })
+
+  it('una lista vacía es «sin alergias coincidentes», no un error', async () => {
+    apiFetch.mockResolvedValue([])
+    await expect(buscarAlertasDeAlergia(42, 6)).resolves.toEqual([])
+  })
+
+  it('traduce el 404 y deja pasar el resto de los errores', async () => {
+    apiFetch.mockRejectedValueOnce(new ApiError(404, 'Paciente no encontrado'))
+    await expect(buscarAlertasDeAlergia(42, 6)).rejects.toThrow(/ya no existen/i)
+
+    apiFetch.mockRejectedValueOnce(new ApiError(500, 'Error interno'))
+    await expect(buscarAlertasDeAlergia(42, 6)).rejects.toThrow('Error interno')
+  })
+})
+
+describe('crearPrescripcion · HU-24 justificación de alergia', () => {
+  const lineas = [{ medicamentoId: 6 }]
+
+  it('manda la justificación recortada y la confirmación solo cuando hay algo que decir', async () => {
+    await crearPrescripcion({
+      consultaId: 7,
+      medicamentos: lineas,
+      justificacionAlergia: '  Beneficio mayor al riesgo  ',
+      confirmaAlergiaSevera: true,
+    })
+
+    expect(apiFetch).toHaveBeenCalledWith('/prescripciones', {
+      method: 'POST',
+      body: {
+        consultaId: 7,
+        medicamentos: [{ medicamentoId: 6 }],
+        justificacionAlergia: 'Beneficio mayor al riesgo',
+        confirmaAlergiaSevera: true,
+      },
+    })
+  })
+
+  it('omite la justificación en blanco y la confirmación en falso', async () => {
+    await crearPrescripcion({
+      consultaId: 7,
+      medicamentos: lineas,
+      justificacionAlergia: '   ',
+      confirmaAlergiaSevera: false,
+    })
+
+    expect(apiFetch).toHaveBeenCalledWith('/prescripciones', {
+      method: 'POST',
+      body: { consultaId: 7, medicamentos: [{ medicamentoId: 6 }] },
+    })
   })
 })

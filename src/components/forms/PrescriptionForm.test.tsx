@@ -16,12 +16,24 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ApiError } from '@/lib/api'
 import type { ConsultaDto } from '@/services/consultas'
-import type { CrearPrescripcionPayload, PrescripcionDto } from '@/services/prescripciones'
-import { MENSAJE_RECETA_VACIA, mensajeFueraDelCatalogo } from '@/services/prescripciones'
+import type {
+  AlertaDeAlergiaDto,
+  CrearPrescripcionPayload,
+  PrescripcionDto,
+} from '@/services/prescripciones'
+import {
+  MENSAJE_ALERTAS_NO_COMPROBADAS,
+  MENSAJE_FALTA_CONFIRMACION,
+  MENSAJE_FALTA_JUSTIFICACION,
+  MENSAJE_RECETA_VACIA,
+  mensajeFueraDelCatalogo,
+} from '@/services/prescripciones'
 import type { FiltroDeMedicamentos, MedicamentoCatalogoDto } from '@/services/medicamentos'
 import { PrescriptionForm } from './PrescriptionForm'
 
 const crearPrescripcion = vi.fn<(p: CrearPrescripcionPayload) => Promise<PrescripcionDto>>()
+const buscarAlertasDeAlergia =
+  vi.fn<(pacienteId: number, medicamentoId: number) => Promise<AlertaDeAlergiaDto[]>>()
 const listarConsultas = vi.fn<(pacienteId?: number) => Promise<ConsultaDto[]>>()
 const listarMedicamentos = vi.fn<(f?: FiltroDeMedicamentos) => Promise<MedicamentoCatalogoDto[]>>()
 
@@ -29,7 +41,12 @@ vi.mock('@/services/prescripciones', async (importarOriginal) => {
   // `normalizarMedicamentos` y el mensaje se dejan reales: son la regla que se
   // está probando.
   const real = await importarOriginal<typeof import('@/services/prescripciones')>()
-  return { ...real, crearPrescripcion: (p: CrearPrescripcionPayload) => crearPrescripcion(p) }
+  return {
+    ...real,
+    crearPrescripcion: (p: CrearPrescripcionPayload) => crearPrescripcion(p),
+    buscarAlertasDeAlergia: (pacienteId: number, medicamentoId: number) =>
+      buscarAlertasDeAlergia(pacienteId, medicamentoId),
+  }
 })
 
 vi.mock('@/services/medicamentos', async (importarOriginal) => {
@@ -115,6 +132,9 @@ let onCancel: ReturnType<typeof vi.fn<() => void>>
 
 beforeEach(() => {
   crearPrescripcion.mockReset()
+  buscarAlertasDeAlergia.mockReset()
+  // Por defecto el paciente no tiene alergias coincidentes (HU-24 criterio 4).
+  buscarAlertasDeAlergia.mockResolvedValue([])
   listarConsultas.mockReset()
   listarMedicamentos.mockReset()
   listarMedicamentos.mockResolvedValue(CATALOGO)
@@ -456,5 +476,165 @@ describe('PrescriptionForm · HU-23 criterio 4: un medicamento desactivado no se
     await user.type(campoMedicamento(1), 'ranitidina')
     expect(screen.queryByRole('option', { name: /ranitidina/i })).not.toBeInTheDocument()
     expect(screen.getByText(/ningún medicamento del catálogo coincide/i)).toBeInTheDocument()
+  })
+})
+
+// ─── HU-24 · Alerta de alergia al prescribir ───────────────────────────────
+
+function alerta(cambios: Partial<AlertaDeAlergiaDto> = {}): AlertaDeAlergiaDto {
+  return {
+    alergiaId: 4,
+    sustancia: 'Amoxicilina',
+    severidad: 'MODERADA',
+    reaccion: 'Urticaria',
+    medicamentoId: AMOXICILINA.medicamentoId,
+    medicamento: AMOXICILINA.descripcion,
+    ...cambios,
+  }
+}
+
+const campoJustificacion = () => screen.getByLabelText(/justificación para recetarlo/i)
+
+describe('PrescriptionForm · HU-24 criterio 1: la alerta muestra sustancia, severidad y reacción', () => {
+  it('al elegir un medicamento con coincidencia pide las alertas del paciente y las muestra', async () => {
+    buscarAlertasDeAlergia.mockResolvedValue([alerta()])
+    const user = await montar({ consulta: consulta() })
+
+    await elegir(user, 1, 'amoxi')
+
+    // El paciente es el de la consulta (personaId 42), no un id cualquiera.
+    expect(buscarAlertasDeAlergia).toHaveBeenCalledWith(42, AMOXICILINA.medicamentoId)
+    const bloque = await screen.findByRole('alert', { name: /alergia registrada/i })
+    expect(bloque).toHaveTextContent('Amoxicilina')
+    expect(bloque).toHaveTextContent('Moderada')
+    expect(bloque).toHaveTextContent('Urticaria')
+  })
+
+  it('quitar el medicamento hace desaparecer su alerta', async () => {
+    buscarAlertasDeAlergia.mockResolvedValue([alerta()])
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'amoxi')
+    await screen.findByRole('alert', { name: /alergia registrada/i })
+
+    // Teclear de nuevo deshace la elección (ver SelectorDeMedicamento).
+    await user.type(campoMedicamento(1), 'x')
+
+    expect(screen.queryByRole('alert', { name: /alergia registrada/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('PrescriptionForm · HU-24 criterio 2: la justificación es obligatoria', () => {
+  it('no emite sin justificación y dice qué falta', async () => {
+    buscarAlertasDeAlergia.mockResolvedValue([alerta()])
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'amoxi')
+    await screen.findByRole('alert', { name: /alergia registrada/i })
+
+    await user.click(botonEmitir())
+    expect(await screen.findByText(MENSAJE_FALTA_JUSTIFICACION)).toBeInTheDocument()
+
+    // Una justificación en blanco tampoco cuenta.
+    await user.type(campoJustificacion(), '   ')
+    await user.click(botonEmitir())
+    expect(await screen.findByText(MENSAJE_FALTA_JUSTIFICACION)).toBeInTheDocument()
+    expect(crearPrescripcion).not.toHaveBeenCalled()
+  })
+
+  it('con la justificación escrita la envía junto a la receta', async () => {
+    buscarAlertasDeAlergia.mockResolvedValue([alerta()])
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'amoxi')
+    await screen.findByRole('alert', { name: /alergia registrada/i })
+
+    await user.type(campoJustificacion(), 'Beneficio mayor al riesgo')
+    await user.click(botonEmitir())
+
+    await waitFor(() => expect(crearPrescripcion).toHaveBeenCalledTimes(1))
+    const enviado = crearPrescripcion.mock.calls[0][0]
+    expect(enviado.justificacionAlergia).toBe('Beneficio mayor al riesgo')
+    // No es severa: no hay segunda confirmación que mandar.
+    expect(enviado.confirmaAlergiaSevera).toBe(false)
+    expect(onCreada).toHaveBeenCalled()
+  })
+
+  it('si el backend igual responde 409, muestra su mensaje', async () => {
+    buscarAlertasDeAlergia.mockResolvedValue([alerta()])
+    crearPrescripcion.mockRejectedValue(
+      new ApiError(409, 'El paciente es alergico a una sustancia de esta receta'),
+    )
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'amoxi')
+    await screen.findByRole('alert', { name: /alergia registrada/i })
+    await user.type(campoJustificacion(), 'Motivo')
+
+    await user.click(botonEmitir())
+
+    expect(await screen.findByText(/alergico a una sustancia/i)).toBeInTheDocument()
+    expect(onCreada).not.toHaveBeenCalled()
+  })
+})
+
+describe('PrescriptionForm · HU-24 criterio 3: la alergia severa pide segunda confirmación', () => {
+  const severa = () => alerta({ severidad: 'SEVERA', reaccion: 'Anafilaxia' })
+
+  it('la justificación sola no basta: hay que marcar la casilla de confirmación', async () => {
+    buscarAlertasDeAlergia.mockResolvedValue([severa()])
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'amoxi')
+    await screen.findByRole('alert', { name: /alergia registrada/i })
+
+    await user.type(campoJustificacion(), 'No hay alternativa')
+    await user.click(botonEmitir())
+
+    expect(await screen.findByText(MENSAJE_FALTA_CONFIRMACION)).toBeInTheDocument()
+    expect(crearPrescripcion).not.toHaveBeenCalled()
+
+    const casilla = screen.getByRole('checkbox', {
+      name: /confirmo que receto .*amoxicilina.* pese a la alergia severa a amoxicilina/i,
+    })
+    await user.click(casilla)
+    await user.click(botonEmitir())
+
+    await waitFor(() => expect(crearPrescripcion).toHaveBeenCalledTimes(1))
+    expect(crearPrescripcion.mock.calls[0][0]).toMatchObject({
+      justificacionAlergia: 'No hay alternativa',
+      confirmaAlergiaSevera: true,
+    })
+  })
+
+  it('una alergia que no es severa no muestra la casilla', async () => {
+    buscarAlertasDeAlergia.mockResolvedValue([alerta()])
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'amoxi')
+    await screen.findByRole('alert', { name: /alergia registrada/i })
+
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+})
+
+describe('PrescriptionForm · HU-24 criterio 4: sin coincidencias nada cambia', () => {
+  it('no muestra alerta ni campos extra, y el cuerpo no lleva justificación', async () => {
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'ibuprofeno')
+
+    await waitFor(() => expect(buscarAlertasDeAlergia).toHaveBeenCalled())
+    expect(screen.queryByRole('alert', { name: /alergia registrada/i })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/justificación para recetarlo/i)).not.toBeInTheDocument()
+
+    await user.click(botonEmitir())
+
+    await waitFor(() => expect(crearPrescripcion).toHaveBeenCalledTimes(1))
+    const enviado = crearPrescripcion.mock.calls[0][0]
+    expect(enviado).not.toHaveProperty('justificacionAlergia')
+    expect(enviado).not.toHaveProperty('confirmaAlergiaSevera')
+  })
+
+  it('si no se pudo pedir la alerta lo dice, en vez de parecer que no hay alergias', async () => {
+    buscarAlertasDeAlergia.mockRejectedValue(new ApiError(500, 'Error interno'))
+    const user = await montar({ consulta: consulta() })
+
+    await elegir(user, 1, 'amoxi')
+
+    expect(await screen.findByText(MENSAJE_ALERTAS_NO_COMPROBADAS)).toBeInTheDocument()
   })
 })

@@ -151,6 +151,26 @@ describe('recetas · campos opcionales', () => {
   })
 })
 
+describe('recetas · HU-24 justificación de alergia', () => {
+  it('muestra la justificación junto a la receta emitida pese a una alergia', async () => {
+    listarHistoricoDePrescripciones.mockResolvedValue(
+      sobre([receta({ justificacionAlergia: 'Beneficio mayor al riesgo' })]),
+    )
+
+    montar()
+
+    expect(await screen.findByText(/recetado pese a una alergia registrada/i)).toBeInTheDocument()
+    expect(screen.getByText(/beneficio mayor al riesgo/i)).toBeInTheDocument()
+  })
+
+  it('no pinta nada de alergia en una receta normal', async () => {
+    montar()
+
+    await screen.findByText('Amoxicilina')
+    expect(screen.queryByText(/pese a una alergia/i)).not.toBeInTheDocument()
+  })
+})
+
 describe('recetas · histórico al montar', () => {
   it('pide el histórico completo sin exigir elegir un paciente primero', async () => {
     montar()
