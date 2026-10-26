@@ -1,25 +1,28 @@
 'use client'
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { PrescriptionForm } from '@/components/forms/PrescriptionForm'
+import {
+  AvisoDeAnulacion,
+  BotonAnularReceta,
+  BotonImprimirReceta,
+} from '@/components/clinico/AccionesDeReceta'
+import { TablaDeMedicamentos } from '@/components/clinico/TablaDeMedicamentos'
 import type { OpcionPaciente } from '@/components/forms/ConsultationForm'
 import { listarPacientes } from '@/services/pacientes'
 import { formatearFechaHora } from '@/services/consultas'
 import {
-  eliminarPrescripcion,
   enviarRecetaPorCorreo,
   listarHistoricoDePrescripciones,
   nombreDeMedicoQueReceta,
   nombreDePacienteDeReceta,
-  textoOpcional,
   type FiltroHistoricoDeRecetas,
   type PrescripcionDto,
   type PrescripcionMedicoDto,
 } from '@/services/prescripciones'
-
-const CABECERAS = ['Medicamento', 'Dosis', 'Frecuencia', 'Duración']
 
 /**
  * HU-25: manda la receta en PDF al correo del paciente. El backend la encola
@@ -218,18 +221,13 @@ export default function PrescripcionesPage() {
     void cargarRecetas(0)
   }
 
-  const handleAnular = async (prescripcionId: number) => {
-    // Igual que en consultas: la tarjeta desaparece solo cuando el servidor
-    // confirmó la baja.
-    try {
-      await eliminarPrescripcion(prescripcionId)
-      setPrescripciones((prev) => prev.filter((p) => p.prescripcionId !== prescripcionId))
-      // El total que reporta el backend también baja: si no se ajusta aquí,
-      // «Mostrando N de TOTAL» miente hasta la próxima recarga.
-      setTotalElementos((prev) => Math.max(0, prev - 1))
-    } catch (err) {
-      setError(mensajeDe(err, 'No se pudo anular la receta.'))
-    }
+  // HU-22 c3: anular NO saca la receta de la lista. El servidor la devuelve
+  // con estado ANULADA, motivo, quién y cuándo, y la tarjeta se queda donde
+  // estaba, marcada; el total no cambia porque no se borró nada.
+  const handleAnulada = (anulada: PrescripcionDto) => {
+    setPrescripciones((prev) =>
+      prev.map((p) => (p.prescripcionId === anulada.prescripcionId ? anulada : p)),
+    )
   }
 
   /**
@@ -408,7 +406,8 @@ export default function PrescripcionesPage() {
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <h3 className="font-bold text-slate-800 font-outfit text-base">
-                    Receta #{rx.prescripcionId}
+                    Receta #{rx.prescripcionId}{' '}
+                    {rx.estado === 'ANULADA' && <Badge color="red">Anulada</Badge>}
                   </h3>
                   {/* Antes no se podía mostrar el paciente aquí: `PrescripcionDto`
                       no traía ese campo y la pantalla solo se veía filtrada por un
@@ -423,59 +422,27 @@ export default function PrescripcionesPage() {
                     )}
                   </p>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    {formatearFechaHora(rx.fecha)} · Firmada por {nombreDeMedicoQueReceta(rx)} ·
+                    {formatearFechaHora(rx.fecha)} · Firmada por {nombreDeMedicoQueReceta(rx)}
+                    {rx.medico.registroJunta && <> (junta {rx.medico.registroJunta})</>} ·
                     Consulta #{rx.consultaId}
+                    {rx.clinica && <> · {rx.clinica.name}</>}
                   </p>
                 </div>
                 <div className="flex items-start gap-2">
-                  <EnviarPorCorreo consultaId={rx.consultaId} prescripcionId={rx.prescripcionId} />
-                  <button
-                    onClick={() => handleAnular(rx.prescripcionId)}
-                    aria-label={`Anular la receta ${rx.prescripcionId}`}
-                    title="Anular receta"
-                    className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors cursor-pointer"
-                  >
-                    <Icon name="delete" size={14} />
-                  </button>
+                  <BotonImprimirReceta prescripcionId={rx.prescripcionId} />
+                  {rx.estado === 'EMITIDA' && (
+                    <>
+                      <EnviarPorCorreo consultaId={rx.consultaId} prescripcionId={rx.prescripcionId} />
+                      <BotonAnularReceta
+                        prescripcionId={rx.prescripcionId}
+                        onAnulada={handleAnulada}
+                      />
+                    </>
+                  )}
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-slate-100">
-                      {CABECERAS.map((h) => (
-                        <th
-                          key={h}
-                          className="py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider pr-6"
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {rx.medicamentos.map((m) => (
-                      <tr key={m.id}>
-                        <td className="py-2.5 text-sm font-medium text-slate-800 pr-6">
-                          {m.medicamento}
-                        </td>
-                        {/* dosis, frecuencia y duración son opcionales al
-                            crear, así que vuelven null: `textoOpcional` evita
-                            que la receta muestre «null» camino a la farmacia. */}
-                        <td className="py-2.5 text-sm text-slate-600 pr-6 font-mono text-xs">
-                          {textoOpcional(m.dosis)}
-                        </td>
-                        <td className="py-2.5 text-sm text-slate-600 pr-6">
-                          {textoOpcional(m.frecuencia)}
-                        </td>
-                        <td className="py-2.5 text-sm text-slate-600">
-                          {textoOpcional(m.duracion)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <TablaDeMedicamentos medicamentos={rx.medicamentos} />
+              <AvisoDeAnulacion receta={rx} />
               {/* HU-24: si se recetó pese a una alergia, la razón va con la receta. */}
               {rx.justificacionAlergia && (
                 <p className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-800">

@@ -1,10 +1,13 @@
 // Guardas de la pantalla de recetas.
 //
 // Lo que se protege:
-//  1. Que dosis, frecuencia y duración nulas —el contrato las marca
-//     opcionales— se pinten como «—» y no como «null» en un papel que alguien
-//     va a llevar a la farmacia.
-//  2. Que la tarjeta desaparezca SOLO cuando el servidor confirmó la anulación.
+//  1. Que dosis, vía, frecuencia y duración (obligatorias desde HU-22 c2) se
+//     pinten tal cual, y que las recetas anteriores, que el backend dejó con
+//     «No especificada», no se muestren como «null» ni como un hueco en un
+//     papel que alguien va a llevar a la farmacia.
+//  2. Que la anulación sea LÓGICA (HU-22 c3): pide el motivo, la tarjeta se
+//     queda marcada como anulada SOLO cuando el servidor confirmó, y no
+//     desaparece de la lista.
 //  3. Que la pantalla muestre el histórico completo al montar, SIN exigir
 //     elegir un paciente primero, y que distinga con honestidad los dos
 //     estados vacíos posibles: «no hay nada registrado» (sin filtros) frente
@@ -21,7 +24,7 @@ import PrescripcionesPage from './page'
 const listarPacientes = vi.fn<() => Promise<PacienteDto[]>>()
 const listarHistoricoDePrescripciones =
   vi.fn<(filtro?: FiltroHistoricoDeRecetas) => Promise<PaginaDto<PrescripcionDto>>>()
-const eliminarPrescripcion = vi.fn<(id: number) => Promise<void>>()
+const anularPrescripcion = vi.fn<(id: number, motivo: string) => Promise<PrescripcionDto>>()
 
 vi.mock('@/services/pacientes', () => ({
   listarPacientes: () => listarPacientes(),
@@ -35,7 +38,7 @@ vi.mock('@/services/prescripciones', async (importarOriginal) => {
     ...real,
     listarHistoricoDePrescripciones: (filtro?: FiltroHistoricoDeRecetas) =>
       listarHistoricoDePrescripciones(filtro),
-    eliminarPrescripcion: (id: number) => eliminarPrescripcion(id),
+    anularPrescripcion: (id: number, motivo: string) => anularPrescripcion(id, motivo),
   }
 })
 
@@ -66,9 +69,15 @@ function receta(cambios: Partial<PrescripcionDto> = {}): PrescripcionDto {
     fecha: '2026-08-23T15:00:00',
     consultaId: 7,
     paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
-    medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra' },
+    medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra', registroJunta: null },
+    clinica: null,
+    fechaConsulta: '2026-08-23T14:30:00',
+    estado: 'EMITIDA',
+    motivoAnulacion: null,
+    anuladaEn: null,
+    anuladaPor: null,
     medicamentos: [
-      { id: 1, medicamento: 'Amoxicilina', dosis: '500 mg', frecuencia: null, duracion: null },
+      { id: 1, medicamento: 'Amoxicilina', dosis: '500 mg', viaAdministracion: 'Oral', frecuencia: 'No especificada', duracion: 'No especificada' },
     ],
     ...cambios,
   }
@@ -96,10 +105,18 @@ function sobre(
 beforeEach(() => {
   listarPacientes.mockReset()
   listarHistoricoDePrescripciones.mockReset()
-  eliminarPrescripcion.mockReset()
+  anularPrescripcion.mockReset()
   listarPacientes.mockResolvedValue([paciente()])
   listarHistoricoDePrescripciones.mockResolvedValue(sobre([receta()]))
-  eliminarPrescripcion.mockResolvedValue(undefined)
+  anularPrescripcion.mockImplementation(async (id, motivo) =>
+    receta({
+      prescripcionId: id,
+      estado: 'ANULADA',
+      motivoAnulacion: motivo,
+      anuladaEn: '2026-08-24T09:00:00',
+      anuladaPor: 'Juan Guerra',
+    }),
+  )
 })
 
 function montar() {
@@ -107,28 +124,34 @@ function montar() {
   return userEvent.setup()
 }
 
-describe('recetas · campos opcionales', () => {
-  it('pinta un guion donde el backend mandó null', async () => {
-    montar()
-
-    const fila = (await screen.findByText('Amoxicilina')).closest('tr')!
-    expect(within(fila).getByText('500 mg')).toBeInTheDocument()
-    // frecuencia y duracion vinieron null: dos guiones, ningún «null».
-    expect(within(fila).getAllByText('—')).toHaveLength(2)
-  })
-
-  it('con dosis, frecuencia Y duración null a la vez, pinta los tres guiones', async () => {
-    // El fixture base solo anula dos de los tres campos. El contrato permite
-    // que un médico registre un medicamento sin ningún dato de dosificación
-    // (todos opcionales, y opcionales de verdad: pueden faltar los tres a la
-    // vez, no de a uno). Sin `textoOpcional` en las tres celdas a la vez, la
-    // fila mostraría "null" tres veces en una receta que alguien lleva a la
-    // farmacia.
+describe('recetas · datos del tratamiento', () => {
+  it('pinta dosis, vía, frecuencia y duración de cada medicamento', async () => {
     listarHistoricoDePrescripciones.mockResolvedValue(
       sobre([
         receta({
           medicamentos: [
-            { id: 1, medicamento: 'Paracetamol', dosis: null, frecuencia: null, duracion: null },
+            { id: 1, medicamento: 'Amoxicilina', dosis: '500 mg', viaAdministracion: 'Oral', frecuencia: 'Cada 8 horas', duracion: '7 días' },
+          ],
+        }),
+      ]),
+    )
+    montar()
+
+    const fila = (await screen.findByText('Amoxicilina')).closest('tr')!
+    expect(within(fila).getByText('500 mg')).toBeInTheDocument()
+    expect(within(fila).getByText('Oral')).toBeInTheDocument()
+    expect(within(fila).getByText('Cada 8 horas')).toBeInTheDocument()
+    expect(within(fila).getByText('7 días')).toBeInTheDocument()
+  })
+
+  it('una receta anterior a HU-22 se lee «No especificada», sin «null» ni huecos', async () => {
+    // La migración dejó «No especificada» en lo que antes era opcional. La
+    // pantalla lo pinta tal cual: ya no hay nulos que traducir a un guion.
+    listarHistoricoDePrescripciones.mockResolvedValue(
+      sobre([
+        receta({
+          medicamentos: [
+            { id: 1, medicamento: 'Paracetamol', dosis: 'No especificada', viaAdministracion: 'Oral', frecuencia: 'No especificada', duracion: 'No especificada' },
           ],
         }),
       ]),
@@ -137,7 +160,7 @@ describe('recetas · campos opcionales', () => {
     montar()
 
     const fila = (await screen.findByText('Paracetamol')).closest('tr')!
-    expect(within(fila).getAllByText('—')).toHaveLength(3)
+    expect(within(fila).getAllByText('No especificada')).toHaveLength(3)
     expect(within(fila).queryByText(/null/i)).toBeNull()
   })
 
@@ -273,7 +296,7 @@ describe('recetas · el filtro de médico no es un catálogo completo del person
         receta(),
         receta({
           prescripcionId: 12,
-          medico: { personaId: 9, nombres: 'Carla', apellidos: 'Sosa' },
+          medico: { personaId: 9, nombres: 'Carla', apellidos: 'Sosa', registroJunta: null },
         }),
       ]),
     )
@@ -382,29 +405,54 @@ describe('recetas · el sobre paginado real (no un arreglo pelado)', () => {
 })
 
 describe('recetas · anulación', () => {
-  it('quita la tarjeta solo cuando el servidor confirmó', async () => {
-    const user = montar()
+  const motivoValido = 'Error al elegir el medicamento'
+
+  /** Abre el cuadro de anulación de la receta 11 y escribe el motivo. */
+  async function anularConMotivo(user: ReturnType<typeof userEvent.setup>, motivo: string) {
     await screen.findByText(/receta #11/i)
-
     await user.click(screen.getByRole('button', { name: /anular la receta 11/i }))
+    await user.type(await screen.findByLabelText(/motivo de la anulación/i), motivo)
+    await user.click(screen.getByRole('button', { name: /^anular receta$/i }))
+  }
 
-    await waitFor(() => expect(eliminarPrescripcion).toHaveBeenCalledWith(11))
-    await waitFor(() => expect(screen.queryByText(/receta #11/i)).toBeNull())
+  it('no envía nada si el motivo es más corto que el mínimo', async () => {
+    const user = montar()
+
+    await anularConMotivo(user, 'Error')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/al menos 10 caracteres/i)
+    expect(anularPrescripcion).not.toHaveBeenCalled()
   })
 
-  it('deja la tarjeta si la anulación falla, y muestra el motivo', async () => {
-    eliminarPrescripcion.mockRejectedValue(
+  it('deja la receta en la lista, marcada como anulada, solo cuando el servidor confirmó', async () => {
+    const user = montar()
+
+    await anularConMotivo(user, motivoValido)
+
+    await waitFor(() => expect(anularPrescripcion).toHaveBeenCalledWith(11, motivoValido))
+    // La anulación es lógica: la tarjeta NO desaparece, queda marcada con el
+    // motivo y ya no ofrece anularla otra vez.
+    expect(await screen.findByText(/receta anulada/i)).toBeInTheDocument()
+    expect(screen.getByText(/receta #11/i)).toBeInTheDocument()
+    expect(screen.getByText(new RegExp(motivoValido))).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /anular la receta 11/i })).toBeNull()
+  })
+
+  it('deja la tarjeta vigente si la anulación falla, y muestra el motivo', async () => {
+    anularPrescripcion.mockRejectedValue(
       new ApiError(403, 'Solo el médico que la emitió puede anularla'),
     )
     const user = montar()
-    await screen.findByText(/receta #11/i)
 
-    await user.click(screen.getByRole('button', { name: /anular la receta 11/i }))
+    await anularConMotivo(user, motivoValido)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Solo el médico que la emitió puede anularla',
     )
-    expect(screen.getByText(/receta #11/i)).toBeInTheDocument()
+    // El cuadro sigue abierto con su propio título; la tarjeta se identifica
+    // por su encabezado.
+    expect(screen.getByRole('heading', { name: /^receta #11/i })).toBeInTheDocument()
+    expect(screen.queryByText(/receta anulada/i)).toBeNull()
   })
 })
 

@@ -15,8 +15,10 @@ import { ApiError } from '@/lib/api'
 import {
   actualizarConsulta,
   crearConsulta,
+  filtrarConsultas,
   formatearFechaHora,
   listarConsultas,
+  medicosDeConsultas,
   nombreDeClinica,
   nombreDeMedico,
   nombreDePaciente,
@@ -40,6 +42,8 @@ function consulta(cambios: Partial<ConsultaDto> = {}): ConsultaDto {
     fecha: '2026-08-23T14:30:00',
     motivo: 'Dolor de garganta',
     diagnostico: 'Faringitis aguda',
+    exploracionFisica: null,
+    indicaciones: null,
     estado: 'FINALIZADA',
     paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
     medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra', especialidad: 'Medicina General' },
@@ -65,11 +69,21 @@ beforeEach(() => {
 
 describe('consultas · lo que viaja al backend', () => {
   it('crea con el cuerpo del contrato, sin agregar campos', async () => {
-    await crearConsulta({ pacienteId: 42, clinicaId: 5, motivo: 'Dolor de garganta' })
+    await crearConsulta({
+      pacienteId: 42,
+      clinicaId: 5,
+      motivo: 'Dolor de garganta',
+      diagnostico: 'Faringitis aguda',
+    })
 
     expect(apiFetch).toHaveBeenCalledWith('/consultas', {
       method: 'POST',
-      body: { pacienteId: 42, clinicaId: 5, motivo: 'Dolor de garganta' },
+      body: {
+        pacienteId: 42,
+        clinicaId: 5,
+        motivo: 'Dolor de garganta',
+        diagnostico: 'Faringitis aguda',
+      },
     })
   })
 
@@ -81,6 +95,47 @@ describe('consultas · lo que viaja al backend', () => {
 
     await listarConsultas()
     expect(apiFetch).toHaveBeenLastCalledWith('/consultas')
+  })
+
+  it('manda los filtros de médico y rango de fechas, combinables con el paciente (HU-20 c2)', async () => {
+    apiFetch.mockResolvedValue([])
+
+    await listarConsultas(42, { medicoId: 3, desde: '2026-01-01', hasta: '2026-03-31' })
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/consultas?pacienteId=42&medicoId=3&desde=2026-01-01&hasta=2026-03-31',
+    )
+
+    // Sin paciente: el listado general también se filtra.
+    await listarConsultas(undefined, { desde: '2026-02-01' })
+    expect(apiFetch).toHaveBeenLastCalledWith('/consultas?desde=2026-02-01')
+
+    // Un filtro vacío no deja parámetros sueltos.
+    await listarConsultas(undefined, { desde: '', hasta: undefined })
+    expect(apiFetch).toHaveBeenLastCalledWith('/consultas')
+  })
+
+  it('registra con exploración física e indicaciones opcionales y sin clínica ni fecha al editar', async () => {
+    await crearConsulta({
+      pacienteId: 42,
+      motivo: 'Tos',
+      diagnostico: 'Bronquitis',
+      exploracionFisica: 'Sibilancias',
+      indicaciones: 'Inhalador',
+    })
+    expect(apiFetch).toHaveBeenLastCalledWith('/consultas', {
+      method: 'POST',
+      body: {
+        pacienteId: 42,
+        motivo: 'Tos',
+        diagnostico: 'Bronquitis',
+        exploracionFisica: 'Sibilancias',
+        indicaciones: 'Inhalador',
+      },
+    })
+
+    // El tipo de la edición ni siquiera admite clinicaId ni fecha (HU-19 c3).
+    // @ts-expect-error la clínica no se edita
+    await actualizarConsulta(7, { clinicaId: 5 })
   })
 
   it('actualiza solo con lo recibido: el campo ausente es «no lo toco»', async () => {
@@ -98,6 +153,40 @@ describe('consultas · lo que viaja al backend', () => {
     // note: si alguien vuelve a exportar `eliminarConsulta`, falla.
     const modulo = await import('./consultas')
     expect('eliminarConsulta' in modulo).toBe(false)
+  })
+})
+
+describe('consultas · filtros del historial en el cliente (HU-20 c2)', () => {
+  const enero = consulta({ consultaId: 1, fecha: '2026-01-05T09:00:00' })
+  const marzoMedico3 = consulta({ consultaId: 2, fecha: '2026-03-10T00:00:00' })
+  const marzoTarde = consulta({
+    consultaId: 3,
+    fecha: '2026-03-20T23:59:30',
+    medico: { personaId: 9, nombres: 'Carla', apellidos: 'Sosa', especialidad: null },
+  })
+  const todas = [marzoTarde, marzoMedico3, enero]
+
+  it('sin filtros devuelve todo, en el mismo orden', () => {
+    expect(filtrarConsultas(todas, {})).toEqual(todas)
+  })
+
+  it('incluye el día completo de «hasta» y el primer instante de «desde»', () => {
+    const ids = filtrarConsultas(todas, { desde: '2026-03-10', hasta: '2026-03-20' }).map(
+      (c) => c.consultaId,
+    )
+    expect(ids).toEqual([3, 2])
+  })
+
+  it('filtra por médico y combina con las fechas', () => {
+    expect(filtrarConsultas(todas, { medicoId: 9 }).map((c) => c.consultaId)).toEqual([3])
+    expect(filtrarConsultas(todas, { medicoId: 9, hasta: '2026-02-01' })).toEqual([])
+  })
+
+  it('arma el selector de médicos sin repetir', () => {
+    expect(medicosDeConsultas(todas)).toEqual([
+      { personaId: 9, nombre: 'Carla Sosa' },
+      { personaId: 3, nombre: 'Juan Guerra' },
+    ])
   })
 })
 
@@ -240,7 +329,7 @@ describe('consultas · traducción de errores', () => {
   it('no habla de eliminar mientras se registra o se edita', async () => {
     apiFetch.mockRejectedValue(new ApiError(409, 'Ya existe una consulta abierta para hoy.'))
 
-    const error = await errorDe(crearConsulta({ pacienteId: 42, motivo: 'Control' }))
+    const error = await errorDe(crearConsulta({ pacienteId: 42, motivo: 'Control', diagnostico: 'Sano' }))
 
     expect(error.message).toBe('Ya existe una consulta abierta para hoy.')
   })
@@ -251,7 +340,7 @@ describe('consultas · traducción de errores', () => {
     // único dato que le servía.
     apiFetch.mockRejectedValue(new ApiError(400, 'El motivo es obligatorio.'))
 
-    const error = await errorDe(crearConsulta({ pacienteId: 42, motivo: '' }))
+    const error = await errorDe(crearConsulta({ pacienteId: 42, motivo: '', diagnostico: 'Sano' }))
 
     expect(error.message).toBe('El motivo es obligatorio.')
   })

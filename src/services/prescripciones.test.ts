@@ -11,7 +11,9 @@ import { ApiError } from '@/lib/api'
 import {
   buscarAlertasDeAlergia,
   crearPrescripcion,
-  eliminarPrescripcion,
+  anularPrescripcion,
+  datoQueFalta,
+  imprimirPrescripcion,
   formatearFechaEmision,
   listarHistoricoDePrescripciones,
   listarPrescripcionesDeConsulta,
@@ -39,9 +41,15 @@ function receta(cambios: Partial<PrescripcionDto> = {}): PrescripcionDto {
     fecha: '2026-08-23T15:00:00',
     consultaId: 7,
     paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
-    medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra' },
+    medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra', registroJunta: null },
+    clinica: null,
+    fechaConsulta: '2026-08-23T14:30:00',
+    estado: 'EMITIDA',
+    motivoAnulacion: null,
+    anuladaEn: null,
+    anuladaPor: null,
     medicamentos: [
-      { id: 1, medicamento: 'Amoxicilina', dosis: '500 mg', frecuencia: 'cada 8 h', duracion: '7 días' },
+      { id: 1, medicamento: 'Amoxicilina', dosis: '500 mg', viaAdministracion: 'Oral', frecuencia: 'cada 8 h', duracion: '7 días' },
     ],
     ...cambios,
   }
@@ -106,7 +114,13 @@ describe('prescripciones · lo que viaja al backend', () => {
     await crearPrescripcion({
       consultaId: 7,
       medicamentos: [
-        { medicamentoId: 6, dosis: '500 mg', frecuencia: 'cada 8 h', duracion: '7 días' },
+        {
+          medicamentoId: 6,
+          dosis: '500 mg',
+          viaAdministracion: 'Oral',
+          frecuencia: 'cada 8 h',
+          duracion: '7 días',
+        },
       ],
     })
 
@@ -119,6 +133,7 @@ describe('prescripciones · lo que viaja al backend', () => {
             // El id del catálogo, no un nombre: el nombre lo pone el backend.
             medicamentoId: 6,
             dosis: '500 mg',
+            viaAdministracion: 'Oral',
             frecuencia: 'cada 8 h',
             duracion: '7 días',
           },
@@ -127,32 +142,66 @@ describe('prescripciones · lo que viaja al backend', () => {
     })
   })
 
-  it('omite los opcionales vacíos en vez de mandar cadenas vacías', async () => {
-    // Guardar `dosis: ''` no es lo mismo que no guardarla: la primera se pinta
-    // como un hueco raro en la receta, la segunda vuelve como null y la
-    // interfaz ya sabe mostrarla como «—».
+  it('recorta los espacios de los cuatro datos del tratamiento', async () => {
+    // HU-22 c2: los cuatro son obligatorios. Lo que quede en blanco viaja como
+    // cadena vacía y el servidor responde 400 diciendo cuál falta; la pantalla
+    // se adelanta con `datoQueFalta`.
     await crearPrescripcion({
       consultaId: 7,
-      medicamentos: [{ medicamentoId: 3, dosis: '  ', frecuencia: 'cada 12 h' }],
+      medicamentos: [
+        {
+          medicamentoId: 3,
+          dosis: ' 1 tableta ',
+          viaAdministracion: ' Oral',
+          frecuencia: 'cada 12 h ',
+          duracion: '  ',
+        },
+      ],
     })
 
     expect(apiFetch).toHaveBeenCalledWith('/prescripciones', {
       method: 'POST',
       body: {
         consultaId: 7,
-        medicamentos: [{ medicamentoId: 3, frecuencia: 'cada 12 h' }],
+        medicamentos: [
+          {
+            medicamentoId: 3,
+            dosis: '1 tableta',
+            viaAdministracion: 'Oral',
+            frecuencia: 'cada 12 h',
+            duracion: '',
+          },
+        ],
       },
     })
+  })
+
+  it('dice qué dato del tratamiento falta, en el orden en que se piden', () => {
+    const completa = {
+      medicamentoId: 3,
+      dosis: '1 tableta',
+      viaAdministracion: 'Oral',
+      frecuencia: 'cada 8 h',
+      duracion: '7 días',
+    }
+    expect(datoQueFalta(completa)).toBeNull()
+    expect(datoQueFalta({ ...completa, dosis: '' })).toBe('la dosis')
+    expect(datoQueFalta({ ...completa, viaAdministracion: '' })).toBe('la vía de administración')
+    expect(datoQueFalta({ ...completa, frecuencia: '' })).toBe('la frecuencia')
+    expect(datoQueFalta({ ...completa, duracion: '' })).toBe('la duración del tratamiento')
   })
 
   it('descarta las líneas sin medicamento y conserva las útiles', () => {
     expect(
       normalizarMedicamentos([
-        { medicamentoId: 6, dosis: '500 mg' },
+        { medicamentoId: 6, dosis: '500 mg', viaAdministracion: 'Oral', frecuencia: 'c/8h', duracion: '5 d' },
         { medicamentoId: null },
         { medicamentoId: 3 },
       ]),
-    ).toEqual([{ medicamentoId: 6, dosis: '500 mg' }, { medicamentoId: 3 }])
+    ).toEqual([
+      { medicamentoId: 6, dosis: '500 mg', viaAdministracion: 'Oral', frecuencia: 'c/8h', duracion: '5 d' },
+      { medicamentoId: 3, dosis: '', viaAdministracion: '', frecuencia: '', duracion: '' },
+    ])
   })
 
   it('consulta las recetas por consulta y por paciente con su parámetro', async () => {
@@ -204,12 +253,34 @@ describe('prescripciones · lo que viaja al backend', () => {
     expect(Array.isArray(delPaciente)).toBe(true)
   })
 
-  it('anula con DELETE sobre el id', async () => {
-    apiFetch.mockResolvedValue(undefined)
+  it('anula con POST sobre /anular, mandando el motivo recortado (HU-22 c3)', async () => {
+    const anulada = receta({ estado: 'ANULADA', motivoAnulacion: 'Dosis mal capturada' })
+    apiFetch.mockResolvedValue(anulada)
 
-    await eliminarPrescripcion(11)
+    const resultado = await anularPrescripcion(11, '  Dosis mal capturada ')
 
-    expect(apiFetch).toHaveBeenCalledWith('/prescripciones/11', { method: 'DELETE' })
+    expect(apiFetch).toHaveBeenCalledWith('/prescripciones/11/anular', {
+      method: 'POST',
+      body: { motivo: 'Dosis mal capturada' },
+    })
+    // Devuelve la receta anulada: sigue existiendo, ya no se borra.
+    expect(resultado.estado).toBe('ANULADA')
+  })
+
+  it('imprime pidiendo el PDF con el token y ofreciéndolo como descarga (HU-22 c4)', async () => {
+    apiFetch.mockResolvedValue(new Blob(['%PDF-1.4'], { type: 'application/pdf' }))
+    const crearUrl = vi.fn(() => 'blob:receta-11')
+    const revocarUrl = vi.fn()
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: crearUrl, revokeObjectURL: revocarUrl }))
+    const clic = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    await imprimirPrescripcion(11)
+
+    expect(apiFetch).toHaveBeenCalledWith('/prescripciones/11/pdf', { formato: 'blob' })
+    expect(crearUrl).toHaveBeenCalledTimes(1)
+    expect(clic).toHaveBeenCalledTimes(1)
+    clic.mockRestore()
+    vi.unstubAllGlobals()
   })
 })
 
@@ -321,7 +392,7 @@ describe('prescripciones · traducción de errores', () => {
     expect((await errorDe(obtenerPrescripcion(11))).message).toBe(
       'Esta receta ya no existe; puede que alguien la haya anulado.',
     )
-    expect((await errorDe(eliminarPrescripcion(11))).message).toBe(
+    expect((await errorDe(anularPrescripcion(11, 'Motivo de prueba'))).message).toBe(
       'Esta receta ya no existe; puede que alguien la haya anulado.',
     )
   })
@@ -374,7 +445,15 @@ describe('buscarAlertasDeAlergia · HU-24', () => {
 })
 
 describe('crearPrescripcion · HU-24 justificación de alergia', () => {
-  const lineas = [{ medicamentoId: 6 }]
+  // Desde HU-22 c2 cada renglón lleva los cuatro datos del tratamiento.
+  const linea = {
+    medicamentoId: 6,
+    dosis: '500 mg',
+    viaAdministracion: 'Oral',
+    frecuencia: 'Cada 8 horas',
+    duracion: '7 días',
+  }
+  const lineas = [linea]
 
   it('manda la justificación recortada y la confirmación solo cuando hay algo que decir', async () => {
     await crearPrescripcion({
@@ -388,7 +467,7 @@ describe('crearPrescripcion · HU-24 justificación de alergia', () => {
       method: 'POST',
       body: {
         consultaId: 7,
-        medicamentos: [{ medicamentoId: 6 }],
+        medicamentos: [linea],
         justificacionAlergia: 'Beneficio mayor al riesgo',
         confirmaAlergiaSevera: true,
       },
@@ -405,7 +484,7 @@ describe('crearPrescripcion · HU-24 justificación de alergia', () => {
 
     expect(apiFetch).toHaveBeenCalledWith('/prescripciones', {
       method: 'POST',
-      body: { consultaId: 7, medicamentos: [{ medicamentoId: 6 }] },
+      body: { consultaId: 7, medicamentos: [linea] },
     })
   })
 })

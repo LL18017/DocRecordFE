@@ -47,6 +47,14 @@ import { ApiError } from '@/lib/api'
 import { obtenerPaciente, type PacienteDto } from '@/services/pacientes'
 import { pacienteDtoAPatient } from '@/lib/pacienteAdapter'
 import { ConsultationForm } from '@/components/forms/ConsultationForm'
+import { DetalleDeConsulta } from '@/components/clinico/DetalleDeConsulta'
+import { FiltrosDeConsultas } from '@/components/clinico/FiltrosDeConsultas'
+import {
+  AvisoDeAnulacion,
+  BotonAnularReceta,
+  BotonImprimirReceta,
+} from '@/components/clinico/AccionesDeReceta'
+import { TablaDeMedicamentos } from '@/components/clinico/TablaDeMedicamentos'
 import { SeccionAntecedentes } from '@/components/clinico/SeccionAntecedentes'
 import { SeccionCondicionesHereditarias } from '@/components/clinico/SeccionCondicionesHereditarias'
 import { SeccionHabitos } from '@/components/clinico/SeccionHabitos'
@@ -57,10 +65,15 @@ import {
 } from '@/components/clinico/SeccionAlergias'
 import { useAppContext } from '@/context/AppContext'
 import {
+  filtrarConsultas,
   formatearFechaHora,
   listarConsultas,
+  medicosDeConsultas,
+  nombreDeClinica,
+  nombreDeMedico,
   textoOpcional,
   type ConsultaDto,
+  type FiltroDeConsultas,
 } from '@/services/consultas'
 import {
   listarTomas,
@@ -96,6 +109,7 @@ export default function ExpedienteDetailPage() {
   // enfermera y el administrador los consultan (HU-12 c3, HU-13 c4).
   const { user } = useAppContext()
   const esMedico = user ? user.roles.includes('medico') : false
+  const esAdministrador = user ? user.roles.includes('Administrador') : false
   // Las alergias, en cambio, las registra también la enfermera (HU-11): suele
   // ser quien primero oye «soy alérgico a…». El administrador solo consulta.
   const puedeRegistrarAlergias = user
@@ -236,6 +250,12 @@ export default function ExpedienteDetailPage() {
 
   const [expanded, setExpanded] = useState<string[]>(['datos'])
   const [modal, setModal] = useState<'consulta' | null>(null)
+  // HU-20 c2: el historial de UN paciente llega completo y se filtra aquí, sin
+  // volver al servidor en cada cambio de fecha (el listado general de
+  // /consultas sí filtra en el servidor). Los médicos del selector son los que
+  // aparecen en este historial.
+  const [filtroConsultas, setFiltroConsultas] = useState<FiltroDeConsultas>({})
+  const [consultaAbierta, setConsultaAbierta] = useState<ConsultaDto | null>(null)
   const toggle = (s: string) =>
     setExpanded((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))
   const [editingDatos, setEditingDatos] = useState(false)
@@ -255,6 +275,19 @@ export default function ExpedienteDetailPage() {
     }
     return mapa
   }, [recetas])
+
+  const consultasVisibles = useMemo(
+    () => filtrarConsultas(consultas, filtroConsultas),
+    [consultas, filtroConsultas],
+  )
+  const medicosDelHistorial = useMemo(() => medicosDeConsultas(consultas), [consultas])
+  const hayFiltroDeConsultas = Boolean(
+    filtroConsultas.desde || filtroConsultas.hasta || filtroConsultas.medicoId !== undefined,
+  )
+
+  // HU-22 c3: la receta anulada se queda en la lista, marcada.
+  const alAnularReceta = (anulada: PrescripcionDto) =>
+    setRecetas((prev) => prev.map((r) => (r.prescripcionId === anulada.prescripcionId ? anulada : r)))
 
   const avisoHistorial = [errorConsultas, errorRecetas].filter(Boolean).join(' ')
 
@@ -554,11 +587,24 @@ export default function ExpedienteDetailPage() {
                 Este paciente todavía no tiene consultas registradas.
               </p>
             ) : (
+              <>
+              <div className="px-5 pt-4">
+                <FiltrosDeConsultas
+                  filtro={filtroConsultas}
+                  medicos={medicosDelHistorial}
+                  onChange={setFiltroConsultas}
+                />
+              </div>
+              {consultasVisibles.length === 0 && hayFiltroDeConsultas && (
+                <p className="px-5 pb-8 text-center text-sm text-slate-400 italic">
+                  Ninguna consulta cumple estos filtros.
+                </p>
+              )}
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50/50">
-                      {['Fecha', 'Motivo', 'Diagnóstico', 'Estado', 'Medicamentos'].map((h) => (
+                      {['Fecha', 'Médico', 'Clínica', 'Motivo', 'Diagnóstico', 'Estado', 'Medicamentos', ''].map((h) => (
                         <th
                           key={h}
                           className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider"
@@ -569,12 +615,20 @@ export default function ExpedienteDetailPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {consultas.map((c) => {
+                    {consultasVisibles.map((c) => {
                       const medicamentos = medicamentosPorConsulta.get(c.consultaId) ?? []
                       return (
                         <tr key={c.consultaId} className="hover:bg-slate-50/70 transition-colors">
                           <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
                             {formatearFechaHora(c.fecha)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-700 whitespace-nowrap">
+                            {nombreDeMedico(c)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-600">
+                            {nombreDeClinica(c) ?? (
+                              <span className="text-slate-400 italic">Sin sede</span>
+                            )}
                           </td>
                           {/* `motivo` y `diagnostico` PUEDEN venir null (ver
                               `ConsultaDto`): sin `textoOpcional` la columna
@@ -607,12 +661,23 @@ export default function ExpedienteDetailPage() {
                               </div>
                             )}
                           </td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => setConsultaAbierta(c)}
+                              aria-label={`Abrir la consulta del ${formatearFechaHora(c.fecha)}`}
+                              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-doc-surface text-doc-blue hover:bg-slate-200/80 transition-colors cursor-pointer whitespace-nowrap"
+                            >
+                              Ver detalle
+                            </button>
+                          </td>
                         </tr>
                       )
                     })}
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </div>
 
@@ -637,50 +702,37 @@ export default function ExpedienteDetailPage() {
             ) : (
               <div className="px-5 py-4 space-y-4">
                 {recetas.map((rx) => (
-                  <div key={rx.prescripcionId} className="rounded-xl border border-slate-100 p-4">
-                    <p className="font-semibold text-slate-800 text-sm font-outfit">
-                      Receta #{rx.prescripcionId}
-                    </p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {formatearFechaHora(rx.fecha)} · {nombreDeMedicoQueReceta(rx)} · Consulta #
-                      {rx.consultaId}
-                    </p>
-                    <div className="overflow-x-auto mt-3">
-                      <table className="w-full text-left">
-                        <thead>
-                          <tr className="border-b border-slate-100">
-                            {['Medicamento', 'Dosis', 'Frecuencia', 'Duración'].map((h) => (
-                              <th
-                                key={h}
-                                className="py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider pr-6"
-                              >
-                                {h}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                          {rx.medicamentos.map((m) => (
-                            <tr key={m.id}>
-                              <td className="py-2.5 text-sm font-medium text-slate-800 pr-6">
-                                {m.medicamento}
-                              </td>
-                              {/* dosis, frecuencia y duración son opcionales
-                                  al crear, así que vuelven null. */}
-                              <td className="py-2.5 text-xs font-mono text-slate-600 pr-6">
-                                {textoOpcional(m.dosis)}
-                              </td>
-                              <td className="py-2.5 text-sm text-slate-600 pr-6">
-                                {textoOpcional(m.frecuencia)}
-                              </td>
-                              <td className="py-2.5 text-sm text-slate-600">
-                                {textoOpcional(m.duracion)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                  <div
+                    key={rx.prescripcionId}
+                    className={`rounded-xl border p-4 ${
+                      rx.estado === 'ANULADA' ? 'border-red-200 bg-red-50/30' : 'border-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-800 text-sm font-outfit">
+                          Receta #{rx.prescripcionId}{' '}
+                          {rx.estado === 'ANULADA' && <Badge color="red">Anulada</Badge>}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {formatearFechaHora(rx.fecha)} · {nombreDeMedicoQueReceta(rx)} · Consulta #
+                          {rx.consultaId}
+                        </p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <BotonImprimirReceta prescripcionId={rx.prescripcionId} />
+                        {rx.estado === 'EMITIDA' && (esMedico || esAdministrador) && (
+                          <BotonAnularReceta
+                            prescripcionId={rx.prescripcionId}
+                            onAnulada={alAnularReceta}
+                          />
+                        )}
+                      </div>
                     </div>
+                    <div className="mt-3">
+                      <TablaDeMedicamentos medicamentos={rx.medicamentos} />
+                    </div>
+                    <AvisoDeAnulacion receta={rx} />
                   </div>
                 ))}
               </div>
@@ -742,6 +794,25 @@ export default function ExpedienteDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* HU-20 c3: la consulta con todos sus datos y sus recetas; desde aquí se
+          emite una receta nueva (HU-19 c5). */}
+      <Modal
+        isOpen={consultaAbierta !== null}
+        onClose={() => setConsultaAbierta(null)}
+        title="Consulta médica"
+        subtitle="Datos de la consulta y recetas emitidas"
+        icon="consultas"
+        headerGradient="bg-gradient-to-r from-doc-blue to-doc-blue-light"
+        maxWidth="2xl"
+      >
+        {consultaAbierta && (
+          <DetalleDeConsulta
+            consulta={consultaAbierta}
+            onRecetasCambiaron={() => void cargarHistorial()}
+          />
+        )}
+      </Modal>
 
       {/* Nueva Consulta: el único formulario que queda, porque es el único que
           llega al backend (POST /consultas). */}

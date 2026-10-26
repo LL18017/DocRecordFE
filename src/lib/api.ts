@@ -62,6 +62,12 @@ interface ApiOptions extends Omit<RequestInit, 'body'> {
   body?: unknown
   /** Endpoints públicos (`/auth/login`, `/auth/register`) no envían token. */
   auth?: boolean
+  /**
+   * Cómo leer una respuesta correcta. `'json'` (por defecto) deserializa;
+   * `'blob'` entrega el cuerpo binario tal cual, para descargar archivos como
+   * el PDF de una receta, que `JSON.parse` destrozaría.
+   */
+  formato?: 'json' | 'blob'
 }
 
 /**
@@ -82,9 +88,9 @@ async function ejecutarPeticion<T>(
   opciones: ApiOptions,
   reintentado: boolean,
 ): Promise<T> {
-  const { body, auth = true, headers, ...init } = opciones
+  const { body, auth = true, formato = 'json', headers, ...init } = opciones
   const cabeceras = new Headers(headers)
-  cabeceras.set('Accept', 'application/json')
+  cabeceras.set('Accept', formato === 'blob' ? 'application/pdf' : 'application/json')
   if (body !== undefined) cabeceras.set('Content-Type', 'application/json')
 
   if (auth) {
@@ -123,6 +129,8 @@ async function ejecutarPeticion<T>(
 
   // 204 y 205 no traen cuerpo; deserializarlas reventaría.
   if (respuesta.status === 204 || respuesta.status === 205) return undefined as T
+
+  if (formato === 'blob') return (await respuesta.blob()) as T
 
   const texto = await respuesta.text()
   if (!texto) return undefined as T

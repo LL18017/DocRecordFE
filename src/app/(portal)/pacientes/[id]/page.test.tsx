@@ -154,6 +154,8 @@ function consultaRegistrada(cambios: Partial<ConsultaDto> = {}): ConsultaDto {
     fecha: '2026-08-23T14:30:00',
     motivo: 'Control de presión arterial',
     diagnostico: 'Presión dentro de rango',
+    exploracionFisica: null,
+    indicaciones: null,
     estado: 'FINALIZADA',
     paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
     medico: { personaId: 3, nombres: 'Sofía', apellidos: 'Recinos', especialidad: null },
@@ -170,14 +172,21 @@ function recetaEmitida(cambios: Partial<PrescripcionDto> = {}): PrescripcionDto 
     // Campo aditivo nuevo de `PrescripcionDto` (services/prescripciones.ts):
     // esta pantalla no lo usa, pero el tipo ya lo exige para compilar.
     paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
-    medico: { personaId: 3, nombres: 'Sofía', apellidos: 'Recinos' },
+    medico: { personaId: 3, nombres: 'Sofía', apellidos: 'Recinos', registroJunta: null },
+    clinica: null,
+    fechaConsulta: '2026-08-23T14:30:00',
+    estado: 'EMITIDA',
+    motivoAnulacion: null,
+    anuladaEn: null,
+    anuladaPor: null,
     medicamentos: [
       {
         id: 91,
         medicamento: 'Enalapril 10mg',
         dosis: '1 tableta',
+        viaAdministracion: 'Oral',
         frecuencia: 'Cada 12 horas',
-        duracion: null,
+        duracion: '30 días',
       },
     ],
     ...cambios,
@@ -327,19 +336,21 @@ describe('expediente · el historial sale del backend', () => {
     expect(within(filaDeConsulta()).getByText('Enalapril 10mg')).toBeVisible()
   })
 
-  it('muestra la receta con su dosificación, y un guion donde el médico no la puso', async () => {
+  it('muestra la receta con dosis, vía, frecuencia y duración', async () => {
     listarConsultas.mockResolvedValue([consultaRegistrada()])
     listarPrescripcionesDePaciente.mockResolvedValue([recetaEmitida()])
     await montar()
 
-    const receta = (await screen.findByText('Receta #11')).closest('div')
+    // La tarjeta es el contenedor con borde; el `div` más cercano al título
+    // es solo su encabezado y no contiene la tabla.
+    const receta = (await screen.findByText('Receta #11')).closest('div.rounded-xl')
     if (!receta) throw new Error('La receta no tiene contenedor.')
-    expect(within(receta).getByText('1 tableta')).toBeVisible()
-    expect(within(receta).getByText('Cada 12 horas')).toBeVisible()
-    // `duracion` vino null: la receta no puede decir «null» camino a la
-    // farmacia, y tampoco inventarse una duración.
-    expect(within(receta).queryByText(/null/i)).toBeNull()
-    expect(within(receta).getByText('—')).toBeVisible()
+    expect(within(receta as HTMLElement).getByText('1 tableta')).toBeVisible()
+    expect(within(receta as HTMLElement).getByText('Oral')).toBeVisible()
+    expect(within(receta as HTMLElement).getByText('Cada 12 horas')).toBeVisible()
+    expect(within(receta as HTMLElement).getByText('30 días')).toBeVisible()
+    // HU-22 c2: ya no llegan nulos que traducir; tampoco se cuela la palabra.
+    expect(within(receta as HTMLElement).queryByText(/null/i)).toBeNull()
     expect(screen.getByText('1 receta')).toBeVisible()
   })
 
@@ -651,6 +662,8 @@ describe('expediente · la consulta recién registrada', () => {
     if (!cabecera) throw new Error('La cabecera de Consultas Médicas no tiene contenedor.')
     await user.click(within(cabecera).getByRole('button', { name: 'Agregar' }))
     await user.type(screen.getByLabelText(/motivo de consulta/i), 'Control de seguimiento')
+    // HU-19 c1: el diagnóstico es obligatorio al registrar.
+    await user.type(screen.getByLabelText(/^diagnóstico/i), 'Sin hallazgos')
     await user.click(screen.getByRole('button', { name: /guardar/i }))
 
     await waitFor(() => expect(crearConsulta).toHaveBeenCalled())
@@ -664,8 +677,9 @@ describe('expediente · la consulta recién registrada', () => {
     // Se comprueba celda por celda: contar guiones esconde cuál de las dos
     // columnas se pintó cruda.
     const celdas = within(filaDeConsulta()).getAllByRole('cell')
-    expect(celdas[1]).toHaveTextContent(/^—$/)
-    expect(celdas[2]).toHaveTextContent(/^—$/)
+    // Las columnas son Fecha, Médico, Clínica, Motivo y Diagnóstico.
+    expect(celdas[3]).toHaveTextContent(/^—$/)
+    expect(celdas[4]).toHaveTextContent(/^—$/)
   })
 
   it('pinta el motivo tal cual cuando sí viene', async () => {

@@ -9,7 +9,7 @@
 // 404 «La URL solicitada no existe»).
 
 import { ApiError, apiFetch } from '@/lib/api'
-import { formatearFechaHora } from './consultas'
+import { formatearFechaHora, type ConsultaClinicaDto } from './consultas'
 import { etiquetaDeSeveridad, type SeveridadDeAlergia } from './alergias'
 
 /**
@@ -29,11 +29,9 @@ export interface PaginaDto<T> {
 /**
  * Una línea de la receta tal como la devuelve el backend.
  *
- * `dosis`, `frecuencia` y `duracion` son anulables porque el contrato las
- * marca opcionales al crear: lo que no se envía vuelve como `null`, no como
- * cadena vacía. Es el mismo tipo de nulo que ya rompió una pantalla en este
- * proyecto, así que la tabla de medicamentos tiene que decidir qué pinta
- * cuando faltan (ver `textoOpcional`).
+ * Desde HU-22 c2 dosis, vía de administración, frecuencia y duración son
+ * obligatorias al emitir, así que ya no llegan nulas. Las recetas anteriores
+ * que no las tenían quedaron con «No especificada» (migración V28).
  */
 export interface MedicamentoPrescritoDto {
   id: number
@@ -48,9 +46,10 @@ export interface MedicamentoPrescritoDto {
    * desactiva, la receta ya entregada tiene que seguir diciendo lo mismo.
    */
   medicamento: string
-  dosis: string | null
-  frecuencia: string | null
-  duracion: string | null
+  dosis: string
+  viaAdministracion: string
+  frecuencia: string
+  duracion: string
 }
 
 /** Médico que firma la receta, anidado en `PrescripcionDto`. */
@@ -58,7 +57,12 @@ export interface PrescripcionMedicoDto {
   personaId: number
   nombres: string
   apellidos: string
+  /** Número de junta de vigilancia; null si el médico no lo ha registrado. */
+  registroJunta: string | null
 }
+
+/** EMITIDA, o ANULADA: una receta no se edita ni se borra (HU-22 c3). */
+export type EstadoPrescripcion = 'EMITIDA' | 'ANULADA'
 
 /**
  * Paciente tal como viene anidado en `PrescripcionDto`.
@@ -89,16 +93,26 @@ export interface PrescripcionDto {
   consultaId: number
   paciente: PrescripcionPacienteDto
   medico: PrescripcionMedicoDto
+  /** Clínica de la consulta de origen, que la receta hereda (HU-22 c1). */
+  clinica: ConsultaClinicaDto | null
+  /** Fecha y hora de la consulta de origen. */
+  fechaConsulta: string
   medicamentos: MedicamentoPrescritoDto[]
   /**
    * HU-24: por qué se recetó pese a una alergia registrada del paciente.
    * `null` —o ausente— si la receta no tuvo coincidencias, que es lo normal.
    */
   justificacionAlergia?: string | null
+  estado: EstadoPrescripcion
+  /** Rastro de la anulación; los tres son null mientras la receta está EMITIDA. */
+  motivoAnulacion: string | null
+  anuladaEn: string | null
+  anuladaPor: string | null
 }
 
 /**
- * Una línea tal como se envía al crear. Solo `medicamentoId` es obligatorio.
+ * Una línea tal como se envía al crear (HU-22 c2): el medicamento, la dosis, la
+ * vía de administración, la frecuencia y la duración son TODOS obligatorios.
  *
  * Es el id de un medicamento ACTIVO del catálogo, no un nombre: desde HU-23 el
  * backend rechaza con 400 lo que no esté en el catálogo, y el nombre que queda
@@ -106,16 +120,17 @@ export interface PrescripcionDto {
  */
 export interface MedicamentoPayload {
   medicamentoId: number
-  dosis?: string
-  frecuencia?: string
-  duracion?: string
+  dosis: string
+  viaAdministracion: string
+  frecuencia: string
+  duracion: string
 }
 
 /**
  * Una línea del formulario antes de limpiarla: puede no tener medicamento
  * elegido todavía (`null`), que es lo que `normalizarMedicamentos` descarta.
  */
-export type BorradorDeMedicamento = Omit<MedicamentoPayload, 'medicamentoId'> & {
+export type BorradorDeMedicamento = Partial<Omit<MedicamentoPayload, 'medicamentoId'>> & {
   medicamentoId: number | null
 }
 
@@ -187,35 +202,39 @@ export function mensajeFueraDelCatalogo(texto: string): string {
 }
 
 /**
- * Deja la lista lista para enviar: descarta líneas sin medicamento elegido
- * y omite —no manda vacíos— los campos opcionales que quedaron en blanco.
+ * Deja la lista lista para enviar: descarta líneas sin medicamento elegido y
+ * recorta los espacios de los cuatro datos del tratamiento.
  *
- * Enviar `dosis: ''` no es lo mismo que no enviarla: la primera guarda una
- * cadena vacía que luego se pinta como un hueco raro en la receta impresa,
- * mientras que omitirla deja el `null` que la interfaz ya sabe mostrar como
- * «—». Se exporta porque el formulario la usa para saber, antes de enviar,
- * cuántas líneas útiles hay de verdad.
+ * Un dato que quedó en blanco sigue viajando como cadena vacía —no se omite—
+ * para que el servidor lo rechace con 400 diciendo cuál falta; quien necesite
+ * avisar antes de enviar usa `datoQueFalta`. Se exporta porque el formulario la
+ * usa para saber, antes de enviar, cuántas líneas útiles hay de verdad.
  */
 export function normalizarMedicamentos(
   medicamentos: readonly BorradorDeMedicamento[],
 ): MedicamentoPayload[] {
-  const opcional = (valor: string | undefined) => {
-    const limpio = valor?.trim()
-    return limpio ? limpio : undefined
-  }
-
   return medicamentos
     .filter((m): m is BorradorDeMedicamento & { medicamentoId: number } => m.medicamentoId !== null)
-    .map((m) => {
-      const linea: MedicamentoPayload = { medicamentoId: m.medicamentoId }
-      const dosis = opcional(m.dosis)
-      const frecuencia = opcional(m.frecuencia)
-      const duracion = opcional(m.duracion)
-      if (dosis) linea.dosis = dosis
-      if (frecuencia) linea.frecuencia = frecuencia
-      if (duracion) linea.duracion = duracion
-      return linea
-    })
+    .map((m) => ({
+      medicamentoId: m.medicamentoId,
+      dosis: m.dosis?.trim() ?? '',
+      viaAdministracion: m.viaAdministracion?.trim() ?? '',
+      frecuencia: m.frecuencia?.trim() ?? '',
+      duracion: m.duracion?.trim() ?? '',
+    }))
+}
+
+/**
+ * El primer dato del tratamiento que falta en una línea (HU-22 c2), con el
+ * artículo que lo hace legible en una frase: «la dosis», «la vía de
+ * administración»… `null` si la línea está completa.
+ */
+export function datoQueFalta(linea: MedicamentoPayload): string | null {
+  if (!linea.dosis) return 'la dosis'
+  if (!linea.viaAdministracion) return 'la vía de administración'
+  if (!linea.frecuencia) return 'la frecuencia'
+  if (!linea.duracion) return 'la duración del tratamiento'
+  return null
 }
 
 /**
@@ -391,13 +410,55 @@ export async function obtenerPrescripcion(prescripcionId: number): Promise<Presc
   }
 }
 
-/** Anula una receta. Responde 204 sin cuerpo. */
-export async function eliminarPrescripcion(prescripcionId: number): Promise<void> {
+/** Mínimo de caracteres del motivo de anulación; el mismo que valida el backend. */
+export const MINIMO_MOTIVO_DE_ANULACION = 10
+
+/**
+ * Anula una receta (HU-22 c3): anulación LÓGICA con motivo. La receta no se
+ * borra: vuelve con `estado: 'ANULADA'`, el motivo, quién y cuándo, y sigue
+ * apareciendo en los listados. Solo el médico que la firmó o un administrador;
+ * 409 si ya estaba anulada.
+ */
+export async function anularPrescripcion(
+  prescripcionId: number,
+  motivo: string,
+): Promise<PrescripcionDto> {
   try {
-    await apiFetch<void>(`/prescripciones/${prescripcionId}`, { method: 'DELETE' })
+    return await apiFetch<PrescripcionDto>(`/prescripciones/${prescripcionId}/anular`, {
+      method: 'POST',
+      body: { motivo: motivo.trim() },
+    })
   } catch (error) {
     throw traducirError(error, 'anular')
   }
+}
+
+/**
+ * HU-22 c4: baja el PDF de la receta (médico con su número de junta, datos de
+ * la clínica, medicamentos) y lo abre en otra pestaña para imprimirlo. Va por
+ * `fetch` con el token y no con un enlace directo porque el endpoint exige la
+ * sesión: un `<a href>` iría sin cabecera y respondería 401.
+ */
+export async function imprimirPrescripcion(prescripcionId: number): Promise<void> {
+  let pdf: Blob
+  try {
+    pdf = await apiFetch<Blob>(`/prescripciones/${prescripcionId}/pdf`, { formato: 'blob' })
+  } catch (error) {
+    throw traducirError(error, 'abrir')
+  }
+
+  const url = URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' }))
+  const enlace = document.createElement('a')
+  enlace.href = url
+  enlace.target = '_blank'
+  enlace.rel = 'noopener'
+  enlace.download = `receta-${prescripcionId}.pdf`
+  document.body.appendChild(enlace)
+  enlace.click()
+  enlace.remove()
+  // El navegador ya tiene el archivo: liberar la URL evita acumular el PDF en
+  // memoria. Con un respiro para que la pestaña alcance a leerlo.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
 /**
@@ -432,8 +493,8 @@ export function formatearFechaEmision(prescripcion: PrescripcionDto): string {
 }
 
 /**
- * Texto de una celda opcional de la receta (`dosis`, `frecuencia`,
- * `duracion`, que llegan `null` cuando el médico no las especificó).
+ * Texto de una celda opcional (`motivo` de una consulta, que puede llegar
+ * `null`; antes también `dosis`, `frecuencia` y `duracion`).
  *
  * La implementación se mudó a services/consultas.ts cuando `motivo` resultó
  * ser igual de anulable: dos copias de la misma regla acaban decidiendo

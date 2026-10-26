@@ -85,6 +85,8 @@ function consulta(cambios: Partial<ConsultaDto> & { pacienteId?: number } = {}):
     fecha: instante(0),
     motivo: 'Dolor de garganta',
     diagnostico: null,
+    exploracionFisica: null,
+    indicaciones: null,
     estado: 'FINALIZADA',
     paciente: {
       personaId: pacienteId,

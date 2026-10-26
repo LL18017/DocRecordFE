@@ -6,7 +6,8 @@
 // ninguna petición y que se diga por qué.
 //
 // Lo segundo: que el cuerpo sea el del contrato —`consultaId` más la lista de
-// medicamentos, con los opcionales OMITIDOS cuando están en blanco—.
+// medicamentos, cada una con dosis, vía de administración, frecuencia y
+// duración (HU-22 c2: los cuatro datos son obligatorios en cada renglón)—.
 //
 // Lo tercero (HU-23): el medicamento se elige del catálogo con un
 // autocompletado, y lo que no salió de la lista no se envía.
@@ -70,6 +71,8 @@ function consulta(cambios: Partial<ConsultaDto> = {}): ConsultaDto {
     fecha: '2026-08-23T14:30:00',
     motivo: 'Dolor de garganta',
     diagnostico: 'Faringitis aguda',
+    exploracionFisica: null,
+    indicaciones: null,
     estado: 'FINALIZADA',
     paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
     medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra', especialidad: null },
@@ -86,9 +89,15 @@ function receta(): PrescripcionDto {
     // Campo aditivo nuevo de `PrescripcionDto` (services/prescripciones.ts):
     // este formulario no lo usa, pero el tipo ya lo exige para compilar.
     paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
-    medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra' },
+    medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra', registroJunta: null },
+    clinica: null,
+    fechaConsulta: '2026-08-23T14:30:00',
+    estado: 'EMITIDA',
+    motivoAnulacion: null,
+    anuladaEn: null,
+    anuladaPor: null,
     medicamentos: [
-      { id: 1, medicamento: 'Amoxicilina', dosis: '500 mg', frecuencia: null, duracion: null },
+      { id: 1, medicamento: 'Amoxicilina', dosis: '500 mg', viaAdministracion: 'Oral', frecuencia: 'No especificada', duracion: 'No especificada' },
     ],
   }
 }
@@ -182,8 +191,32 @@ async function montar(props: Partial<React.ComponentProps<typeof PrescriptionFor
 const botonEmitir = () => screen.getByRole('button', { name: /emitir/i })
 const campoMedicamento = (n: number) => screen.getByLabelText(new RegExp(`^medicamento ${n}$`, 'i'))
 const campoDosis = (n: number) => screen.getByLabelText(new RegExp(`dosis del medicamento ${n}`, 'i'))
+const campoVia = (n: number) =>
+  screen.getByLabelText(new RegExp(`vía de administración del medicamento ${n}`, 'i'))
 const campoFrecuencia = (n: number) =>
   screen.getByLabelText(new RegExp(`frecuencia del medicamento ${n}`, 'i'))
+const campoDuracion = (n: number) =>
+  screen.getByLabelText(new RegExp(`duración del medicamento ${n}`, 'i'))
+
+/** Los cuatro datos del tratamiento que HU-22 c2 exige en cada renglón. */
+const TRATAMIENTO = {
+  dosis: '500 mg',
+  viaAdministracion: 'Oral',
+  frecuencia: 'Cada 8 horas',
+  duracion: '7 días',
+}
+
+/** Llena dosis, vía, frecuencia y duración del renglón `n`. */
+async function completar(
+  user: ReturnType<typeof userEvent.setup>,
+  n: number,
+  datos: typeof TRATAMIENTO = TRATAMIENTO,
+) {
+  await user.type(campoDosis(n), datos.dosis)
+  await user.type(campoVia(n), datos.viaAdministracion)
+  await user.type(campoFrecuencia(n), datos.frecuencia)
+  await user.type(campoDuracion(n), datos.duracion)
+}
 
 /**
  * Elige un medicamento como lo haría el médico: teclea en la casilla y pulsa
@@ -236,15 +269,20 @@ describe('PrescriptionForm · una receta sin medicamentos no es una receta', () 
 })
 
 describe('PrescriptionForm · el cuerpo que viaja al backend', () => {
-  it('manda consultaId y los medicamentos, omitiendo los opcionales vacíos', async () => {
+  it('manda consultaId y los medicamentos con dosis, vía, frecuencia y duración', async () => {
     const user = await montar()
     await esperarConsultas()
 
     await elegir(user, 1, 'Amoxicilina')
-    await user.type(campoDosis(1), '500 mg')
-    await user.type(campoFrecuencia(1), 'cada 8 h')
+    await completar(user, 1)
     await user.click(screen.getByRole('button', { name: /agregar medicamento/i }))
     await elegir(user, 2, 'Ibuprofeno')
+    await completar(user, 2, {
+      dosis: '400 mg',
+      viaAdministracion: 'Oral',
+      frecuencia: 'Cada 12 horas',
+      duracion: '5 días',
+    })
     await user.click(botonEmitir())
 
     await waitFor(() => expect(crearPrescripcion).toHaveBeenCalled())
@@ -252,10 +290,32 @@ describe('PrescriptionForm · el cuerpo que viaja al backend', () => {
       consultaId: 7,
       // Ids del catálogo, no nombres: el nombre de la receta lo pone el backend.
       medicamentos: [
-        { medicamentoId: AMOXICILINA.medicamentoId, dosis: '500 mg', frecuencia: 'cada 8 h' },
-        { medicamentoId: IBUPROFENO.medicamentoId },
+        { medicamentoId: AMOXICILINA.medicamentoId, ...TRATAMIENTO },
+        {
+          medicamentoId: IBUPROFENO.medicamentoId,
+          dosis: '400 mg',
+          viaAdministracion: 'Oral',
+          frecuencia: 'Cada 12 horas',
+          duracion: '5 días',
+        },
       ],
     })
+  })
+
+  it('no emite si a un medicamento le falta un dato del tratamiento, y dice cuál', async () => {
+    // HU-22 c2: dosis, vía, frecuencia y duración son obligatorias en cada
+    // renglón; sin la vía no sale ninguna petición.
+    const user = await montar()
+    await esperarConsultas()
+
+    await elegir(user, 1, 'Amoxicilina')
+    await user.type(campoDosis(1), '500 mg')
+    await user.type(campoFrecuencia(1), 'Cada 8 horas')
+    await user.type(campoDuracion(1), '7 días')
+    await user.click(botonEmitir())
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/la vía de administración/i)
+    expect(crearPrescripcion).not.toHaveBeenCalled()
   })
 
   it('descarta la línea que quedó vacía entre dos llenas', async () => {
@@ -263,15 +323,17 @@ describe('PrescriptionForm · el cuerpo que viaja al backend', () => {
     await esperarConsultas()
 
     await elegir(user, 1, 'Amoxicilina')
+    await completar(user, 1)
     await user.click(screen.getByRole('button', { name: /agregar medicamento/i }))
     await user.click(screen.getByRole('button', { name: /agregar medicamento/i }))
     await elegir(user, 3, 'Ibuprofeno')
+    await completar(user, 3)
     await user.click(botonEmitir())
 
     await waitFor(() => expect(crearPrescripcion).toHaveBeenCalled())
     expect(crearPrescripcion.mock.calls[0][0].medicamentos).toEqual([
-      { medicamentoId: AMOXICILINA.medicamentoId },
-      { medicamentoId: IBUPROFENO.medicamentoId },
+      { medicamentoId: AMOXICILINA.medicamentoId, ...TRATAMIENTO },
+      { medicamentoId: IBUPROFENO.medicamentoId, ...TRATAMIENTO },
     ])
   })
 
@@ -279,6 +341,7 @@ describe('PrescriptionForm · el cuerpo que viaja al backend', () => {
     const user = await montar({ consulta: consulta({ consultaId: 99 }) })
 
     await elegir(user, 1, 'Amoxicilina')
+    await completar(user, 1)
     await user.click(botonEmitir())
 
     await waitFor(() => expect(crearPrescripcion).toHaveBeenCalled())
@@ -299,6 +362,7 @@ describe('PrescriptionForm · la consulta de la que cuelga la receta', () => {
     await screen.findByRole('option', { name: /control post operatorio/i })
 
     await elegir(user, 1, 'Amoxicilina')
+    await completar(user, 1)
     await user.click(botonEmitir())
 
     await waitFor(() => expect(crearPrescripcion).toHaveBeenCalled())
@@ -312,6 +376,7 @@ describe('PrescriptionForm · la consulta de la que cuelga la receta', () => {
     await screen.findByRole('option', { name: /no tiene consultas registradas/i })
 
     await elegir(user, 1, 'Amoxicilina')
+    await completar(user, 1)
     await user.click(botonEmitir())
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/elige la consulta/i)
@@ -357,6 +422,7 @@ describe('PrescriptionForm · errores al emitir', () => {
     await esperarConsultas()
 
     await elegir(user, 1, 'Amoxicilina')
+    await completar(user, 1)
     await user.click(botonEmitir())
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -372,6 +438,7 @@ describe('PrescriptionForm · errores al emitir', () => {
     await esperarConsultas()
 
     await elegir(user, 1, 'Amoxicilina')
+    await completar(user, 1)
     await user.click(botonEmitir())
 
     await waitFor(() => expect(onCreada).toHaveBeenCalledWith(emitida))
@@ -436,10 +503,11 @@ describe('PrescriptionForm · HU-23 criterio 3: el medicamento sale del catálog
     await user.keyboard('{Enter}')
     expect(campoMedicamento(1)).toHaveValue(IBUPROFENO.descripcion)
 
+    await completar(user, 1)
     await user.click(botonEmitir())
     await waitFor(() => expect(crearPrescripcion).toHaveBeenCalled())
     expect(crearPrescripcion.mock.calls[0][0].medicamentos).toEqual([
-      { medicamentoId: IBUPROFENO.medicamentoId },
+      { medicamentoId: IBUPROFENO.medicamentoId, ...TRATAMIENTO },
     ])
   })
 
@@ -449,11 +517,12 @@ describe('PrescriptionForm · HU-23 criterio 3: el medicamento sale del catálog
     await waitFor(() => expect(campoMedicamento(1)).toBeEnabled())
 
     await user.type(campoMedicamento(1), 'amoxicilina 500 mg (amoxil), capsula')
+    await completar(user, 1)
     await user.click(botonEmitir())
 
     await waitFor(() => expect(crearPrescripcion).toHaveBeenCalled())
     expect(crearPrescripcion.mock.calls[0][0].medicamentos).toEqual([
-      { medicamentoId: AMOXICILINA.medicamentoId },
+      { medicamentoId: AMOXICILINA.medicamentoId, ...TRATAMIENTO },
     ])
   })
 
@@ -535,6 +604,7 @@ describe('PrescriptionForm · HU-24 criterio 2: la justificación es obligatoria
     const user = await montar({ consulta: consulta() })
     await elegir(user, 1, 'amoxi')
     await screen.findByRole('alert', { name: /alergia registrada/i })
+    await completar(user, 1)
 
     await user.click(botonEmitir())
     expect(await screen.findByText(MENSAJE_FALTA_JUSTIFICACION)).toBeInTheDocument()
@@ -551,6 +621,7 @@ describe('PrescriptionForm · HU-24 criterio 2: la justificación es obligatoria
     const user = await montar({ consulta: consulta() })
     await elegir(user, 1, 'amoxi')
     await screen.findByRole('alert', { name: /alergia registrada/i })
+    await completar(user, 1)
 
     await user.type(campoJustificacion(), 'Beneficio mayor al riesgo')
     await user.click(botonEmitir())
@@ -571,6 +642,7 @@ describe('PrescriptionForm · HU-24 criterio 2: la justificación es obligatoria
     const user = await montar({ consulta: consulta() })
     await elegir(user, 1, 'amoxi')
     await screen.findByRole('alert', { name: /alergia registrada/i })
+    await completar(user, 1)
     await user.type(campoJustificacion(), 'Motivo')
 
     await user.click(botonEmitir())
@@ -588,6 +660,7 @@ describe('PrescriptionForm · HU-24 criterio 3: la alergia severa pide segunda c
     const user = await montar({ consulta: consulta() })
     await elegir(user, 1, 'amoxi')
     await screen.findByRole('alert', { name: /alergia registrada/i })
+    await completar(user, 1)
 
     await user.type(campoJustificacion(), 'No hay alternativa')
     await user.click(botonEmitir())
@@ -622,6 +695,7 @@ describe('PrescriptionForm · HU-24 criterio 4: sin coincidencias nada cambia', 
   it('no muestra alerta ni campos extra, y el cuerpo no lleva justificación', async () => {
     const user = await montar({ consulta: consulta() })
     await elegir(user, 1, 'ibuprofeno')
+    await completar(user, 1)
 
     await waitFor(() => expect(buscarAlertasDeAlergia).toHaveBeenCalled())
     expect(screen.queryByRole('alert', { name: /alergia registrada/i })).not.toBeInTheDocument()
@@ -711,6 +785,7 @@ describe('PrescriptionForm · HU-24 criterio 5: el médico que desiste queda en 
     buscarAlertasDeAlergia.mockResolvedValue([alerta()])
     const user = await montar({ consulta: consulta() })
     await elegir(user, 1, 'amoxi')
+    await completar(user, 1)
     await screen.findByRole('alert', { name: /alergia registrada/i })
     await user.type(campoJustificacion(), 'No hay alternativa')
     await user.click(botonEmitir())

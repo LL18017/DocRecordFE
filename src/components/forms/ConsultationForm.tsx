@@ -91,6 +91,9 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
   // `diagnostico` puede venir null (consulta todavía PENDIENTE): el textarea
   // necesita una cadena, así que el nulo se traduce aquí y no en el JSX.
   const [diagnostico, setDiagnostico] = useState(consulta?.diagnostico ?? '')
+  // HU-19: opcionales. Mismo trato del nulo que el diagnóstico.
+  const [exploracionFisica, setExploracionFisica] = useState(consulta?.exploracionFisica ?? '')
+  const [indicaciones, setIndicaciones] = useState(consulta?.indicaciones ?? '')
 
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -102,21 +105,24 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
   const payloadDeAlta = (motivoLimpio: string, diagnosticoLimpio: string): CrearConsultaPayload => ({
     pacienteId: Number(pacienteId),
     motivo: motivoLimpio,
+    // HU-19 c1: el diagnóstico es obligatorio y, para quien puede escribirlo,
+    // `handleSubmit` ya no deja llegar aquí sin él. Quien no puede (enfermería)
+    // no tiene campo: se omite en vez de mandar una cadena vacía que el
+    // servidor tomaría por un diagnóstico en blanco.
+    ...(diagnosticoLimpio ? { diagnostico: diagnosticoLimpio } : {}),
+    ...(exploracionFisica.trim() ? { exploracionFisica: exploracionFisica.trim() } : {}),
+    ...(indicaciones.trim() ? { indicaciones: indicaciones.trim() } : {}),
     // La sede es la que está activa en la sesión. Sin sede activa se OMITE el
     // campo: `clinicaId` es opcional en el contrato y mandar null —o un 0
     // inventado— sería peor que no mandarlo.
     ...(activeClinic ? { clinicaId: activeClinic.id } : {}),
-    // Nunca se envía diagnóstico si el rol no puede escribirlo: aunque el
-    // campo no se pinte, el estado podría arrastrar texto de un render
-    // anterior y el backend respondería 403.
-    ...(puedeDiagnosticar && diagnosticoLimpio ? { diagnostico: diagnosticoLimpio } : {}),
   })
 
   /**
    * Al editar se manda SOLO lo que cambió, que es lo que el `PUT` espera
-   * («campo ausente = no lo toco»). `clinicaId` no viaja nunca aquí: la sede
-   * activa de quien edita no tiene por qué ser donde se atendió, y mandarla
-   * movería la consulta de clínica sin que nadie lo pidiera.
+   * («campo ausente = no lo toco»). Ni la clínica ni la fecha viajan nunca
+   * aquí (HU-19 c3): junto con el médico son la firma de la consulta y el
+   * servidor no las deja cambiar.
    */
   const cambiosDe = (
     original: ConsultaDto,
@@ -132,6 +138,12 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
     if (puedeDiagnosticar && diagnosticoLimpio !== (original.diagnostico ?? '')) {
       cambios.diagnostico = diagnosticoLimpio
     }
+    if (exploracionFisica.trim() !== (original.exploracionFisica ?? '')) {
+      cambios.exploracionFisica = exploracionFisica.trim()
+    }
+    if (indicaciones.trim() !== (original.indicaciones ?? '')) {
+      cambios.indicaciones = indicaciones.trim()
+    }
     return cambios
   }
 
@@ -142,6 +154,12 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
     const diagnosticoLimpio = diagnostico.trim()
     if (!motivoLimpio) return
     if (!consulta && !pacienteId) return
+    // HU-19 c1: sin diagnóstico no se registra una consulta nueva. Al editar
+    // una consulta PENDIENTE (anterior a esta regla) sigue siendo opcional.
+    if (!consulta && puedeDiagnosticar && !diagnosticoLimpio) {
+      setError('El diagnóstico es obligatorio para registrar la consulta.')
+      return
+    }
 
     setError(null)
     setEnviando(true)
@@ -242,18 +260,22 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
         <div>
           <label htmlFor={id('diagnostico')} className={labelClass}>
             Diagnóstico
+            {!editando && <Obligatorio />}
           </label>
           <textarea
             id={id('diagnostico')}
+            required={!editando}
             value={diagnostico}
             onChange={(e) => setDiagnostico(e.target.value)}
             placeholder="Diagnóstico clínico, CIE-10 u observaciones diagnósticas..."
             aria-describedby={id('diagnostico-ayuda')}
             className={textareaClass}
           />
-          <p id={id('diagnostico-ayuda')} className="text-xs text-slate-400 mt-1">
-            Puede dejarse en blanco y completarse cuando la consulta se finalice.
-          </p>
+          {editando && (
+            <p id={id('diagnostico-ayuda')} className="text-xs text-slate-400 mt-1">
+              Un diagnóstico ya escrito no se borra dejando el campo vacío.
+            </p>
+          )}
         </div>
       ) : (
         <p className="rounded-xl border-2 border-slate-100 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-500">
@@ -262,8 +284,37 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
         </p>
       )}
 
+      <div>
+        <label htmlFor={id('exploracion')} className={labelClass}>
+          Exploración física
+        </label>
+        <textarea
+          id={id('exploracion')}
+          value={exploracionFisica}
+          onChange={(e) => setExploracionFisica(e.target.value)}
+          placeholder="Hallazgos de la exploración (opcional)..."
+          className={textareaClass}
+        />
+      </div>
+
+      <div>
+        <label htmlFor={id('indicaciones')} className={labelClass}>
+          Indicaciones
+        </label>
+        <textarea
+          id={id('indicaciones')}
+          value={indicaciones}
+          onChange={(e) => setIndicaciones(e.target.value)}
+          placeholder="Indicaciones para el paciente (opcional)..."
+          className={textareaClass}
+        />
+      </div>
+
       <p className="text-xs text-slate-400">
-        Los medicamentos se recetan desde Prescripciones, sobre la consulta ya registrada.
+        {editando
+          ? 'El médico, la clínica y la fecha de la consulta quedan firmados al registrarla y no se editan.'
+          : 'El médico, la clínica y la fecha quedan firmados al guardar. '}
+        Los medicamentos se recetan desde la consulta ya registrada (botón «Emitir receta»).
       </p>
 
       <div className="flex gap-3 pt-4 border-t border-slate-100">

@@ -57,6 +57,8 @@ function consulta(cambios: Partial<ConsultaDto> = {}): ConsultaDto {
     fecha: '2026-08-23T14:30:00',
     motivo: 'Dolor de garganta',
     diagnostico: null,
+    exploracionFisica: null,
+    indicaciones: null,
     estado: 'PENDIENTE',
     paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
     medico: { personaId: 3, nombres: 'Juan', apellidos: 'Guerra', especialidad: null },
@@ -195,25 +197,27 @@ describe('ConsultationForm · el cuerpo que viaja al backend', () => {
     const user = await montar()
 
     await user.type(campoMotivo(), 'Control')
+    await user.type(campoDiagnostico()!, 'Sano')
     await user.click(botonGuardar())
 
     await waitFor(() => expect(crearConsulta).toHaveBeenCalled())
-    expect(crearConsulta.mock.calls[0][0]).toEqual({ pacienteId: 42, motivo: 'Control' })
+    expect(crearConsulta.mock.calls[0][0]).toEqual({
+      pacienteId: 42,
+      motivo: 'Control',
+      diagnostico: 'Sano',
+    })
   })
 
-  it('omite el diagnóstico cuando el médico lo deja en blanco', async () => {
+  it('no registra la consulta si el médico deja el diagnóstico en blanco', async () => {
+    // HU-19 c1: el diagnóstico es obligatorio al registrar; antes se omitía.
     const user = await montar()
 
     await user.type(campoMotivo(), 'Control')
     await user.type(campoDiagnostico()!, '   ')
     await user.click(botonGuardar())
 
-    await waitFor(() => expect(crearConsulta).toHaveBeenCalled())
-    expect(crearConsulta.mock.calls[0][0]).toEqual({
-      pacienteId: 42,
-      clinicaId: 5,
-      motivo: 'Control',
-    })
+    expect(await screen.findByRole('alert')).toHaveTextContent(/diagnóstico es obligatorio/i)
+    expect(crearConsulta).not.toHaveBeenCalled()
   })
 
   it('no envía nada si el motivo está en blanco', async () => {
@@ -278,6 +282,7 @@ describe('ConsultationForm · errores', () => {
     const user = await montar()
 
     await user.type(campoMotivo(), 'Control')
+    await user.type(campoDiagnostico()!, 'Sano')
     await user.click(botonGuardar())
 
     expect(await screen.findByRole('alert')).toHaveTextContent('El motivo es obligatorio.')
@@ -290,6 +295,7 @@ describe('ConsultationForm · errores', () => {
     const user = await montar()
 
     await user.type(campoMotivo(), 'Control')
+    await user.type(campoDiagnostico()!, 'Sano')
     await user.click(botonGuardar())
 
     await waitFor(() => expect(onGuardada).toHaveBeenCalledWith(guardada))
