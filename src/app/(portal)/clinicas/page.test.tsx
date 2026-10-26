@@ -19,6 +19,8 @@ const listarMisClinicas = vi.fn<() => Promise<ClinicaDto[]>>()
 const crearClinica = vi.fn<(p: GuardarClinicaPayload) => Promise<ClinicaDto>>()
 const actualizarClinica = vi.fn<(id: number, p: GuardarClinicaPayload) => Promise<ClinicaDto>>()
 const eliminarClinica = vi.fn<(id: number) => Promise<void>>()
+const cambiarEstadoClinica =
+  vi.fn<(id: number, estado: 'ACTIVA' | 'INACTIVA') => Promise<ClinicaDto>>()
 
 vi.mock('@/services/clinicas', async (importarOriginal) => {
   // `clinicaDtoAClinica`, `formatearCoordenadas` y el tope de caracteres se
@@ -30,6 +32,8 @@ vi.mock('@/services/clinicas', async (importarOriginal) => {
     crearClinica: (p: GuardarClinicaPayload) => crearClinica(p),
     actualizarClinica: (id: number, p: GuardarClinicaPayload) => actualizarClinica(id, p),
     eliminarClinica: (id: number) => eliminarClinica(id),
+    cambiarEstadoClinica: (id: number, estado: 'ACTIVA' | 'INACTIVA') =>
+      cambiarEstadoClinica(id, estado),
   }
 })
 
@@ -43,7 +47,7 @@ vi.mock('@/components/mapa/MapaClinicas', () => ({
 }))
 
 function clinica(cambios: Partial<ClinicaDto> = {}): ClinicaDto {
-  return { clinicaId: 3, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182, ...cambios, departamento: null, municipio: null, direccion: null, telefono: null, horario: null, estado: 'ACTIVA' as const }
+  return { clinicaId: 3, name: 'Clínica Escalón', latitud: 13.7053, longitud: -89.2182, estado: 'ACTIVA' as const, ...cambios, departamento: null, municipio: null, direccion: null, telefono: null, horario: null }
 }
 
 beforeEach(() => {
@@ -51,6 +55,7 @@ beforeEach(() => {
   crearClinica.mockReset()
   actualizarClinica.mockReset()
   eliminarClinica.mockReset()
+  cambiarEstadoClinica.mockReset()
   listarMisClinicas.mockResolvedValue([clinica()])
   crearClinica.mockResolvedValue(clinica({ clinicaId: 9, name: 'Clínica Nueva' }))
   actualizarClinica.mockResolvedValue(clinica({ name: 'Clínica Renombrada' }))
@@ -305,5 +310,67 @@ describe('FormularioClinica · edición', () => {
     await waitFor(() => expect(actualizarClinica).toHaveBeenCalled())
     expect(actualizarClinica.mock.calls[0][0]).toBe(3)
     expect(actualizarClinica.mock.calls[0][1]).toMatchObject({ name: 'Clínica Renombrada' })
+  })
+})
+
+describe('clínicas · baja y reactivación (HU-27)', () => {
+  it('una clínica inactiva sale marcada y con «Reactivar» en lugar de «Trabajar aquí» (criterio 4)', async () => {
+    listarMisClinicas.mockResolvedValue([clinica({ estado: 'INACTIVA' })])
+
+    render(<ClinicasPage />)
+
+    await screen.findAllByText('Clínica Escalón')
+    expect(screen.getAllByText('Inactiva').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Reactivar' }).length).toBeGreaterThan(0)
+    // Una sede dada de baja no se ofrece para trabajar ni para volver a darla de baja.
+    expect(screen.queryByRole('button', { name: /trabajar aquí/i })).toBeNull()
+    expect(screen.queryByTitle('Desactivar clínica')).toBeNull()
+  })
+
+  it('reactivar pide ACTIVA al backend y deja la clínica activa de nuevo', async () => {
+    listarMisClinicas.mockResolvedValue([clinica({ estado: 'INACTIVA' })])
+    cambiarEstadoClinica.mockResolvedValue(clinica({ estado: 'ACTIVA' }))
+    const user = userEvent.setup()
+    render(<ClinicasPage />)
+    await screen.findAllByText('Clínica Escalón')
+
+    await user.click(screen.getAllByRole('button', { name: 'Reactivar' })[0])
+
+    await waitFor(() => expect(cambiarEstadoClinica).toHaveBeenCalledWith(3, 'ACTIVA'))
+    await waitFor(() => expect(screen.queryByText('Inactiva')).toBeNull())
+    expect(screen.queryByRole('button', { name: 'Reactivar' })).toBeNull()
+    expect(screen.getAllByRole('button', { name: /trabajar aquí/i }).length).toBeGreaterThan(0)
+  })
+
+  it('dar de baja deja la clínica en la lista, inactiva y reactivable', async () => {
+    eliminarClinica.mockResolvedValue()
+    const user = userEvent.setup()
+    render(<ClinicasPage />)
+    await screen.findAllByText('Clínica Escalón')
+
+    await user.click(screen.getByTitle('Desactivar clínica'))
+    await user.click(screen.getByRole('button', { name: 'Dar de baja' }))
+
+    await waitFor(() => expect(eliminarClinica).toHaveBeenCalledWith(3))
+    // Sigue en pantalla: desaparecer dejaría a «Reactivar» sin dónde estar.
+    expect((await screen.findAllByText('Inactiva')).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Reactivar' }).length).toBeGreaterThan(0)
+  })
+
+  it('si la baja se rechaza por citas futuras, muestra el motivo del backend y la clínica sigue activa (criterio 3)', async () => {
+    const motivo =
+      'No se puede dar de baja la clínica: tiene 2 citas futuras agendadas. Reprográmelas o ' +
+      'cancélelas primero. Primeras citas: 05/11/2026 a las 09:00 - Ana Pérez.'
+    eliminarClinica.mockRejectedValue(new ApiError(409, motivo))
+    const user = userEvent.setup()
+    render(<ClinicasPage />)
+    await screen.findAllByText('Clínica Escalón')
+
+    await user.click(screen.getByTitle('Desactivar clínica'))
+    await user.click(screen.getByRole('button', { name: 'Dar de baja' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(motivo)
+    expect(screen.queryByText('Inactiva')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Reactivar' })).toBeNull()
   })
 })

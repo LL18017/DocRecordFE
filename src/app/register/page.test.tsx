@@ -58,9 +58,10 @@ const campoApellidos = () => screen.getByLabelText(/^apellidos/i)
 const campoEmail = () => screen.getByLabelText(/^correo electrónico/i)
 const campoPassword = () => screen.getByLabelText(/^contraseña/i)
 const campoEspecialidad = () => screen.getByLabelText(/^especialidad/i)
+const campoJunta = () => screen.getByLabelText(/^número de junta de vigilancia/i)
 
 /** Llena el formulario con datos válidos y lo envía. */
-async function registrarse(user: ReturnType<typeof userEvent.setup>) {
+async function registrarse(user: ReturnType<typeof userEvent.setup>, junta = 'JVPM-12345') {
   // Sin el catálogo cargado no hay `especialidadId` y el envío se bloquea
   // antes de llamar al servicio.
   await screen.findByRole('option', { name: 'Medicina General' })
@@ -69,6 +70,7 @@ async function registrarse(user: ReturnType<typeof userEvent.setup>) {
   await user.type(campoApellidos(), 'Ramírez López')
   await user.type(campoEmail(), 'ana@ues.edu.sv')
   await user.type(campoPassword(), 'Docrecord2026!')
+  await user.type(campoJunta(), junta)
   await user.click(screen.getByRole('button', { name: /crear cuenta/i }))
   await waitFor(() => expect(registrar).toHaveBeenCalled())
 }
@@ -146,6 +148,7 @@ describe('RegisterPage · el correo de confirmación NO salió', () => {
       email: 'ana@ues.edu.sv',
       password: 'Docrecord2026!',
       especialidadId: 1,
+      registroJunta: 'JVPM-12345',
     })
 
     // Y cuando el reintento sí manda el correo, la pantalla pasa al mensaje
@@ -221,9 +224,44 @@ describe('RegisterPage · nombre accesible de los campos', () => {
       campoEmail(),
       campoPassword(),
       campoEspecialidad(),
+      campoJunta(),
     ]) {
       expect(campo).toBeRequired()
     }
+  })
+
+  it('pide el número de junta de vigilancia (HU-02 criterio 1) y lo manda sin espacios sobrantes', async () => {
+    registrar.mockResolvedValue(cuenta())
+    const user = montar()
+
+    await registrarse(user, '  JVPM-777  ')
+
+    expect(registrar.mock.calls[0][0].registroJunta).toBe('JVPM-777')
+  })
+
+  it('avisa del formato de la junta sin llamar al backend', async () => {
+    const user = montar()
+
+    // Sin ningún número: el backend lo rechazaría con 400, y aquí se evita el viaje.
+    await screen.findByRole('option', { name: 'Medicina General' })
+    await user.type(campoNombres(), 'Ana María')
+    await user.type(campoApellidos(), 'Ramírez López')
+    await user.type(campoEmail(), 'ana@ues.edu.sv')
+    await user.type(campoPassword(), 'Docrecord2026!')
+    await user.type(campoJunta(), 'SIN-NUMERO')
+    await user.click(screen.getByRole('button', { name: /crear cuenta/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/número de junta de vigilancia no es válido/i)
+    expect(registrar).not.toHaveBeenCalled()
+  })
+
+  it('muestra el 409 «Este correo ya está registrado» que manda el backend (HU-02 criterio 2)', async () => {
+    registrar.mockRejectedValue(new ApiError(409, 'Este correo ya está registrado'))
+    const user = montar()
+
+    await registrarse(user)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Este correo ya está registrado')
   })
 
   it('el campo que se escribe es el que viaja al backend', async () => {
@@ -240,6 +278,7 @@ describe('RegisterPage · nombre accesible de los campos', () => {
       email: 'ana@ues.edu.sv',
       password: 'Docrecord2026!',
       especialidadId: 1,
+      registroJunta: 'JVPM-12345',
     })
   })
 })

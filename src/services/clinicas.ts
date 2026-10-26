@@ -120,12 +120,40 @@ export async function actualizarClinica(
   }
 }
 
-/** Elimina una clínica. Responde 204 sin cuerpo. */
+/**
+ * Da de baja una clínica. Responde 204 sin cuerpo.
+ *
+ * La baja es lógica: la sede queda `INACTIVA` y se puede reactivar con
+ * `cambiarEstadoClinica`. Si tiene citas futuras agendadas el backend responde
+ * 409 con la cantidad y las primeras (fecha, hora y paciente); ese texto se
+ * muestra tal cual.
+ */
 export async function eliminarClinica(clinicaId: number): Promise<void> {
   try {
     await apiFetch<void>(`/clinics/${clinicaId}`, { method: 'DELETE' })
   } catch (error) {
     throw traducirError(error, 'eliminar')
+  }
+}
+
+/**
+ * Pasa una clínica a `ACTIVA` o `INACTIVA` (`PATCH /clinics/{id}/estado`).
+ *
+ * Es lo que permite REACTIVAR una sede dada de baja (HU-27 criterio 4): vuelve
+ * al mapa con sus datos intactos, porque la baja nunca los borró. Dar de baja
+ * por aquí tiene la misma precondición que `eliminarClinica`.
+ */
+export async function cambiarEstadoClinica(
+  clinicaId: number,
+  estado: 'ACTIVA' | 'INACTIVA',
+): Promise<ClinicaDto> {
+  try {
+    return await apiFetch<ClinicaDto>(`/clinics/${clinicaId}/estado`, {
+      method: 'PATCH',
+      body: { estado },
+    })
+  } catch (error) {
+    throw traducirError(error, estado === 'ACTIVA' ? 'reactivar' : 'eliminar')
   }
 }
 
@@ -191,7 +219,10 @@ export function formatearCoordenadas(
  * cuando el que se escriba aquí sea MÁS preciso. Cambiar un texto concreto
  * por uno genérico le quita al usuario justo el dato que necesitaba.
  */
-function traducirError(error: unknown, accion: 'crear' | 'editar' | 'eliminar'): Error {
+function traducirError(
+  error: unknown,
+  accion: 'crear' | 'editar' | 'eliminar' | 'reactivar',
+): Error {
   if (!(error instanceof ApiError)) {
     return error instanceof Error ? error : new Error('No se pudo completar la operación.')
   }
@@ -206,21 +237,16 @@ function traducirError(error: unknown, accion: 'crear' | 'editar' | 'eliminar'):
     case 403:
       return new ApiError(
         403,
-        `No tienes permiso para ${accion} esta clínica: solo su propietario o un administrador puede hacerlo.`,
+        `No tienes permiso para ${accion === 'eliminar' ? 'dar de baja' : accion} esta clínica: solo su propietario o un administrador puede hacerlo.`,
       )
     case 404:
       return new ApiError(404, 'Esta clínica ya no existe; puede que alguien la haya eliminado.')
-    case 409:
-      // Este texto solo es cierto al eliminar. Si crear o editar devolvieran
-      // 409 alguna vez (un nombre duplicado, por ejemplo), hablaría de
-      // eliminar algo que nadie está eliminando; ahí es mejor el mensaje del
-      // backend, que al menos describirá lo que de verdad pasó.
-      return accion === 'eliminar'
-        ? new ApiError(
-            409,
-            'No se puede eliminar la clínica porque tiene información asociada.',
-          )
-        : error
+    // El 409 también se deja pasar. Antes, al eliminar, se sustituía por «tiene
+    // información asociada» porque el backend devolvía la restricción de
+    // integridad en crudo; ahora la baja es lógica y el 409 trae el motivo
+    // real —cuántas citas futuras agendadas tiene la sede y las primeras—, que
+    // es justo lo que hace falta para reprogramarlas. Tapar eso con una frase
+    // genérica le quitaría al usuario el dato que necesita.
     default:
       return error
   }

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Icon } from '@/components/ui/Icon'
 import { IconName } from '@/types'
 import { registrar } from '@/services/auth'
+import { formatoDeJuntaValido } from '@/lib/registroJunta'
 import { listarEspecialidades, type EspecialidadDto } from '@/services/personas'
 import { ApiError } from '@/lib/api'
 import { AYUDA_CONTRASENA, motivoContrasenaInvalida } from '@/lib/contrasena'
@@ -25,6 +26,7 @@ const ID = {
   email: 'registro-email',
   password: 'registro-password',
   especialidad: 'registro-especialidad',
+  junta: 'registro-junta',
 } as const
 
 // Clases de los campos. Lo único que se agrega a las que ya había es
@@ -44,6 +46,7 @@ export default function RegisterPage() {
   const [apellidos, setApellidos] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [registroJunta, setRegistroJunta] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
   /** `null` mientras el formulario sigue en pantalla. */
@@ -86,9 +89,25 @@ export default function RegisterPage() {
       return
     }
 
+    // El mismo formato que valida el backend, para avisar antes de enviar y no
+    // después de un viaje de ida y vuelta (HU-02 criterio 1).
+    if (!formatoDeJuntaValido(registroJunta)) {
+      setError(
+        'El número de junta de vigilancia no es válido: use de 3 a 20 letras, números o guiones, con al menos un número.',
+      )
+      return
+    }
+
     setEnviando(true)
     try {
-      const cuenta = await registrar({ nombres, apellidos, email, password, especialidadId })
+      const cuenta = await registrar({
+        nombres,
+        apellidos,
+        email,
+        password,
+        especialidadId,
+        registroJunta: registroJunta.trim(),
+      })
       // Se exige un `true` explícito. Si el campo faltara —un backend viejo,
       // un proxy que recorta la respuesta— lo honesto es el aviso: prometer un
       // correo que quizá no salió deja a alguien esperando indefinidamente,
@@ -267,6 +286,23 @@ export default function RegisterPage() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <label htmlFor={ID.junta} className={labelClass}>
+                    Número de junta de vigilancia<Obligatorio />
+                  </label>
+                  <input
+                    id={ID.junta}
+                    required
+                    type="text"
+                    maxLength={20}
+                    value={registroJunta}
+                    onChange={(e) => setRegistroJunta(e.target.value)}
+                    placeholder="JVPM-12345"
+                    autoComplete="off"
+                    className={inputClass}
+                  />
                 </div>
 
                 <label className="flex items-start gap-2 cursor-pointer pt-1">
