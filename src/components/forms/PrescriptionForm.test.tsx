@@ -785,6 +785,7 @@ describe('PrescriptionForm · HU-24 criterio 5: el médico que desiste queda en 
     buscarAlertasDeAlergia.mockResolvedValue([alerta()])
     const user = await montar({ consulta: consulta() })
     await elegir(user, 1, 'amoxi')
+    await completar(user, 1)
     await screen.findByRole('alert', { name: /alergia registrada/i })
     await user.type(campoJustificacion(), 'No hay alternativa')
     await user.click(botonEmitir())
