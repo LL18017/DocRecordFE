@@ -9,6 +9,7 @@ import { listarPacientes } from '@/services/pacientes'
 import { formatearFechaHora } from '@/services/consultas'
 import {
   eliminarPrescripcion,
+  enviarRecetaPorCorreo,
   listarHistoricoDePrescripciones,
   nombreDeMedicoQueReceta,
   nombreDePacienteDeReceta,
@@ -19,6 +20,47 @@ import {
 } from '@/services/prescripciones'
 
 const CABECERAS = ['Medicamento', 'Dosis', 'Frecuencia', 'Duración']
+
+/**
+ * HU-25: manda la receta en PDF al correo del paciente. El backend la encola
+ * y el correo sale en segundos; pulsarlo otra vez la reenvía (criterio 4).
+ * Se dice «enviada» solo cuando el servidor aceptó el envío.
+ */
+const EnviarPorCorreo: React.FC<{ consultaId: number; prescripcionId: number }> = ({ consultaId, prescripcionId }) => {
+  const [estado, setEstado] = useState<'listo' | 'enviando' | 'enviada' | 'error'>('listo')
+  const [mensaje, setMensaje] = useState<string | null>(null)
+
+  const enviar = async () => {
+    setEstado('enviando')
+    setMensaje(null)
+    try {
+      await enviarRecetaPorCorreo(consultaId)
+      setEstado('enviada')
+      setMensaje('Enviada al correo del paciente.')
+    } catch (err) {
+      setEstado('error')
+      setMensaje(mensajeDe(err, 'No se pudo enviar la receta por correo.'))
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        onClick={enviar}
+        disabled={estado === 'enviando'}
+        aria-label={`Enviar por correo la receta ${prescripcionId}`}
+        className="h-8 px-3 rounded-lg bg-blue-50 text-doc-blue text-xs font-semibold hover:bg-blue-100 transition-colors cursor-pointer disabled:opacity-60"
+      >
+        {estado === 'enviando' ? 'Enviando…' : estado === 'enviada' ? 'Reenviar por correo' : 'Enviar por correo'}
+      </button>
+      {mensaje && (
+        <p role={estado === 'error' ? 'alert' : 'status'} className={`text-[11px] ${estado === 'error' ? 'text-red-600' : 'text-emerald-700'}`}>
+          {mensaje}
+        </p>
+      )}
+    </div>
+  )
+}
 
 export default function PrescripcionesPage() {
   // Catálogo de pacientes, para el filtro y para el formulario de emisión. Es
@@ -385,14 +427,17 @@ export default function PrescripcionesPage() {
                     Consulta #{rx.consultaId}
                   </p>
                 </div>
-                <button
-                  onClick={() => handleAnular(rx.prescripcionId)}
-                  aria-label={`Anular la receta ${rx.prescripcionId}`}
-                  title="Anular receta"
-                  className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors cursor-pointer"
-                >
-                  <Icon name="delete" size={14} />
-                </button>
+                <div className="flex items-start gap-2">
+                  <EnviarPorCorreo consultaId={rx.consultaId} prescripcionId={rx.prescripcionId} />
+                  <button
+                    onClick={() => handleAnular(rx.prescripcionId)}
+                    aria-label={`Anular la receta ${rx.prescripcionId}`}
+                    title="Anular receta"
+                    className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors cursor-pointer"
+                  >
+                    <Icon name="delete" size={14} />
+                  </button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">

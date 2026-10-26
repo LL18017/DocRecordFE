@@ -1,66 +1,143 @@
-// Guardas de la agenda.
+// Agenda de citas (HU-30, HU-32).
 //
-// EL FALLO: la pantalla mostraba cinco citas inventadas, todas asignadas a un
-// «Dr. Juan Guerra» que no existe, sacadas de `@/data/mockData` y sin una sola
-// llamada al backend. No hay endpoint de citas: no hay nada que cargar.
-//
-// Un médico podía organizar su día con esa agenda. Estas pruebas fijan que la
-// pantalla no vuelva a parecer real: ni citas, ni tabla, ni botón que prometa
-// agendar algo que no llega a ninguna parte.
-//
-// Y tampoco un «no tiene citas» vacío: eso también es una afirmación, y es una
-// que este sistema no puede hacer porque no existe ningún registro de citas
-// del que pueda ser verdad. Una agenda vacía se lee como «tengo la mañana
-// libre», el mismo error que las cinco citas falsas pero al revés.
+// Antes esta prueba fijaba lo contrario: que la agenda NO pareciera real,
+// porque no había endpoint de citas y la pantalla mostraba cinco inventadas.
+// Desde V24 las citas existen y son del paciente del expediente. Lo que se
+// conserva de aquellas guardas es lo que sigue valiendo: ninguna cita de la
+// maqueta, y nada que se muestre sin haber salido del backend.
 
-import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { ApiError } from '@/lib/api'
 import { appointments } from '@/data/mockData'
+import type { Clinica, User } from '@/types'
+import type { CitaDto } from '@/services/citas'
 import AgendaPage from './page'
 
-describe('agenda · lo que ya no inventa', () => {
-  it('no muestra ninguna de las citas de la maqueta', () => {
+const listarAgenda = vi.fn<(clinicaId: number, desde: string) => Promise<CitaDto[]>>()
+const cancelarCita = vi.fn<(id: number, motivo: string) => Promise<CitaDto>>()
+
+vi.mock('@/services/citas', async (importarOriginal) => {
+  const real = await importarOriginal<typeof import('@/services/citas')>()
+  return {
+    ...real,
+    listarAgenda: (clinicaId: number, desde: string) => listarAgenda(clinicaId, desde),
+    listarMedicosDeClinica: async () => [{ medicoId: 3, nombre: 'Ana Rivas' }],
+    listarTiposDeCita: async () => [{ tipoCitaId: 1, nombre: 'Consulta general', descripcion: null }],
+    cancelarCita: (id: number, motivo: string) => cancelarCita(id, motivo),
+  }
+})
+
+const SEDE = { id: 5, name: 'Clínica Santa Ana', lat: null, lng: null } as Clinica
+const SESION: { user: User | null; activeClinic: Clinica | null } = {
+  user: { name: 'Ana Rivas', roles: ['medico'] },
+  activeClinic: SEDE,
+}
+vi.mock('@/context/AppContext', () => ({ useAppContext: () => SESION }))
+
+/** Pasado mañana, lejos de la regla de las 4 horas. */
+function pasadoManana(hora: string): string {
+  const f = new Date()
+  f.setDate(f.getDate() + 2)
+  const dia = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(f.getDate()).padStart(2, '0')}`
+  return `${dia}T${hora}:00`
+}
+
+function cita(parcial: Partial<CitaDto>): CitaDto {
+  return {
+    citaId: 1,
+    fechaHora: pasadoManana('09:00'),
+    tipoCitaId: 1,
+    tipoCita: 'Consulta general',
+    pacienteId: 40,
+    paciente: 'Rosa Martínez',
+    expediente: 'EXP-000040',
+    medicoId: 3,
+    medico: 'Ana Rivas',
+    clinicaId: 5,
+    clinica: 'Clínica Santa Ana',
+    estado: 'AGENDADA',
+    motivoCancelacion: null,
+    ...parcial,
+  }
+}
+
+beforeEach(() => {
+  SESION.activeClinic = SEDE
+  listarAgenda.mockReset()
+  cancelarCita.mockReset()
+  listarAgenda.mockResolvedValue([])
+})
+
+describe('agenda · lo que muestra sale del backend', () => {
+  it('pide la agenda de la sede activa y muestra sus citas', async () => {
+    listarAgenda.mockResolvedValue([cita({})])
     render(<AgendaPage />)
 
-    // Se leen del propio mockData: si alguien vuelve a conectarlo, aunque
-    // cambie los nombres, esta prueba lo ve.
-    for (const cita of appointments) {
-      expect(screen.queryByText(new RegExp(cita.patient.split(' ')[0]))).toBeNull()
-      expect(screen.queryByText(cita.time)).toBeNull()
+    const fila = await screen.findByRole('listitem', { name: /Cita de Rosa Martínez a las 09:00/ })
+    expect(within(fila).getByText('EXP-000040')).toBeVisible()
+    expect(within(fila).getByText(/Ana Rivas · Consulta general/)).toBeVisible()
+    expect(listarAgenda).toHaveBeenCalledWith(5, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/))
+  })
+
+  it('no muestra ninguna de las citas de la maqueta', async () => {
+    render(<AgendaPage />)
+    expect(await screen.findByText('No hay citas para este día.')).toBeVisible()
+    for (const c of appointments) {
+      expect(screen.queryByText(new RegExp(c.patient.split(' ')[0]))).toBeNull()
     }
     expect(screen.queryByText(/juan guerra/i)).toBeNull()
   })
 
-  it('no pinta una tabla ni un calendario que parezcan una agenda', () => {
+  it('sin sede activa no inventa una agenda: manda a elegir clínica', () => {
+    SESION.activeClinic = null
     render(<AgendaPage />)
-
-    expect(screen.queryByRole('table')).toBeNull()
-    expect(screen.queryByPlaceholderText(/buscar cita/i)).toBeNull()
-    expect(screen.queryByRole('button', { name: /calendario/i })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Seleccionar clínica' })).toHaveAttribute('href', '/select-clinica')
+    expect(listarAgenda).not.toHaveBeenCalled()
   })
 
-  it('no ofrece agendar una cita que no se guardaría en ninguna parte', () => {
+  it('si la agenda no carga, lo dice y deja reintentar', async () => {
+    listarAgenda.mockRejectedValue(new ApiError(500, 'El servidor no respondió'))
+    render(<AgendaPage />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('El servidor no respondió')
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeVisible()
+  })
+})
+
+describe('agenda · cancelar (HU-32)', () => {
+  it('c1 y c5: cancelar exige motivo y la cita sigue en la lista, cancelada y con su motivo', async () => {
+    const user = userEvent.setup()
+    listarAgenda.mockResolvedValueOnce([cita({})])
+    const cancelada = cita({ estado: 'CANCELADA', motivoCancelacion: 'Viaje' })
+    cancelarCita.mockResolvedValue(cancelada)
     render(<AgendaPage />)
 
-    expect(screen.queryByRole('button', { name: /nueva cita/i })).toBeNull()
+    await user.click(await screen.findByRole('button', { name: 'Cancelar' }))
+    await user.click(screen.getByRole('button', { name: 'Cancelar la cita' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('El motivo de la cancelación es obligatorio.')
+    expect(cancelarCita).not.toHaveBeenCalled()
+
+    listarAgenda.mockResolvedValue([cancelada])
+    await user.type(screen.getByLabelText(/Motivo/), 'Viaje')
+    await user.click(screen.getByRole('button', { name: 'Cancelar la cita' }))
+
+    expect(cancelarCita).toHaveBeenCalledWith(1, 'Viaje')
+    const fila = await screen.findByRole('listitem', { name: /Cita de Rosa Martínez/ })
+    expect(within(fila).getByText('Cancelada')).toBeVisible()
+    expect(within(fila).getByText('Motivo: Viaje')).toBeVisible()
   })
 
-  it('dice que la sección no está disponible, no que no haya citas', () => {
+  it('c2: con menos de 4 horas no ofrece cancelar ni reprogramar', async () => {
+    const enDosHoras = new Date(Date.now() + 2 * 60 * 60 * 1000)
+    const fecha = `${enDosHoras.getFullYear()}-${String(enDosHoras.getMonth() + 1).padStart(2, '0')}-${String(
+      enDosHoras.getDate(),
+    ).padStart(2, '0')}T${String(enDosHoras.getHours()).padStart(2, '0')}:00:00`
+    listarAgenda.mockResolvedValue([cita({ fechaHora: fecha })])
     render(<AgendaPage />)
 
-    expect(screen.getByRole('status')).toHaveTextContent(/todavía no está disponible/i)
-    // La frase que NO puede aparecer: afirmaría algo sobre unas citas que
-    // nadie ha registrado nunca.
-    expect(screen.queryByText(/no tiene citas/i)).toBeNull()
-    expect(screen.queryByText(/sin citas para hoy/i)).toBeNull()
-  })
-
-  it('deja una salida hacia lo que sí está registrado', () => {
-    render(<AgendaPage />)
-
-    expect(screen.getByRole('link', { name: /ver consultas médicas/i })).toHaveAttribute(
-      'href',
-      '/consultas',
-    )
+    expect(await screen.findByText(/Menos de 4 h/)).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Cancelar' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Reprogramar' })).toBeNull()
   })
 })
