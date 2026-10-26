@@ -108,6 +108,26 @@ export default function EnfermeriaPage() {
     void cargar()
   }, [cargar])
 
+  // El catálogo se vuelve a pedir cada vez que se abre el formulario. Antes se
+  // cargaba una sola vez al entrar a la pantalla: un paciente registrado
+  // después —en otra pestaña, o por otra persona— no aparecía para tomarle
+  // constantes hasta recargar la página (observación de la tutora).
+  // Si falla, se conserva la lista que ya había.
+  const refrescarPacientes = async () => {
+    try {
+      const lista = await listarPacientes()
+      setPacientes(
+        lista.map((p) => ({
+          personaId: p.personaId,
+          nombre: `${p.persona.nombres} ${p.persona.apellidos}`.trim(),
+          expediente: p.expediente,
+        })),
+      )
+    } catch {
+      // La lista anterior sigue sirviendo; el error de carga ya se avisó al entrar.
+    }
+  }
+
   const reintentar = () => {
     setCargando(true)
     setError(null)
@@ -233,6 +253,7 @@ export default function EnfermeriaPage() {
             onClick={() => {
               setErrorAlGuardar(null)
               setRegistrando(true)
+              void refrescarPacientes()
             }}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-semibold bg-doc-teal hover:opacity-90 shadow-sm transition-all cursor-pointer"
           >
