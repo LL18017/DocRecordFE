@@ -543,9 +543,12 @@ describe('expediente · alergias del paciente (HU-11)', () => {
     listarAlergias.mockResolvedValue([alergia({ severidad: 'MODERADA', sustancia: 'Látex' })])
     const user = await montar()
 
-    expect(listarAlergias).toHaveBeenCalledWith(42)
+    // Las alergias se piden en un efecto aparte, que puede correr después de
+    // que aparece el nombre del paciente: se espera la llamada y no se da por
+    // hecha (en CI, con la zona America/El_Salvador, a veces llegaba tarde).
+    await waitFor(() => expect(listarAlergias).toHaveBeenCalledWith(42))
     await user.click(screen.getByRole('button', { name: /^Historial de Alergias/ }))
-    expect(within(seccion()).getByText('Látex')).toBeVisible()
+    expect(await within(seccion()).findByText('Látex')).toBeVisible()
     expect(within(seccion()).getByText(/Registrada por Sofía Recinos/)).toBeVisible()
   })
 
