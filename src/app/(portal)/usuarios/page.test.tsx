@@ -22,6 +22,7 @@ import type {
   RolDto,
   UsuarioDto,
 } from '@/services/usuarios'
+import type { RegistroDeBitacoraDto } from '@/services/usuarios'
 import type { EspecialidadDto } from '@/services/personas'
 import type { ClinicaDto } from '@/services/clinicas'
 import UsuariosPage from './page'
@@ -37,6 +38,8 @@ const asignarContrasena = vi.fn<(userId: number, password: string) => Promise<Us
 const listarRoles = vi.fn<() => Promise<RolDto[]>>()
 const quitarRol = vi.fn<(userId: number, roleId: number) => Promise<UsuarioDto>>()
 const cambiarEstadoUsuario = vi.fn<(userId: number, activo: boolean) => Promise<UsuarioDto>>()
+const reenviarConfirmacion = vi.fn<(userId: number) => Promise<AltaUsuarioDto>>()
+const bitacoraDeUsuario = vi.fn<(userId: number) => Promise<RegistroDeBitacoraDto[]>>()
 
 vi.mock('@/services/usuarios', () => ({
   listarUsuarios: () => listarUsuarios(),
@@ -53,6 +56,8 @@ vi.mock('@/services/usuarios', () => ({
   quitarRol: (userId: number, roleId: number) => quitarRol(userId, roleId),
   cambiarEstadoUsuario: (userId: number, activo: boolean) =>
     cambiarEstadoUsuario(userId, activo),
+  reenviarConfirmacion: (userId: number) => reenviarConfirmacion(userId),
+  bitacoraDeUsuario: (userId: number) => bitacoraDeUsuario(userId),
 }))
 
 vi.mock('@/services/clinicas', () => ({
@@ -111,6 +116,8 @@ beforeEach(() => {
   crearUsuario.mockReset()
   asignarRol.mockReset()
   asignarContrasena.mockReset()
+  reenviarConfirmacion.mockReset()
+  bitacoraDeUsuario.mockReset()
   listarRoles.mockReset()
   quitarRol.mockReset()
   listarEspecialidades.mockReset()
@@ -947,5 +954,130 @@ describe('Usuarios y Roles · especialidad y estado', () => {
     expect(
       within(screen.getByText('Ultimo Admin').closest('tr')!).getByText('Activa'),
     ).toBeInTheDocument()
+  })
+})
+
+describe('HU-03 criterio 2 · contraseña nueva con mayúscula y número', () => {
+  it('el alta rechaza una contraseña débil sin llamar al API y dice qué falta', async () => {
+    const user = montar()
+    await screen.findByText('Naun Enrique Flores Menjivar')
+
+    await user.click(screen.getByRole('button', { name: /nuevo usuario/i }))
+    await llenarYEnviarAlta(user, {
+      nombre: 'Cuenta Debil',
+      email: 'debil@docrecord.sv',
+      password: 'sinmayuscula',
+    })
+
+    expect(
+      await screen.findByText('La contraseña debe incluir una mayúscula y incluir un número.'),
+    ).toBeVisible()
+    expect(crearUsuario).not.toHaveBeenCalled()
+  })
+})
+
+describe('HU-02 criterio 3 y alta por el administrador · confirmación de la cuenta', () => {
+  const ALTA: AltaUsuarioDto = {
+    userId: 600,
+    email: 'medico.nuevo@docrecord.sv',
+    userName: 'Medico Nuevo',
+    especialidad: null,
+    activo: true,
+    roles: [],
+    correoDeVerificacionEnviado: true,
+  }
+
+  it('con el correo enviado, dice que la cuenta no entra hasta confirmar y que el enlace vale 24 horas', async () => {
+    crearUsuario.mockResolvedValue(ALTA)
+    const user = montar()
+    await screen.findByText('Naun Enrique Flores Menjivar')
+
+    await user.click(screen.getByRole('button', { name: /nuevo usuario/i }))
+    await llenarYEnviarAlta(user, {
+      nombre: 'Medico Nuevo',
+      email: 'medico.nuevo@docrecord.sv',
+      password: 'ClaveSegura2026!',
+    })
+
+    const aviso = await screen.findByRole('status')
+    expect(aviso).toHaveTextContent(/se envió un correo de confirmación a medico\.nuevo@docrecord\.sv/i)
+    expect(aviso).toHaveTextContent(/24 horas/)
+    expect(aviso).toHaveTextContent(/no puede iniciar sesión/i)
+  })
+
+  it('reenviar el correo llama al API, y si ahora sale, muestra el aviso de enviado', async () => {
+    crearUsuario.mockResolvedValue({ ...ALTA, correoDeVerificacionEnviado: false })
+    reenviarConfirmacion.mockResolvedValue({ ...ALTA, correoDeVerificacionEnviado: true })
+    const user = montar()
+    await screen.findByText('Naun Enrique Flores Menjivar')
+
+    await user.click(screen.getByRole('button', { name: /nuevo usuario/i }))
+    await llenarYEnviarAlta(user, {
+      nombre: 'Medico Nuevo',
+      email: 'medico.nuevo@docrecord.sv',
+      password: 'ClaveSegura2026!',
+    })
+
+    await user.click(await screen.findByRole('button', { name: /reintentar el envío del correo/i }))
+
+    await waitFor(() => expect(reenviarConfirmacion).toHaveBeenCalledWith(600))
+    expect(await screen.findByRole('status')).toHaveTextContent(/se envió un correo de confirmación/i)
+    expect(screen.queryByText(/el correo de confirmación no se pudo enviar/i)).toBeNull()
+  })
+
+  it('si el reenvío falla, muestra el motivo del servidor', async () => {
+    crearUsuario.mockResolvedValue(ALTA)
+    reenviarConfirmacion.mockRejectedValue(new ApiError(409, 'La cuenta ya esta confirmada'))
+    const user = montar()
+    await screen.findByText('Naun Enrique Flores Menjivar')
+
+    await user.click(screen.getByRole('button', { name: /nuevo usuario/i }))
+    await llenarYEnviarAlta(user, {
+      nombre: 'Medico Nuevo',
+      email: 'medico.nuevo@docrecord.sv',
+      password: 'ClaveSegura2026!',
+    })
+    await user.click(await screen.findByRole('button', { name: /reenviar correo de confirmación/i }))
+
+    expect(await screen.findByText('La cuenta ya esta confirmada')).toBeVisible()
+  })
+})
+
+describe('HU-05 criterio 5 · historial de la cuenta', () => {
+  it('el botón Historial muestra quién y cuándo hizo cada cambio', async () => {
+    bitacoraDeUsuario.mockResolvedValue([
+      {
+        accion: 'ROL_ASIGNADO',
+        detalle: 'Rol MEDICO',
+        realizadoPor: 'admin@docrecord.sv',
+        realizadoEn: '2026-10-20T10:30:00',
+      },
+      { accion: 'ALTA', detalle: null, realizadoPor: 'admin@docrecord.sv', realizadoEn: '2026-10-20T10:00:00' },
+    ])
+    const user = montar()
+    const fila = (await screen.findByText('Cuenta Sin Rol')).closest('tr')!
+
+    await user.click(within(fila).getByRole('button', { name: /historial/i }))
+
+    await waitFor(() => expect(bitacoraDeUsuario).toHaveBeenCalledWith(353))
+    expect(await screen.findByText(/^rol asignado$/i)).toBeVisible()
+    expect(screen.getByText(/alta de la cuenta/i)).toBeVisible()
+    expect(screen.getAllByText(/por admin@docrecord\.sv/)).toHaveLength(2)
+  })
+
+  it('una cuenta sin acciones registradas lo dice, y un fallo muestra el motivo', async () => {
+    bitacoraDeUsuario.mockResolvedValueOnce([])
+    const user = montar()
+    const fila = (await screen.findByText('Cuenta Sin Rol')).closest('tr')!
+    await user.click(within(fila).getByRole('button', { name: /historial/i }))
+    expect(await screen.findByText(/no tiene acciones registradas/i)).toBeVisible()
+  })
+
+  it('si el historial no carga, muestra el motivo', async () => {
+    bitacoraDeUsuario.mockRejectedValue(new ApiError(404, 'No se encontro el usuario con id: 353'))
+    const user = montar()
+    const fila = (await screen.findByText('Cuenta Sin Rol')).closest('tr')!
+    await user.click(within(fila).getByRole('button', { name: /historial/i }))
+    expect(await screen.findByText('No se encontro el usuario con id: 353')).toBeVisible()
   })
 })

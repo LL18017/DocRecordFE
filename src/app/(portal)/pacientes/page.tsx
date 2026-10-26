@@ -21,9 +21,12 @@ import { listarConsultas } from '@/services/consultas'
 import { pacienteDtoAPatient } from '@/lib/pacienteAdapter'
 import { contarConsultasPorPaciente } from '@/lib/resumenPanel'
 import { sinTildes } from '@/lib/texto'
+import { useAppContext } from '@/context/AppContext'
 
 export default function PacientesPage() {
   const router = useRouter()
+  // La sede activa se guarda con el paciente al registrarlo (HU-07 criterio 4).
+  const { activeClinic } = useAppContext()
   // La lista sale de GET /pacientes. Antes se sembraba con los datos de la
   // maqueta, asi que un paciente recien creado desaparecia al recargar: estaba
   // en la base, pero la pantalla nunca la consultaba.
@@ -347,7 +350,23 @@ export default function PacientesPage() {
           p.phone.includes(q) ||
           p.id_num.includes(q)
         }
-        pageSize={5}
+        // HU-08 criterio 1: de a 10 por página.
+        pageSize={10}
+        // HU-08 criterio 3: una búsqueda sin resultados no deja la pantalla
+        // en un callejón: ofrece el mismo alta que «Nuevo Paciente», porque
+        // quien busca a alguien que no está casi siempre viene a registrarlo.
+        emptyMessage={
+          <span className="flex flex-col items-center gap-3 not-italic">
+            <span className="italic">No se encontraron pacientes.</span>
+            <button
+              type="button"
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-sm font-semibold bg-doc-blue hover:opacity-90 shadow-sm transition-all cursor-pointer"
+            >
+              <Icon name="add" size={14} color="white" /> Registrar un paciente nuevo
+            </button>
+          </span>
+        }
       />
       )}
 
@@ -363,6 +382,7 @@ export default function PacientesPage() {
         <PatientForm
           onCreated={handlePacienteCreado}
           onCancel={() => setShowModal(false)}
+          clinicaId={activeClinic?.id}
         />
       </Modal>
 

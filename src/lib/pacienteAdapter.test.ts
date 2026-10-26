@@ -231,4 +231,11 @@ describe('pacienteDtoAPatient · zona horaria (UTC-6)', () => {
     expect(paciente.born).not.toMatch(/marzo/)
     expect(paciente.age).toBe(0)
   })
+
+  it('nunca muestra una edad negativa, aunque la fecha sea futura', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 5, 15, 12, 0, 0))
+
+    expect(pacienteDtoAPatient(dto({ fechaNacimiento: '2027-06-15' })).age).toBe(0)
+  })
 })

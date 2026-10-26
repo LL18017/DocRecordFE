@@ -388,3 +388,32 @@ export async function cambiarEstadoUsuario(
     body: { activo },
   })
 }
+
+/** Una acción de administración registrada sobre una cuenta (HU-05 criterio 5). */
+export interface RegistroDeBitacoraDto {
+  accion: 'ALTA' | 'ACTIVACION' | 'DESACTIVACION' | 'ROL_ASIGNADO' | 'ROL_RETIRADO'
+  /** Por ejemplo «Rol MEDICO»; `null` cuando la acción no necesita más. */
+  detalle: string | null
+  /** Correo de quien la realizó. */
+  realizadoPor: string
+  realizadoEn: string
+}
+
+/**
+ * Historial de administración de una cuenta, lo más reciente primero: quién y
+ * cuándo hizo el alta, activó o desactivó, y asignó o retiró roles (HU-05
+ * criterio 5). Exige ADMIN; 404 si la cuenta no existe.
+ */
+export async function bitacoraDeUsuario(userId: number): Promise<RegistroDeBitacoraDto[]> {
+  return apiFetch<RegistroDeBitacoraDto[]>(`/user/${userId}/bitacora`)
+}
+
+/**
+ * Reenvía el correo de confirmación de una cuenta aún sin confirmar: emite un
+ * enlace nuevo (vale 24 horas), invalida los anteriores y lo manda otra vez.
+ * Exige ADMIN. `correoDeVerificacionEnviado` dice si el correo salió; 409 si la
+ * cuenta ya está confirmada y 404 si no existe.
+ */
+export async function reenviarConfirmacion(userId: number): Promise<AltaUsuarioDto> {
+  return apiFetch<AltaUsuarioDto>(`/user/${userId}/confirmacion`, { method: 'POST' })
+}

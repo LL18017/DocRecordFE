@@ -7,6 +7,7 @@ import { IconName } from '@/types'
 import { registrar } from '@/services/auth'
 import { listarEspecialidades, type EspecialidadDto } from '@/services/personas'
 import { ApiError } from '@/lib/api'
+import { AYUDA_CONTRASENA, motivoContrasenaInvalida } from '@/lib/contrasena'
 
 const features: { icon: IconName; text: string }[] = [
   { icon: 'history', text: 'Historial clínico completo' },
@@ -76,6 +77,12 @@ export default function RegisterPage() {
 
     if (especialidadId === null) {
       setError('No se pudo cargar el catálogo de especialidades. Intenta de nuevo más tarde.')
+      return
+    }
+
+    const motivo = motivoContrasenaInvalida(password)
+    if (motivo) {
+      setError(motivo)
       return
     }
 
@@ -239,6 +246,7 @@ export default function RegisterPage() {
                     autoComplete="new-password"
                     className={inputClass}
                   />
+                  <p className="text-xs text-slate-500 mt-2">{AYUDA_CONTRASENA}</p>
                 </div>
 
                 <div>

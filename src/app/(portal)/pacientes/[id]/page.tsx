@@ -43,7 +43,7 @@ import { EvolucionSignosVitales } from '@/components/clinico/EvolucionSignosVita
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { ApiError } from '@/lib/api'
-import { obtenerPaciente } from '@/services/pacientes'
+import { obtenerPaciente, type PacienteDto } from '@/services/pacientes'
 import { pacienteDtoAPatient } from '@/lib/pacienteAdapter'
 import { ConsultationForm } from '@/components/forms/ConsultationForm'
 import { SeccionAntecedentes } from '@/components/clinico/SeccionAntecedentes'
@@ -106,6 +106,13 @@ export default function ExpedienteDetailPage() {
   const [alergiasConocidas, setAlergiasConocidas] = useState<AlergiasConocidas>(undefined)
 
   const [patient, setPatient] = useState<Patient | null>(null)
+  // Quién lo registró, dónde y quién lo tocó por última vez (HU-07 y HU-09,
+  // criterio 4). Va aparte de `patient` porque el adaptador al tipo de la
+  // maqueta no lleva estos campos.
+  const [trazabilidad, setTrazabilidad] = useState<Pick<
+    PacienteDto,
+    'registradoPor' | 'clinicaRegistro' | 'creadoEn' | 'modificadoPor' | 'modificadoEn'
+  > | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [noEncontrado, setNoEncontrado] = useState(false)
@@ -139,6 +146,13 @@ export default function ExpedienteDetailPage() {
     try {
       const paciente = await obtenerPaciente(Number(patientId))
       setPatient(pacienteDtoAPatient(paciente))
+      setTrazabilidad({
+        registradoPor: paciente.registradoPor,
+        clinicaRegistro: paciente.clinicaRegistro,
+        creadoEn: paciente.creadoEn,
+        modificadoPor: paciente.modificadoPor,
+        modificadoEn: paciente.modificadoEn,
+      })
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
         setNoEncontrado(true)
@@ -434,6 +448,44 @@ export default function ExpedienteDetailPage() {
               </div>
             )}
           </div>
+
+          {/* ── HU-07 y HU-09, criterio 4: trazabilidad del registro.
+              El hueco honesto: en un paciente anterior a la trazabilidad se
+              dice que no consta, no se inventa un autor. ── */}
+          {trazabilidad && (
+            <div
+              aria-label="Trazabilidad del registro"
+              className="bg-white rounded-2xl shadow-sm border border-slate-100/80 px-5 py-4"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-doc-surface text-doc-blue">
+                  <Icon name="history" size={16} />
+                </div>
+                <span className="font-semibold text-slate-700 text-sm font-outfit">
+                  Trazabilidad del registro
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+                {[
+                  ['Registrado por', trazabilidad.registradoPor ?? 'No consta'],
+                  ['Clínica de registro', trazabilidad.clinicaRegistro ?? 'No consta'],
+                  ['Fecha de registro', formatearFechaHora(trazabilidad.creadoEn)],
+                  ['Última modificación por', trazabilidad.modificadoPor ?? 'Sin modificaciones'],
+                  [
+                    'Fecha de última modificación',
+                    trazabilidad.modificadoEn
+                      ? formatearFechaHora(trazabilidad.modificadoEn)
+                      : 'Sin modificaciones',
+                  ],
+                ].map(([k, v]) => (
+                  <div key={k}>
+                    <span className="text-xs text-slate-400 uppercase tracking-wider">{k}</span>
+                    <p className="text-sm font-medium text-slate-800 mt-0.5">{v}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ── HU-11: alergias (GET /alergias?pacienteId=) ── */}
           <SeccionAlergias

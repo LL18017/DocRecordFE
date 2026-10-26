@@ -21,6 +21,20 @@ import PacientesPage from './page'
 const push = vi.fn<(href: string) => void>()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: (href: string) => push(href) }) }))
 
+// La sede activa se guarda con el paciente al registrarlo (HU-07 criterio 4):
+// se simula el contexto en vez de montar el AppProvider.
+vi.mock('@/context/AppContext', () => ({
+  useAppContext: () => ({ activeClinic: { id: 5, name: 'Clínica Escalón', lat: null, lng: null } }),
+}))
+
+vi.mock('@/components/forms/PatientForm', () => ({
+  PatientForm: ({ clinicaId }: { clinicaId?: number }) => (
+    <div role="form" aria-label="Alta de paciente">
+      sede {clinicaId}
+    </div>
+  ),
+}))
+
 const listarPacientes = vi.fn<() => Promise<PacienteDto[]>>()
 const eliminarPaciente = vi.fn<(id: number) => Promise<void>>()
 const obtenerPaciente = vi.fn<(id: number) => Promise<PacienteDto>>()
@@ -272,5 +286,36 @@ describe('pacientes · confirmación antes de dar de baja', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/consultas abiertas/i)
     // Nada de optimismo: la fila solo desaparece cuando el servidor confirma.
     expect(enTabla().getByText(/Carlos/)).toBeInTheDocument()
+  })
+})
+
+describe('pacientes · HU-08 criterios 1 y 3 y sede de registro', () => {
+  it('pagina de a 10', async () => {
+    listarPacientes.mockResolvedValue(
+      Array.from({ length: 12 }, (_, i) => paciente(i + 1, `Nombre${String(i + 1).padStart(2, '0')}`)),
+    )
+    listarConsultas.mockResolvedValue([])
+
+    render(<PacientesPage />)
+
+    await screen.findByText(/Nombre01/)
+    // Las filas con acción llevan role=button, así que se cuentan en el cuerpo.
+    expect(document.querySelectorAll('tbody tr')).toHaveLength(10)
+    expect(screen.getByText(/mostrando 1 a 10 de 12 registros/i)).toBeVisible()
+    expect(screen.queryByText(/Nombre11/)).toBeNull()
+  })
+
+  it('una búsqueda sin resultados ofrece registrar un paciente nuevo, con el mismo alta', async () => {
+    const user = userEvent.setup()
+    render(<PacientesPage />)
+    await screen.findByText(/Carlos/)
+
+    await user.type(screen.getByPlaceholderText(/buscar por nombre/i), 'zzzz')
+
+    expect(await screen.findByText(/no se encontraron pacientes/i)).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /registrar un paciente nuevo/i }))
+
+    // Se abre el mismo formulario de «Nuevo Paciente», con la sede activa.
+    expect(await screen.findByRole('form', { name: /alta de paciente/i })).toHaveTextContent('sede 5')
   })
 })

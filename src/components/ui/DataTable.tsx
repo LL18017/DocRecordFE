@@ -41,7 +41,8 @@ interface DataTableProps<T> {
   searchFilter?: (item: T, query: string) => boolean
   pagination?: boolean
   pageSize?: number
-  emptyMessage?: string
+  /** Texto, o un nodo cuando el estado vacío ofrece una acción (p. ej. registrar uno nuevo). */
+  emptyMessage?: React.ReactNode
   headerRight?: React.ReactNode
   className?: string
 }
