@@ -34,6 +34,8 @@ import { PrescriptionForm } from './PrescriptionForm'
 const crearPrescripcion = vi.fn<(p: CrearPrescripcionPayload) => Promise<PrescripcionDto>>()
 const buscarAlertasDeAlergia =
   vi.fn<(pacienteId: number, medicamentoId: number) => Promise<AlertaDeAlergiaDto[]>>()
+const registrarDesistimientoDeAlerta =
+  vi.fn<(pacienteId: number, medicamentoId: number) => Promise<boolean>>()
 const listarConsultas = vi.fn<(pacienteId?: number) => Promise<ConsultaDto[]>>()
 const listarMedicamentos = vi.fn<(f?: FiltroDeMedicamentos) => Promise<MedicamentoCatalogoDto[]>>()
 
@@ -46,6 +48,8 @@ vi.mock('@/services/prescripciones', async (importarOriginal) => {
     crearPrescripcion: (p: CrearPrescripcionPayload) => crearPrescripcion(p),
     buscarAlertasDeAlergia: (pacienteId: number, medicamentoId: number) =>
       buscarAlertasDeAlergia(pacienteId, medicamentoId),
+    registrarDesistimientoDeAlerta: (pacienteId: number, medicamentoId: number) =>
+      registrarDesistimientoDeAlerta(pacienteId, medicamentoId),
   }
 })
 
@@ -135,6 +139,8 @@ beforeEach(() => {
   buscarAlertasDeAlergia.mockReset()
   // Por defecto el paciente no tiene alergias coincidentes (HU-24 criterio 4).
   buscarAlertasDeAlergia.mockResolvedValue([])
+  registrarDesistimientoDeAlerta.mockReset()
+  registrarDesistimientoDeAlerta.mockResolvedValue(true)
   listarConsultas.mockReset()
   listarMedicamentos.mockReset()
   listarMedicamentos.mockResolvedValue(CATALOGO)
@@ -636,5 +642,80 @@ describe('PrescriptionForm · HU-24 criterio 4: sin coincidencias nada cambia', 
     await elegir(user, 1, 'amoxi')
 
     expect(await screen.findByText(MENSAJE_ALERTAS_NO_COMPROBADAS)).toBeInTheDocument()
+  })
+})
+
+describe('PrescriptionForm · HU-24 criterio 5: el médico que desiste queda en la bitácora', () => {
+  it('quitar la línea del medicamento con alerta registra que desistió', async () => {
+    buscarAlertasDeAlergia.mockResolvedValue([alerta()])
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'amoxi')
+    await screen.findByRole('alert', { name: /alergia registrada/i })
+    await user.click(screen.getByRole('button', { name: /agregar medicamento/i }))
+
+    await user.click(screen.getByRole('button', { name: /quitar el medicamento 1/i }))
+
+    expect(registrarDesistimientoDeAlerta).toHaveBeenCalledTimes(1)
+    expect(registrarDesistimientoDeAlerta).toHaveBeenCalledWith(42, AMOXICILINA.medicamentoId)
+  })
+
+  it('cambiar el medicamento por otro (teclear sobre el elegido) registra que desistió del primero', async () => {
+    buscarAlertasDeAlergia.mockResolvedValue([alerta()])
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'amoxi')
+    await screen.findByRole('alert', { name: /alergia registrada/i })
+
+    await user.type(campoMedicamento(1), 'x')
+    await user.type(campoMedicamento(1), 'y')
+
+    expect(registrarDesistimientoDeAlerta).toHaveBeenCalledTimes(1)
+    expect(registrarDesistimientoDeAlerta).toHaveBeenCalledWith(42, AMOXICILINA.medicamentoId)
+  })
+
+  it('cancelar la receta con la alerta a la vista registra el desistimiento y cierra', async () => {
+    buscarAlertasDeAlergia.mockResolvedValue([alerta()])
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'amoxi')
+    await screen.findByRole('alert', { name: /alergia registrada/i })
+
+    await user.click(screen.getByRole('button', { name: /^cancelar$/i }))
+
+    expect(registrarDesistimientoDeAlerta).toHaveBeenCalledWith(42, AMOXICILINA.medicamentoId)
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('quitar la línea y luego cancelar es una sola decisión: se registra una vez', async () => {
+    buscarAlertasDeAlergia.mockResolvedValue([alerta()])
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'amoxi')
+    await screen.findByRole('alert', { name: /alergia registrada/i })
+    await user.click(screen.getByRole('button', { name: /agregar medicamento/i }))
+    await user.click(screen.getByRole('button', { name: /quitar el medicamento 1/i }))
+    await user.click(screen.getByRole('button', { name: /^cancelar$/i }))
+
+    expect(registrarDesistimientoDeAlerta).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancelar sin alertas no registra nada', async () => {
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'ibuprofeno')
+    await waitFor(() => expect(buscarAlertasDeAlergia).toHaveBeenCalled())
+
+    await user.click(screen.getByRole('button', { name: /^cancelar$/i }))
+
+    expect(registrarDesistimientoDeAlerta).not.toHaveBeenCalled()
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('si recetó pese a la alerta no registra desistimiento (esa decisión la anota el backend al emitir)', async () => {
+    buscarAlertasDeAlergia.mockResolvedValue([alerta()])
+    const user = await montar({ consulta: consulta() })
+    await elegir(user, 1, 'amoxi')
+    await screen.findByRole('alert', { name: /alergia registrada/i })
+    await user.type(campoJustificacion(), 'No hay alternativa')
+    await user.click(botonEmitir())
+
+    await waitFor(() => expect(crearPrescripcion).toHaveBeenCalledTimes(1))
+    expect(registrarDesistimientoDeAlerta).not.toHaveBeenCalled()
   })
 })
