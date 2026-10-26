@@ -72,6 +72,15 @@ export function listarAgenda(
   return apiFetch<CitaDto[]>(`/citas?${params}`)
 }
 
+/**
+ * Las horas libres de un médico en la sede un día (`AAAA-MM-DD`): dentro de su
+ * horario (HU-29), sin las ocupadas ni las que ya pasaron. Las calcula el
+ * backend, que es quien conoce el horario.
+ */
+export function listarFranjasLibres(clinicaId: number, medicoId: number, fecha: string): Promise<string[]> {
+  return apiFetch<string[]>(`/citas/franjas?clinicaId=${clinicaId}&medicoId=${medicoId}&fecha=${fecha}`)
+}
+
 export function listarMedicosDeClinica(clinicaId: number): Promise<MedicoDeAgendaDto[]> {
   return apiFetch<MedicoDeAgendaDto[]>(`/citas/medicos?clinicaId=${clinicaId}`)
 }

@@ -31,10 +31,9 @@ import {
   agendarCita,
   cancelarCita,
   ETIQUETA_DE_ESTADO,
-  franjasDelDia,
-  franjasOcupadas,
   horaDe,
   listarAgenda,
+  listarFranjasLibres,
   listarMedicosDeClinica,
   listarTiposDeCita,
   marcarAtendida,
@@ -67,17 +66,6 @@ function moverDia(dia: string, delta: number): string {
   const [a, m, d] = dia.split('-').map(Number)
   const f = new Date(a, m - 1, d + delta)
   return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(f.getDate()).padStart(2, '0')}`
-}
-
-/** Las franjas libres de un médico en un día, sin las que ya pasaron. */
-function franjasLibres(dia: string, ocupadas: Set<string>): string[] {
-  const ahora = new Date()
-  return franjasDelDia().filter((f) => {
-    if (ocupadas.has(f)) return false
-    const [h, m] = f.split(':').map(Number)
-    const [a, mes, d] = dia.split('-').map(Number)
-    return new Date(a, mes - 1, d, h, m) > ahora
-  })
 }
 
 export default function AgendaPage() {
@@ -383,8 +371,11 @@ const FilaDeCita: React.FC<{
   )
 }
 
-/** Las franjas libres de un médico en un día, pidiendo la agenda de ese día. */
-function useFranjasLibres(clinicaId: number, dia: string, medicoId: number | null, excepto?: number) {
+/**
+ * Las horas libres de un médico en un día. Las da el backend: conoce el
+ * horario del médico en la sede (HU-29) y las citas que ya ocupan cada hora.
+ */
+function useFranjasLibres(clinicaId: number, dia: string, medicoId: number | null) {
   const [franjas, setFranjas] = useState<string[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -396,17 +387,17 @@ function useFranjasLibres(clinicaId: number, dia: string, medicoId: number | nul
       return
     }
     setFranjas(null)
-    listarAgenda(clinicaId, dia)
-      .then((citas) => {
+    listarFranjasLibres(clinicaId, medicoId, dia)
+      .then((libres) => {
         if (!vigente) return
-        setFranjas(franjasLibres(dia, franjasOcupadas(citas, medicoId, excepto)))
+        setFranjas(libres)
         setError(null)
       })
       .catch((err) => vigente && setError(mensajeDe(err, 'No se pudieron consultar los horarios.')))
     return () => {
       vigente = false
     }
-  }, [clinicaId, dia, medicoId, excepto])
+  }, [clinicaId, dia, medicoId])
 
   return { franjas, error }
 }
@@ -684,7 +675,7 @@ const FormularioDeReprogramar: React.FC<{
   const [franja, setFranja] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const { franjas, error: errorFranjas } = useFranjasLibres(clinicaId, dia, cita.medicoId, cita.citaId)
+  const { franjas, error: errorFranjas } = useFranjasLibres(clinicaId, dia, cita.medicoId)
 
   const enviar = async (e: React.FormEvent) => {
     e.preventDefault()
