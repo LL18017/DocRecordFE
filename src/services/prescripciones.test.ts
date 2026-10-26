@@ -15,6 +15,7 @@ import {
   datoQueFalta,
   imprimirPrescripcion,
   formatearFechaEmision,
+  htmlDeRecetaParaImprimir,
   listarHistoricoDePrescripciones,
   listarPrescripcionesDeConsulta,
   listarPrescripcionesDePaciente,
@@ -23,6 +24,7 @@ import {
   nombreDePacienteDeReceta,
   normalizarMedicamentos,
   obtenerPrescripcion,
+  textoDeEnvioDeReceta,
   textoOpcional,
   type PaginaDto,
   type PrescripcionDto,
@@ -486,5 +488,34 @@ describe('crearPrescripcion · HU-24 justificación de alergia', () => {
       method: 'POST',
       body: { consultaId: 7, medicamentos: [linea] },
     })
+  })
+})
+
+describe('HU-25 · envío de la receta por correo', () => {
+  it('dice en una frase cómo fue el último envío', () => {
+    expect(textoDeEnvioDeReceta('PENDIENTE')).toMatch(/pendiente/i)
+    expect(textoDeEnvioDeReceta('ENVIADO')).toMatch(/enviada/i)
+    expect(textoDeEnvioDeReceta('FALLIDO')).toMatch(/falló/i)
+    expect(textoDeEnvioDeReceta('SIN_CORREO')).toMatch(/no tiene correo/i)
+    expect(textoDeEnvioDeReceta(null)).toBeNull()
+    expect(textoDeEnvioDeReceta(undefined)).toBeNull()
+  })
+
+  it('la receta para imprimir lleva paciente, médico y medicamentos, y escapa el HTML', () => {
+    const html = htmlDeRecetaParaImprimir(
+      receta({
+        medicamentos: [
+          { id: 1, medicamento: 'Amoxicilina <b>', dosis: null, frecuencia: 'cada 8 h', duracion: null },
+        ],
+      }),
+      '23 ago 2026, 15:00',
+    )
+
+    expect(html).toContain('Ana María Ramírez')
+    expect(html).toContain('Juan Guerra')
+    expect(html).toContain('23 ago 2026, 15:00')
+    expect(html).toContain('Amoxicilina &lt;b&gt;')
+    expect(html).not.toContain('<b>')
+    expect(html).not.toContain('null')
   })
 })

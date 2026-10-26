@@ -16,49 +16,107 @@ import { listarPacientes } from '@/services/pacientes'
 import { formatearFechaHora } from '@/services/consultas'
 import {
   enviarRecetaPorCorreo,
+  htmlDeRecetaParaImprimir,
   listarHistoricoDePrescripciones,
   nombreDeMedicoQueReceta,
   nombreDePacienteDeReceta,
+  textoDeEnvioDeReceta,
+  textoOpcional,
+  type EstadoDeEnvioDeReceta,
   type FiltroHistoricoDeRecetas,
   type PrescripcionDto,
   type PrescripcionMedicoDto,
 } from '@/services/prescripciones'
 
 /**
+ * HU-25, criterio 2: abre la receta en una ventana propia y lanza la
+ * impresión. Va aparte de la página para que se imprima solo la receta y no
+ * el histórico entero.
+ */
+function imprimirReceta(prescripcion: PrescripcionDto) {
+  const ventana = window.open('', '_blank', 'width=800,height=900')
+  if (!ventana) return
+  ventana.document.write(htmlDeRecetaParaImprimir(prescripcion, formatearFechaHora(prescripcion.fecha)))
+  ventana.document.close()
+  ventana.focus()
+  ventana.print()
+}
+
+/**
  * HU-25: manda la receta en PDF al correo del paciente. El backend la encola
  * y el correo sale en segundos; pulsarlo otra vez la reenvía (criterio 4).
  * Se dice «enviada» solo cuando el servidor aceptó el envío.
+ *
+ * Junto al botón se ve cómo fue el último envío (criterio 4): pendiente,
+ * enviado o fallido, con su fecha. Si el paciente no tiene correo (criterio 2)
+ * no hay nada que enviar: se dice y se ofrece imprimir.
  */
-const EnviarPorCorreo: React.FC<{ consultaId: number; prescripcionId: number }> = ({ consultaId, prescripcionId }) => {
-  const [estado, setEstado] = useState<'listo' | 'enviando' | 'enviada' | 'error'>('listo')
-  const [mensaje, setMensaje] = useState<string | null>(null)
+const EnviarPorCorreo: React.FC<{
+  prescripcion: PrescripcionDto
+  /** Avisa que el servidor aceptó el envío, para que la tarjeta pase a «pendiente». */
+  onEnviada: (prescripcionId: number) => void
+}> = ({ prescripcion, onEnviada }) => {
+  const { consultaId, prescripcionId } = prescripcion
+  const estadoDelEnvio: EstadoDeEnvioDeReceta | null = prescripcion.envioPorCorreo ?? null
+  const [enviando, setEnviando] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const enviar = async () => {
-    setEstado('enviando')
-    setMensaje(null)
+    setEnviando(true)
+    setError(null)
     try {
       await enviarRecetaPorCorreo(consultaId)
-      setEstado('enviada')
-      setMensaje('Enviada al correo del paciente.')
+      onEnviada(prescripcionId)
     } catch (err) {
-      setEstado('error')
-      setMensaje(mensajeDe(err, 'No se pudo enviar la receta por correo.'))
+      setError(mensajeDe(err, 'No se pudo enviar la receta por correo.'))
+    } finally {
+      setEnviando(false)
     }
   }
 
+  const sinCorreo = estadoDelEnvio === 'SIN_CORREO'
+  const yaSeEnvio = estadoDelEnvio === 'PENDIENTE' || estadoDelEnvio === 'ENVIADO' || estadoDelEnvio === 'FALLIDO'
+  const textoDelEstado = textoDeEnvioDeReceta(estadoDelEnvio)
+  const colorDelEstado =
+    estadoDelEnvio === 'FALLIDO' || sinCorreo
+      ? 'text-red-600'
+      : estadoDelEnvio === 'ENVIADO'
+        ? 'text-emerald-700'
+        : 'text-slate-500'
+
   return (
     <div className="flex flex-col items-end gap-1">
-      <button
-        onClick={enviar}
-        disabled={estado === 'enviando'}
-        aria-label={`Enviar por correo la receta ${prescripcionId}`}
-        className="h-8 px-3 rounded-lg bg-blue-50 text-doc-blue text-xs font-semibold hover:bg-blue-100 transition-colors cursor-pointer disabled:opacity-60"
-      >
-        {estado === 'enviando' ? 'Enviando…' : estado === 'enviada' ? 'Reenviar por correo' : 'Enviar por correo'}
-      </button>
-      {mensaje && (
-        <p role={estado === 'error' ? 'alert' : 'status'} className={`text-[11px] ${estado === 'error' ? 'text-red-600' : 'text-emerald-700'}`}>
-          {mensaje}
+      <div className="flex items-center gap-2">
+        {sinCorreo && (
+          <button
+            onClick={() => imprimirReceta(prescripcion)}
+            aria-label={`Imprimir la receta ${prescripcionId}`}
+            className="h-8 px-3 rounded-lg bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200 transition-colors cursor-pointer"
+          >
+            Imprimir
+          </button>
+        )}
+        <button
+          onClick={enviar}
+          disabled={enviando || sinCorreo}
+          title={sinCorreo ? 'El paciente no tiene correo registrado' : undefined}
+          aria-label={`${yaSeEnvio ? 'Reenviar' : 'Enviar'} por correo la receta ${prescripcionId}`}
+          className="h-8 px-3 rounded-lg bg-blue-50 text-doc-blue text-xs font-semibold hover:bg-blue-100 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {enviando ? 'Enviando…' : yaSeEnvio ? 'Reenviar por correo' : 'Enviar por correo'}
+        </button>
+      </div>
+      {textoDelEstado && (
+        <p role="status" className={`text-[11px] ${colorDelEstado}`}>
+          {textoDelEstado}
+          {prescripcion.envioPorCorreoFecha && !sinCorreo
+            ? ` · ${formatearFechaHora(prescripcion.envioPorCorreoFecha)}`
+            : ''}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="text-[11px] text-red-600">
+          {error}
         </p>
       )}
     </div>
@@ -84,6 +142,9 @@ export default function PrescripcionesPage() {
   const [cargandoMas, setCargandoMas] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [emitiendo, setEmitiendo] = useState(false)
+  // HU-25 criterio 2: la receta recién emitida de un paciente sin correo. No
+  // se envió nada; se avisa y se ofrece imprimirla en vez de fallar en silencio.
+  const [recetaSinCorreo, setRecetaSinCorreo] = useState<PrescripcionDto | null>(null)
 
   // Filtros del histórico. Los cuatro vacíos = histórico completo, que es lo
   // que se pide al montar: ya no hace falta elegir un paciente primero.
@@ -209,8 +270,9 @@ export default function PrescripcionesPage() {
     setCargando(true)
   }
 
-  const handleEmitida = () => {
+  const handleEmitida = (emitida: PrescripcionDto) => {
     setEmitiendo(false)
+    setRecetaSinCorreo(emitida.envioPorCorreo === 'SIN_CORREO' ? emitida : null)
     // Se recarga el histórico con los FILTROS VIGENTES en este momento, no
     // «las recetas del paciente que se estaba mirando»: ese era el bug
     // reportado (el selector se quedaba en otro paciente y la receta nueva no
@@ -227,6 +289,20 @@ export default function PrescripcionesPage() {
   const handleAnulada = (anulada: PrescripcionDto) => {
     setPrescripciones((prev) =>
       prev.map((p) => (p.prescripcionId === anulada.prescripcionId ? anulada : p)),
+    )
+  }
+
+  /** El servidor aceptó un envío manual: la tarjeta pasa a «pendiente» sin recargar. */
+  const handleEnviada = (prescripcionId: number) => {
+    const consultaId = prescripciones.find((p) => p.prescripcionId === prescripcionId)?.consultaId
+    const ahora = new Date().toISOString().slice(0, 19)
+    // El envío es de la consulta, así que se marcan todas sus recetas.
+    setPrescripciones((prev) =>
+      prev.map((p) =>
+        p.consultaId === consultaId
+          ? { ...p, envioPorCorreo: 'PENDIENTE', envioPorCorreoFecha: ahora }
+          : p,
+      ),
     )
   }
 
@@ -271,6 +347,33 @@ export default function PrescripcionesPage() {
           <Icon name="add" size={16} color="white" /> Nueva Prescripción
         </button>
       </div>
+
+      {recetaSinCorreo && (
+        <div
+          role="status"
+          className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border-2 border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          <span>
+            La receta #{recetaSinCorreo.prescripcionId} se emitió, pero el paciente no tiene un correo
+            registrado, así que no se envió. Imprímala para entregársela.
+          </span>
+          <span className="flex items-center gap-3 whitespace-nowrap">
+            <button
+              onClick={() => imprimirReceta(recetaSinCorreo)}
+              className="font-semibold underline underline-offset-2 cursor-pointer"
+            >
+              Imprimir receta
+            </button>
+            <button
+              onClick={() => setRecetaSinCorreo(null)}
+              aria-label="Cerrar el aviso"
+              className="text-amber-700 cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </span>
+        </div>
+      )}
 
       {error && (
         <div
@@ -432,7 +535,7 @@ export default function PrescripcionesPage() {
                   <BotonImprimirReceta prescripcionId={rx.prescripcionId} />
                   {rx.estado === 'EMITIDA' && (
                     <>
-                      <EnviarPorCorreo consultaId={rx.consultaId} prescripcionId={rx.prescripcionId} />
+                      <EnviarPorCorreo prescripcion={rx} onEnviada={handleEnviada} />
                       <BotonAnularReceta
                         prescripcionId={rx.prescripcionId}
                         onAnulada={handleAnulada}
