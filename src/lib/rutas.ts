@@ -38,6 +38,11 @@ export interface RutaDelPortal {
  * Signos vitales sí lo llevan, y también 'medico': el backend permite LEER las
  * tomas a los tres roles. Solo REGISTRARLAS es de enfermería, y de eso se
  * encarga la propia pantalla, que no ofrece el botón a quien no puede.
+ *
+ * Clínicas NO lleva 'enfermera': es la administración de sedes (alta, edición,
+ * baja, médicos y horarios), y enfermería no administra sedes; trabaja en la
+ * que le asignan. La selección de sede ya le ocultaba «Gestionar clínicas» por
+ * el mismo motivo.
  */
 export const RUTAS_DEL_PORTAL: readonly RutaDelPortal[] = [
   { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', roles: ['medico', 'enfermera', 'Administrador'] },
@@ -46,7 +51,7 @@ export const RUTAS_DEL_PORTAL: readonly RutaDelPortal[] = [
   { href: '/enfermeria', label: 'Signos vitales', icon: 'enfermeria', roles: ['medico', 'enfermera', 'Administrador'] },
   { href: '/prescripciones', label: 'Prescripciones', icon: 'prescripciones', roles: ['medico'] },
   { href: '/agenda', label: 'Agenda de Citas', icon: 'agenda', roles: ['medico', 'enfermera'] },
-  { href: '/clinicas', label: 'Clínicas', icon: 'clinicas', roles: ['medico', 'enfermera', 'Administrador'] },
+  { href: '/clinicas', label: 'Clínicas', icon: 'clinicas', roles: ['medico', 'Administrador'] },
   { href: '/usuarios', label: 'Usuarios y Roles', icon: 'usuarios', roles: ['Administrador'] },
   // HU-23. Solo el Administrador: mantener el catálogo es lo que lo hace una
   // lista CONTROLADA, y el backend responde 403 a cualquier otro rol que

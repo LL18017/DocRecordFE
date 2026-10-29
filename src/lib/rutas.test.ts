@@ -51,6 +51,12 @@ describe('puedeVerRuta · el paciente no hereda el portal de trabajo', () => {
     expect(puedeVerRuta('/mi-panel', ['Administrador'])).toBe(false)
   })
 
+  it('no ofrece la gestión de clínicas a enfermería, que no administra sedes', () => {
+    expect(puedeVerRuta('/clinicas', ['enfermera'])).toBe(false)
+    expect(puedeVerRuta('/clinicas', ['medico'])).toBe(true)
+    expect(puedeVerRuta('/clinicas', ['Administrador'])).toBe(true)
+  })
+
   it('una cuenta con dos roles suma lo que cada uno permite', () => {
     // No hay jerarquía entre roles: basta con que UNO autorice la ruta.
     expect(puedeVerRuta('/dashboard', ['paciente', 'medico'])).toBe(true)
