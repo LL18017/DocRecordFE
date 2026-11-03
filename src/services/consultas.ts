@@ -12,9 +12,13 @@
 import { ApiError, apiFetch } from '@/lib/api'
 import { parsearFechaCivil } from '@/lib/pacienteAdapter'
 import type { Role } from '@/types'
+import type { SolicitudDeAnulacionDto } from './anulaciones'
 
-/** Estado de la consulta. El backend lo maneja; la interfaz solo lo pinta. */
-export type EstadoConsulta = 'PENDIENTE' | 'FINALIZADA'
+/**
+ * Estado de la consulta. El backend lo maneja; la interfaz solo lo pinta.
+ * ANULADA (HU-21): sigue visible, ya no se edita ni recibe recetas.
+ */
+export type EstadoConsulta = 'PENDIENTE' | 'FINALIZADA' | 'ANULADA'
 
 /** Paciente tal como viene anidado en `ConsultaDto`. */
 export interface ConsultaPacienteDto {
@@ -89,6 +93,16 @@ export interface ConsultaDto {
   paciente: ConsultaPacienteDto
   medico: ConsultaMedicoDto
   clinica: ConsultaClinicaDto | null
+  /**
+   * Cuándo se guardó en el sistema (desde aquí corre la ventana de anulación
+   * directa). Opcionales en el tipo porque las respuestas anteriores a V35 no
+   * los traían.
+   */
+  registradaEn?: string
+  /** El rastro de la anulación; null mientras no esté ANULADA. */
+  motivoAnulacion?: string | null
+  anuladaEn?: string | null
+  anuladaPor?: string | null
 }
 
 /**
@@ -247,14 +261,30 @@ export async function actualizarConsulta(
 //
 // HU-21 (DRS-91) no deja margen: «el sistema nunca ejecuta un DELETE sobre una
 // consulta. Anular es un cambio de estado, y esa distinción es la que hace
-// defendible el expediente ante una auditoría».
-//
-// Lo que había borraba de verdad y, por el `ON DELETE CASCADE`, se llevaba las
-// recetas emitidas. Una consulta equivocada ocurrió: quedó constancia, y puede
-// haberse entregado una receta a partir de ella. Hacerla desaparecer no corrige
-// el error, lo esconde.
-//
-// La operación que corresponde —anular con motivo— llega con HU-21.
+// defendible el expediente ante una auditoría». Lo que la sustituye es
+// `anularConsulta`, justo abajo.
+
+/**
+ * Anula una consulta (HU-21): anulación LÓGICA con motivo de 10 a 500
+ * caracteres. Dentro de la ventana de anulación directa vuelve la consulta ya
+ * ANULADA (y sus recetas vigentes quedan anuladas con ella). Pasada la
+ * ventana vuelve una solicitud que deben aprobar otros administradores; se
+ * distingue con `esSolicitudDeAnulacion`. Solo el médico que la registró o un
+ * administrador.
+ */
+export async function anularConsulta(
+  consultaId: number,
+  motivo: string,
+): Promise<ConsultaDto | SolicitudDeAnulacionDto> {
+  try {
+    return await apiFetch<ConsultaDto | SolicitudDeAnulacionDto>(`/consultas/${consultaId}/anular`, {
+      method: 'POST',
+      body: { motivo: motivo.trim() },
+    })
+  } catch (error) {
+    throw traducirError(error, 'anular')
+  }
+}
 
 // ─── Ayudas de presentación ────────────────────────────────────────────────
 
@@ -365,7 +395,7 @@ export function formatearFechaHora(fechaISO: string): string {
  */
 function traducirError(
   error: unknown,
-  accion: 'abrir' | 'registrar' | 'editar' | 'eliminar',
+  accion: 'abrir' | 'registrar' | 'editar' | 'eliminar' | 'anular',
 ): Error {
   if (!(error instanceof ApiError)) {
     return error instanceof Error ? error : new Error('No se pudo completar la operación.')

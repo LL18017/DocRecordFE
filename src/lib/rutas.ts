@@ -58,6 +58,10 @@ export const RUTAS_DEL_PORTAL: readonly RutaDelPortal[] = [
   // intente escribir en él. El médico usa el catálogo desde la receta, no
   // desde aquí. Lleva el icono de Prescripciones porque es de lo que trata.
   { href: '/medicamentos', label: 'Medicamentos', icon: 'prescripciones', roles: ['Administrador'] },
+  // HU-21 y HU-22 c3. Solo el Administrador: aprueba o rechaza las anulaciones
+  // pedidas fuera de la ventana y fija esa ventana. El médico pide la
+  // anulación desde la consulta o la receta, no desde aquí.
+  { href: '/anulaciones', label: 'Anulaciones', icon: 'shield', roles: ['Administrador'] },
   // Lo único que el portal le ofrece hoy a una cuenta de paciente, y va al
   // final porque `rutaPorDefecto` se queda con la PRIMERA entrada que el rol
   // puede ver: así el personal sigue aterrizando en el Dashboard y solo quien

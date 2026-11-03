@@ -24,7 +24,7 @@ import {
 } from '@/services/consultas'
 
 /** Cómo se pinta cada estado. El backend solo maneja estos dos. */
-const COLOR_DE_ESTADO = { PENDIENTE: 'yellow', FINALIZADA: 'green' } as const
+const COLOR_DE_ESTADO = { PENDIENTE: 'yellow', FINALIZADA: 'green', ANULADA: 'red' } as const
 
 export default function ConsultasPage() {
   // La lista sale de GET /consultas. Antes se sembraba con los datos de la
@@ -113,9 +113,9 @@ export default function ConsultasPage() {
 
   // Aquí estaba `handleEliminar`, y con él un botón de papelera en cada fila.
   // Los dos se retiraron: HU-21 exige que una consulta equivocada se ANULE con
-  // su motivo, no que desaparezca del expediente llevándose sus recetas.
-  // Mientras la anulación no exista, no ofrecer nada es mejor que ofrecer lo
-  // que no debería hacerse.
+  // su motivo, no que desaparezca del expediente llevándose sus recetas. La
+  // anulación se hace desde el detalle de la consulta (DetalleDeConsulta); al
+  // volver, la fila se reemplaza por la consulta ya ANULADA.
 
   const handleRegistrada = (consulta: ConsultaDto) => {
     setConsultas((prev) => [consulta, ...prev])
@@ -212,14 +212,17 @@ export default function ConsultasPage() {
             >
               <Icon name="eye" size={14} />
             </button>
-            <button
-              onClick={() => setEditando(c)}
-              aria-label={`Editar la consulta de ${nombreDePaciente(c)}`}
-              title="Editar consulta"
-              className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
-            >
-              <Icon name="edit" size={14} />
-            </button>
+            {/* HU-21 c2: una consulta anulada se lee, no se edita. */}
+            {c.estado !== 'ANULADA' && (
+              <button
+                onClick={() => setEditando(c)}
+                aria-label={`Editar la consulta de ${nombreDePaciente(c)}`}
+                title="Editar consulta"
+                className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
+              >
+                <Icon name="edit" size={14} />
+              </button>
+            )}
           </div>
         ),
       },
@@ -313,7 +316,16 @@ export default function ConsultasPage() {
         headerGradient="bg-gradient-to-r from-doc-blue to-doc-blue-light"
         maxWidth="2xl"
       >
-        {viendo && <DetalleDeConsulta consulta={viendo} />}
+        {viendo && (
+          <DetalleDeConsulta
+            consulta={viendo}
+            onConsultaCambio={(actualizada) =>
+              setConsultas((prev) =>
+                prev.map((c) => (c.consultaId === actualizada.consultaId ? actualizada : c)),
+              )
+            }
+          />
+        )}
       </Modal>
 
       <Modal

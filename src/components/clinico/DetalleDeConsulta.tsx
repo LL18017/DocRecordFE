@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { PrescriptionForm } from '@/components/forms/PrescriptionForm'
 import { useAppContext } from '@/context/AppContext'
 import {
+  anularConsulta,
   formatearFechaHora,
   nombreDeClinica,
   nombreDeMedico,
@@ -13,15 +14,17 @@ import {
   textoOpcional,
   type ConsultaDto,
 } from '@/services/consultas'
+import { listarSolicitudes, type SolicitudDeAnulacionDto } from '@/services/anulaciones'
 import {
   listarPrescripcionesDeConsulta,
   nombreDeMedicoQueReceta,
   type PrescripcionDto,
 } from '@/services/prescripciones'
 import { AvisoDeAnulacion, BotonAnularReceta, BotonImprimirReceta } from './AccionesDeReceta'
+import { AvisoDeAnulacionPendiente, DialogoDeAnulacion } from './DialogoDeAnulacion'
 import { TablaDeMedicamentos } from './TablaDeMedicamentos'
 
-const COLOR_DE_ESTADO = { PENDIENTE: 'yellow', FINALIZADA: 'green' } as const
+const COLOR_DE_ESTADO = { PENDIENTE: 'yellow', FINALIZADA: 'green', ANULADA: 'red' } as const
 
 interface DetalleDeConsultaProps {
   consulta: ConsultaDto
@@ -30,6 +33,11 @@ interface DetalleDeConsultaProps {
    * pantalla de abajo (el expediente) refresque sus propias listas de recetas.
    */
   onRecetasCambiaron?: () => void
+  /**
+   * Se llama cuando desde aquí se anula la consulta (HU-21), con la consulta
+   * ya ANULADA, para que la lista de donde se abrió la pinte marcada.
+   */
+  onConsultaCambio?: (consulta: ConsultaDto) => void
 }
 
 /**
@@ -42,9 +50,13 @@ interface DetalleDeConsultaProps {
  * sea el médico de la consulta.
  */
 export const DetalleDeConsulta: React.FC<DetalleDeConsultaProps> = ({
-  consulta,
+  consulta: consultaInicial,
   onRecetasCambiaron,
+  onConsultaCambio,
 }) => {
+  // La consulta puede cambiar aquí mismo (anularla); se guarda la última
+  // versión que devolvió el servidor en vez de esperar a que el padre la pase.
+  const [consulta, setConsulta] = useState(consultaInicial)
   const { user } = useAppContext()
   const esMedico = user ? user.roles.includes('medico') : false
   // Anula el médico que firmó o un administrador; el servidor decide cuál de
@@ -60,6 +72,30 @@ export const DetalleDeConsulta: React.FC<DetalleDeConsultaProps> = ({
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [emitiendo, setEmitiendo] = useState(false)
+  const [anulando, setAnulando] = useState(false)
+  // Anulaciones pedidas y sin aprobar (de la consulta o de sus recetas). Solo
+  // las pide quien puede anular: enfermería no anula y el servidor no le deja
+  // listarlas.
+  const [pendientes, setPendientes] = useState<SolicitudDeAnulacionDto[]>([])
+
+  const cargarPendientes = useCallback(async () => {
+    if (!puedeAnular) return
+    try {
+      setPendientes(
+        await listarSolicitudes({ consultaId: consulta.consultaId, estado: 'PENDIENTE' }),
+      )
+    } catch {
+      // Sin la lista la pantalla sigue sirviendo: si alguien intenta anular
+      // algo que ya tiene una solicitud en curso, el servidor responde 409 con
+      // el motivo. No vale la pena tapar la consulta con un error por esto.
+      setPendientes([])
+    }
+  }, [consulta.consultaId, puedeAnular])
+
+  const anulada = consulta.estado === 'ANULADA'
+  const pendienteDeLaConsulta = pendientes.find((p) => p.tipo === 'CONSULTA')
+  const pendienteDeReceta = (prescripcionId: number) =>
+    pendientes.find((p) => p.tipo === 'RECETA' && p.prescripcionId === prescripcionId)
 
   const cargarRecetas = useCallback(async () => {
     try {
@@ -77,6 +113,11 @@ export const DetalleDeConsulta: React.FC<DetalleDeConsultaProps> = ({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- carga remota al montar; ver consultas/page.tsx
     void cargarRecetas()
   }, [cargarRecetas])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga remota al montar; ver consultas/page.tsx
+    void cargarPendientes()
+  }, [cargarPendientes])
 
   const clinica = nombreDeClinica(consulta)
 
@@ -101,6 +142,32 @@ export const DetalleDeConsulta: React.FC<DetalleDeConsultaProps> = ({
         </Dato>
       </dl>
 
+      {anulada && (
+        <p
+          role="note"
+          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800"
+        >
+          <span className="font-semibold">Consulta anulada</span>
+          {consulta.anuladaEn && <> el {formatearFechaHora(consulta.anuladaEn)}</>}
+          {consulta.anuladaPor && <> por {consulta.anuladaPor}</>}. Motivo: {consulta.motivoAnulacion}.
+          Sigue en el expediente, pero ya no se edita ni recibe recetas.
+        </p>
+      )}
+      {!anulada && pendienteDeLaConsulta && (
+        <AvisoDeAnulacionPendiente solicitud={pendienteDeLaConsulta} />
+      )}
+      {puedeAnular && !anulada && !pendienteDeLaConsulta && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setAnulando(true)}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 transition-colors cursor-pointer"
+          >
+            Anular consulta
+          </button>
+        </div>
+      )}
+
       <dl className="space-y-3 text-sm">
         <Dato etiqueta="Motivo de consulta">{textoOpcional(consulta.motivo)}</Dato>
         <Dato etiqueta="Diagnóstico">
@@ -117,7 +184,7 @@ export const DetalleDeConsulta: React.FC<DetalleDeConsultaProps> = ({
       <section aria-label="Recetas de la consulta">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold text-slate-800 font-outfit">Recetas emitidas</h3>
-          {esMedico && (
+          {esMedico && !anulada && (
             <button
               type="button"
               onClick={() => setEmitiendo(true)}
@@ -159,24 +226,45 @@ export const DetalleDeConsulta: React.FC<DetalleDeConsultaProps> = ({
                   </div>
                   <div className="flex items-start gap-2">
                     <BotonImprimirReceta prescripcionId={rx.prescripcionId} />
-                    {puedeAnular && rx.estado === 'EMITIDA' && (
+                    {puedeAnular && rx.estado === 'EMITIDA' && !pendienteDeReceta(rx.prescripcionId) && (
                       <BotonAnularReceta
                         prescripcionId={rx.prescripcionId}
                         onAnulada={() => {
                           void cargarRecetas()
                           onRecetasCambiaron?.()
                         }}
+                        onSolicitada={() => void cargarPendientes()}
                       />
                     )}
                   </div>
                 </div>
                 <TablaDeMedicamentos medicamentos={rx.medicamentos} />
                 <AvisoDeAnulacion receta={rx} />
+                <AvisoDePendienteDeReceta solicitud={rx.estado === 'EMITIDA' ? pendienteDeReceta(rx.prescripcionId) : undefined} />
               </div>
             ))}
           </div>
         )}
       </section>
+
+      {/* HU-21: anular la consulta anula también sus recetas vigentes. */}
+      <DialogoDeAnulacion<ConsultaDto>
+        abierto={anulando}
+        onCerrar={() => setAnulando(false)}
+        idCampo={`motivo-anulacion-consulta-${consulta.consultaId}`}
+        titulo={`Anular la consulta #${consulta.consultaId}`}
+        subtitulo="La consulta no se borra: queda marcada como anulada"
+        ayuda="Úsela para una consulta registrada por error (otro paciente, datos equivocados). Sus recetas vigentes quedan anuladas con ella. Quedan guardados el motivo, quién la anuló y cuándo."
+        textoDelBoton="Anular consulta"
+        anular={(motivo) => anularConsulta(consulta.consultaId, motivo)}
+        onAnulado={(actualizada) => {
+          setConsulta(actualizada)
+          onConsultaCambio?.(actualizada)
+          void cargarRecetas()
+          onRecetasCambiaron?.()
+        }}
+        onSolicitada={() => void cargarPendientes()}
+      />
 
       <Modal
         isOpen={emitiendo}
@@ -203,6 +291,9 @@ export const DetalleDeConsulta: React.FC<DetalleDeConsultaProps> = ({
     </div>
   )
 }
+
+const AvisoDePendienteDeReceta: React.FC<{ solicitud?: SolicitudDeAnulacionDto }> = ({ solicitud }) =>
+  solicitud ? <AvisoDeAnulacionPendiente solicitud={solicitud} /> : null
 
 const Dato: React.FC<{ etiqueta: string; children: React.ReactNode }> = ({ etiqueta, children }) => (
   <div>

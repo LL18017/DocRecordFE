@@ -11,6 +11,7 @@
 import { ApiError, apiFetch } from '@/lib/api'
 import { formatearFechaHora, textoOpcional, type ConsultaClinicaDto } from './consultas'
 import { etiquetaDeSeveridad, type SeveridadDeAlergia } from './alergias'
+import type { SolicitudDeAnulacionDto } from './anulaciones'
 
 /**
  * Sobre paginado con el que el backend envuelve TODA lista de `/prescripciones`
@@ -431,14 +432,18 @@ export const MINIMO_MOTIVO_DE_ANULACION = 10
  * Anula una receta (HU-22 c3): anulación LÓGICA con motivo. La receta no se
  * borra: vuelve con `estado: 'ANULADA'`, el motivo, quién y cuándo, y sigue
  * apareciendo en los listados. Solo el médico que la firmó o un administrador;
- * 409 si ya estaba anulada.
+ * 409 si ya estaba anulada o si ya hay una solicitud en curso.
+ *
+ * Pasada la ventana de anulación directa no vuelve la receta sino una
+ * solicitud que deben aprobar otros administradores (ver
+ * services/anulaciones.ts); se distingue con `esSolicitudDeAnulacion`.
  */
 export async function anularPrescripcion(
   prescripcionId: number,
   motivo: string,
-): Promise<PrescripcionDto> {
+): Promise<PrescripcionDto | SolicitudDeAnulacionDto> {
   try {
-    return await apiFetch<PrescripcionDto>(`/prescripciones/${prescripcionId}/anular`, {
+    return await apiFetch<PrescripcionDto | SolicitudDeAnulacionDto>(`/prescripciones/${prescripcionId}/anular`, {
       method: 'POST',
       body: { motivo: motivo.trim() },
     })

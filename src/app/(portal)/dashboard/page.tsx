@@ -63,7 +63,7 @@ import {
 const CONSULTAS_RECIENTES = 4
 
 /** Cómo se pinta cada estado; mismo criterio que la pantalla de consultas. */
-const COLOR_DE_ESTADO = { PENDIENTE: 'yellow', FINALIZADA: 'green' } as const
+const COLOR_DE_ESTADO = { PENDIENTE: 'yellow', FINALIZADA: 'green', ANULADA: 'red' } as const
 
 export default function DashboardPage() {
   const user = useUsuarioAutenticado()
