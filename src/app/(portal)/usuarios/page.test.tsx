@@ -30,7 +30,13 @@ import UsuariosPage from './page'
 const listarUsuarios = vi.fn<() => Promise<UsuarioDto[]>>()
 const crearUsuario = vi.fn<(payload: CrearUsuarioPayload) => Promise<AltaUsuarioDto>>()
 const asignarRol = vi.fn<
-  (userId: number, roleId: number, especialidadId?: number, clinicaId?: number) => Promise<UsuarioDto>
+  (
+    userId: number,
+    roleId: number,
+    especialidadId?: number,
+    clinicaId?: number,
+    registroJunta?: string,
+  ) => Promise<UsuarioDto>
 >()
 const listarTodasLasClinicas = vi.fn<() => Promise<ClinicaDto[]>>()
 const listarEspecialidades = vi.fn<() => Promise<EspecialidadDto[]>>()
@@ -46,8 +52,20 @@ vi.mock('@/services/usuarios', () => ({
   crearUsuario: (payload: CrearUsuarioPayload) => crearUsuario(payload),
   // Los parámetros opcionales del final solo se reenvían cuando vienen: así
   // las pruebas de los otros roles siguen comprobando exactamente (userId, roleId).
-  asignarRol: (userId: number, roleId: number, especialidadId?: number, clinicaId?: number) => {
-    const argumentos: [number, number, number?, number?] = [userId, roleId, especialidadId, clinicaId]
+  asignarRol: (
+    userId: number,
+    roleId: number,
+    especialidadId?: number,
+    clinicaId?: number,
+    registroJunta?: string,
+  ) => {
+    const argumentos: [number, number, number?, number?, string?] = [
+      userId,
+      roleId,
+      especialidadId,
+      clinicaId,
+      registroJunta,
+    ]
     while (argumentos.length > 2 && argumentos[argumentos.length - 1] === undefined) argumentos.pop()
     return asignarRol(...argumentos)
   },
@@ -718,9 +736,18 @@ describe('asignar rol Médico · ficha de médico', () => {
     expect(within(selector).queryByRole('option', { name: 'Especialidad retirada' })).toBeNull()
 
     await user.selectOptions(selector, '6')
+    // HU-02 c1: sin número de junta todavía no se puede dar el rol.
+    expect(confirmar).toBeDisabled()
+
+    const junta = within(screen.getByRole('dialog')).getByLabelText(/número de junta de vigilancia/i)
+    await user.type(junta, 'JVPM')
+    expect(within(screen.getByRole('dialog')).getByText(/al menos un número/i)).toBeVisible()
+    expect(confirmar).toBeDisabled()
+
+    await user.type(junta, '-4471')
     await user.click(confirmar)
 
-    await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(353, 2, 6))
+    await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(353, 2, 6, undefined, 'JVPM-4471'))
   })
 
   it('a una cuenta con Médico pero sin ficha le ofrece completarla', async () => {
@@ -741,9 +768,11 @@ describe('asignar rol Médico · ficha de médico', () => {
     const selector = within(modal).getAllByLabelText(/especialidad/i)[0]
     await waitFor(() => expect(within(selector).getByRole('option', { name: 'Medicina General' })).toBeVisible())
     await user.selectOptions(selector, '5')
+    expect(completar).toBeDisabled()
+    await user.type(within(modal).getByLabelText(/número de junta de vigilancia/i), '12345')
     await user.click(completar)
 
-    await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(152, 2, 5))
+    await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(152, 2, 5, undefined, '12345'))
   })
 })
 

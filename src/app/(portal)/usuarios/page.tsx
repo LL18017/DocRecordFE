@@ -30,6 +30,7 @@ import {
 import { HistorialDeUsuario } from '@/components/usuarios/HistorialDeUsuario'
 import { listarTodasLasClinicas, type ClinicaDto } from '@/services/clinicas'
 import { listarEspecialidades, type EspecialidadDto } from '@/services/personas'
+import { formatoDeJuntaValido } from '@/lib/registroJunta'
 
 // Esta pantalla ya no es de solo lectura: sabe listar, dar de alta personal,
 // asignar un rol inicial y asignar/reestablecer contraseña. Lo que SIGUE sin
@@ -1078,6 +1079,9 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   // ficha, que lleva la especialidad. Por eso al dar MÉDICO se pide aquí.
   const [especialidades, setEspecialidades] = useState<EspecialidadDto[] | null>(null)
   const [especialidadId, setEspecialidadId] = useState<number | ''>('')
+  // HU-02 c1: el número de junta de vigilancia va en la ficha. Desde que no
+  // hay registro público, dar el rol Médico es la única alta de médicos.
+  const [junta, setJunta] = useState('')
   const [completandoFicha, setCompletandoFicha] = useState(false)
 
   // La primera sede. Un médico o una enfermera sin ninguna no puede entrar a
@@ -1154,6 +1158,10 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   // `especialidad` no nula = la persona ya tiene ficha de médico.
   const tieneFicha = usuario.especialidad !== null
   const faltaEspecialidad = seleccionaMedico && !tieneFicha && especialidadId === ''
+  // Sin ficha la junta es obligatoria. Con ficha es opcional: si la ficha no
+  // la tuviera, el backend responde 400 con el motivo y se muestra abajo.
+  const juntaConFormatoInvalido = junta.trim() !== '' && !formatoDeJuntaValido(junta)
+  const faltaJunta = seleccionaMedico && ((!tieneFicha && junta.trim() === '') || juntaConFormatoInvalido)
   const seleccionaRolClinico =
     rolSeleccionado !== null && ['MEDICO', 'ENFERMERA'].includes(normalizarNombreDeRol(rolSeleccionado.name) ?? '')
   // Ausente o nulo se trata como «sin sede»: una cuenta recién creada no trae
@@ -1168,11 +1176,11 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   const medicoSinFicha = yaTiene.has('MEDICO') && !tieneFicha
 
   const handleCompletarFicha = async () => {
-    if (rolMedico?.id == null || especialidadId === '') return
+    if (rolMedico?.id == null || especialidadId === '' || !formatoDeJuntaValido(junta)) return
     setCompletandoFicha(true)
     setError(null)
     try {
-      onAsignado(await asignarRol(usuario.userId, rolMedico.id, especialidadId))
+      onAsignado(await asignarRol(usuario.userId, rolMedico.id, especialidadId, undefined, junta))
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo completar la ficha de médico.')
     } finally {
@@ -1181,7 +1189,7 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   }
 
   const handleConfirmar = async () => {
-    if (rolSeleccionadoId === null || faltaEspecialidad || faltaSede) return
+    if (rolSeleccionadoId === null || faltaEspecialidad || faltaJunta || faltaSede) return
     setAsignando(true)
     setError(null)
     try {
@@ -1190,6 +1198,7 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
         rolSeleccionadoId,
         seleccionaMedico && especialidadId !== '' ? especialidadId : undefined,
         necesitaSede && sedeId !== '' ? sedeId : undefined,
+        seleccionaMedico && junta.trim() !== '' ? junta : undefined,
       )
       onAsignado(actualizado)
     } catch (err) {
@@ -1281,17 +1290,18 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
           <p className="text-sm text-amber-900">
             Esta cuenta tiene el rol Médico pero <strong>no su ficha de médico</strong>: puede
             entrar a las pantallas clínicas, pero no registrar consultas, recetas ni antecedentes.
-            Elija su especialidad para completarla.
+            Elija su especialidad e indique su número de junta para completarla.
           </p>
           <SelectorDeEspecialidad
             especialidades={especialidades}
             valor={especialidadId}
             onCambio={setEspecialidadId}
           />
+          <CampoDeJunta valor={junta} onCambio={setJunta} />
           <button
             type="button"
             onClick={() => void handleCompletarFicha()}
-            disabled={completandoFicha || especialidadId === ''}
+            disabled={completandoFicha || especialidadId === '' || !formatoDeJuntaValido(junta)}
             className={botonConfirmar}
           >
             {completandoFicha ? 'Guardando…' : 'Completar ficha de médico'}
@@ -1349,6 +1359,9 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
                 onCambio={setEspecialidadId}
                 opcional={tieneFicha}
               />
+              <div className="pt-2">
+                <CampoDeJunta valor={junta} onCambio={setJunta} opcional={tieneFicha} />
+              </div>
             </div>
           )}
           {necesitaSede && (
@@ -1376,7 +1389,7 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
           <button
             type="button"
             onClick={() => void handleConfirmar()}
-            disabled={asignando || rolSeleccionadoId === null || faltaEspecialidad || faltaSede}
+            disabled={asignando || rolSeleccionadoId === null || faltaEspecialidad || faltaJunta || faltaSede}
             className={botonConfirmar}
           >
             {asignando
@@ -1385,6 +1398,42 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Número de junta de vigilancia para la ficha de médico (HU-02 c1). Avisa del
+ * formato mientras se escribe, con la misma regla que el backend; `opcional`
+ * cuando la persona ya tiene ficha.
+ */
+const CampoDeJunta: React.FC<{
+  valor: string
+  onCambio: (valor: string) => void
+  opcional?: boolean
+}> = ({ valor, onCambio, opcional = false }) => {
+  const uid = useId()
+  const invalido = valor.trim() !== '' && !formatoDeJuntaValido(valor)
+  return (
+    <div>
+      <label htmlFor={`${uid}-junta`} className={labelClass}>
+        Número de junta de vigilancia{opcional ? ' (opcional: ya tiene ficha)' : ' *'}
+      </label>
+      <input
+        id={`${uid}-junta`}
+        value={valor}
+        onChange={(e) => onCambio(e.target.value)}
+        maxLength={20}
+        placeholder="JVPM-12345"
+        aria-invalid={invalido}
+        aria-describedby={invalido ? `${uid}-junta-error` : undefined}
+        className={inputClass}
+      />
+      {invalido && (
+        <p id={`${uid}-junta-error`} className="text-xs text-red-600 mt-1">
+          Use de 3 a 20 letras, números o guiones, con al menos un número.
+        </p>
+      )}
     </div>
   )
 }

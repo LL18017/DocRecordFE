@@ -172,14 +172,11 @@ function FormularioDeLogin() {
               </Link>
             </p>
 
+            {/* Aquí estaba «Registrarme como médico». El registro público se
+                retiró (HU-02): las cuentas del personal las crea el
+                administrador, que es quien responde por quién entra. */}
             <p className="text-center text-sm text-slate-500 mt-5">
-              ¿Sin cuenta?{' '}
-              <Link
-                href="/register"
-                className="font-semibold text-doc-blue hover:underline cursor-pointer"
-              >
-                Registrarme como médico
-              </Link>
+              ¿Sin cuenta? Pídala al administrador de su clínica.
             </p>
           </form>
 

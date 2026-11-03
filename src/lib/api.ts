@@ -60,7 +60,7 @@ export function clearTokens(): void {
 
 interface ApiOptions extends Omit<RequestInit, 'body'> {
   body?: unknown
-  /** Endpoints públicos (`/auth/login`, `/auth/register`) no envían token. */
+  /** Endpoints públicos (`/auth/login`, `/auth/refresh`) no envían token. */
   auth?: boolean
   /**
    * Cómo leer una respuesta correcta. `'json'` (por defecto) deserializa;
@@ -110,7 +110,7 @@ async function ejecutarPeticion<T>(
     throw new ApiError(0, 'No se pudo contactar al servidor. ¿Está corriendo el backend?')
   }
 
-  // `auth` en false marca /auth/login, /auth/register y /auth/refresh: un 401
+  // `auth` en false marca /auth/login y /auth/refresh: un 401
   // ahí es credenciales inválidas o refresh ya vencido, nunca "hay que
   // renovar" (intentarlo en el login mostraría un error raro en vez de
   // "correo o contraseña incorrectos"). `reintentado` evita un bucle si la

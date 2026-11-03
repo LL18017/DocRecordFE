@@ -23,8 +23,12 @@ interface Mensaje {
   detalle: string
   /** Verde para los dos casos en que la cuenta quedó activa. */
   exito: boolean
-  /** Solo se ofrece reintentar cuando volver a registrarse resuelve algo. */
-  ofrecerRegistro?: boolean
+  /**
+   * Solo se dice cómo pedir un enlace nuevo cuando eso resuelve algo. Desde
+   * que no hay registro público (HU-02), el enlace lo reenvía el
+   * administrador.
+   */
+  ofrecerReenvio?: boolean
 }
 
 const MENSAJES: Record<Estado, Mensaje> = {
@@ -49,7 +53,7 @@ const MENSAJES: Record<Estado, Mensaje> = {
     detalle:
       'Por seguridad, el enlace de confirmación tiene una vigencia corta. Regístrate de nuevo con el mismo correo y te enviaremos uno nuevo.',
     exito: false,
-    ofrecerRegistro: true,
+    ofrecerReenvio: true,
   },
   invalido: {
     icono: 'close',
@@ -57,7 +61,7 @@ const MENSAJES: Record<Estado, Mensaje> = {
     detalle:
       'Este enlace no corresponde a ninguna solicitud de confirmación. Revisa que lo hayas copiado completo desde el correo.',
     exito: false,
-    ofrecerRegistro: true,
+    ofrecerReenvio: true,
   },
 }
 
@@ -98,12 +102,10 @@ function Resultado() {
           Iniciar sesión
         </Link>
 
-        {mensaje.ofrecerRegistro && (
+        {mensaje.ofrecerReenvio && (
           <p className="text-center text-sm text-slate-500 mt-5">
-            ¿Necesitas un enlace nuevo?{' '}
-            <Link href="/register" className="font-semibold text-doc-blue hover:underline">
-              Volver a registrarme
-            </Link>
+            ¿Necesitas un enlace nuevo? Pide al administrador de tu clínica que te reenvíe la
+            confirmación.
           </p>
         )}
       </div>

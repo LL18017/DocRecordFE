@@ -246,10 +246,21 @@ export async function asignarRol(
    * sede la cuenta se queda en la pantalla de selección de clínica.
    */
   clinicaId?: number,
+  /**
+   * Solo con MÉDICO: el número de junta de vigilancia (HU-02 c1). Obligatorio
+   * si la ficha aún no lo tiene —sin él el backend responde 400—; desde que no
+   * hay registro público, dar el rol Médico es la única alta de médicos. Su
+   * formato es el de `formatoDeJuntaValido` (lib/registroJunta); 409 si es
+   * de otro médico.
+   */
+  registroJunta?: string,
 ): Promise<UsuarioDto> {
   const parametros = new URLSearchParams()
   if (especialidadId !== undefined) parametros.set('especialidadId', String(especialidadId))
   if (clinicaId !== undefined) parametros.set('clinicaId', String(clinicaId))
+  if (registroJunta !== undefined && registroJunta.trim() !== '') {
+    parametros.set('registroJunta', registroJunta.trim())
+  }
   const query = parametros.size > 0 ? `?${parametros}` : ''
   return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}${query}`, { method: 'POST' })
 }

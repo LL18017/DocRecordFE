@@ -1,7 +1,6 @@
 export type Page =
   | 'landing'
   | 'login'
-  | 'register'
   | 'select-clinica'
   | 'dashboard'
   | 'pacientes'
