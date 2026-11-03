@@ -113,6 +113,20 @@ export async function login(
 // Se retiró junto con el endpoint (HU-02): las cuentas del personal las crea
 // el administrador desde Usuarios y Roles (services/usuarios.ts).
 
+/**
+ * Activa una cuenta con la invitación del correo (HU-02): pone la contraseña
+ * elegida y deja la cuenta habilitada. La cuenta la abrió el administrador
+ * desde la ficha del médico. Un enlace inexistente, usado o vencido responde
+ * 400 con el mismo mensaje.
+ */
+export async function activarInvitacion(token: string, password: string): Promise<void> {
+  await apiFetch<void>('/auth/invitacion', {
+    method: 'POST',
+    auth: false,
+    body: { token, password },
+  })
+}
+
 /** Cierra la sesión en el cliente. El backend no expone revocación de tokens. */
 export function logout(): void {
   clearTokens()

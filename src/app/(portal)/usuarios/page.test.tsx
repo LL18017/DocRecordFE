@@ -29,15 +29,7 @@ import UsuariosPage from './page'
 
 const listarUsuarios = vi.fn<() => Promise<UsuarioDto[]>>()
 const crearUsuario = vi.fn<(payload: CrearUsuarioPayload) => Promise<AltaUsuarioDto>>()
-const asignarRol = vi.fn<
-  (
-    userId: number,
-    roleId: number,
-    especialidadId?: number,
-    clinicaId?: number,
-    registroJunta?: string,
-  ) => Promise<UsuarioDto>
->()
+const asignarRol = vi.fn<(userId: number, roleId: number, clinicaId?: number) => Promise<UsuarioDto>>()
 const listarTodasLasClinicas = vi.fn<() => Promise<ClinicaDto[]>>()
 const listarEspecialidades = vi.fn<() => Promise<EspecialidadDto[]>>()
 const asignarContrasena = vi.fn<(userId: number, password: string) => Promise<UsuarioDto>>()
@@ -52,20 +44,8 @@ vi.mock('@/services/usuarios', () => ({
   crearUsuario: (payload: CrearUsuarioPayload) => crearUsuario(payload),
   // Los parámetros opcionales del final solo se reenvían cuando vienen: así
   // las pruebas de los otros roles siguen comprobando exactamente (userId, roleId).
-  asignarRol: (
-    userId: number,
-    roleId: number,
-    especialidadId?: number,
-    clinicaId?: number,
-    registroJunta?: string,
-  ) => {
-    const argumentos: [number, number, number?, number?, string?] = [
-      userId,
-      roleId,
-      especialidadId,
-      clinicaId,
-      registroJunta,
-    ]
+  asignarRol: (userId: number, roleId: number, clinicaId?: number) => {
+    const argumentos: [number, number, number?] = [userId, roleId, clinicaId]
     while (argumentos.length > 2 && argumentos[argumentos.length - 1] === undefined) argumentos.pop()
     return asignarRol(...argumentos)
   },
@@ -712,48 +692,28 @@ describe('asignar rol', () => {
 // exigen además la ficha, que lleva la especialidad. Dar el rol sin ella
 // dejaba la cuenta viendo botones que respondían 403.
 describe('asignar rol Médico · ficha de médico', () => {
-  it('al elegir Médico pide la especialidad, solo ofrece las activas y la manda', async () => {
-    asignarRol.mockResolvedValue({
-      userId: 353,
-      email: 'sin.rol@docrecord.sv',
-      userName: 'Cuenta Sin Rol',
-      especialidad: 'Pediatría',
-      activo: true,
-      roles: [{ id: 2, name: 'MEDICO' }],
-    })
+  // HU-02: la ficha —especialidad y número de junta— se registra en Médicos.
+  // Usuarios y Roles ya no la crea, así que a una cuenta sin ficha no le
+  // ofrece el rol: le dice dónde registrarla.
+  it('al elegir Médico para una cuenta sin ficha, manda a registrarla en Médicos y no deja confirmar', async () => {
     const user = montar()
     await screen.findByText('Cuenta Sin Rol')
 
     await user.click(screen.getByRole('button', { name: /sin rol asignado — asignar ahora/i }))
     await user.click(await screen.findByRole('radio', { name: /^médico$/i }))
 
-    const confirmar = screen.getByRole('button', { name: /añadir rol médico/i })
-    expect(confirmar).toBeDisabled()
-
-    // Dentro del diálogo: la tabla de fondo tiene celdas «Sin especialidad».
-    const selector = within(screen.getByRole('dialog')).getByLabelText(/^especialidad/i)
-    await waitFor(() => expect(within(selector).getByRole('option', { name: 'Pediatría' })).toBeVisible())
-    expect(within(selector).queryByRole('option', { name: 'Especialidad retirada' })).toBeNull()
-
-    await user.selectOptions(selector, '6')
-    // HU-02 c1: sin número de junta todavía no se puede dar el rol.
-    expect(confirmar).toBeDisabled()
-
-    const junta = within(screen.getByRole('dialog')).getByLabelText(/número de junta de vigilancia/i)
-    await user.type(junta, 'JVPM')
-    expect(within(screen.getByRole('dialog')).getByText(/al menos un número/i)).toBeVisible()
-    expect(confirmar).toBeDisabled()
-
-    await user.type(junta, '-4471')
-    await user.click(confirmar)
-
-    await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(353, 2, 6, undefined, 'JVPM-4471'))
+    const modal = screen.getByRole('dialog')
+    expect(within(modal).getByText(/no tiene ficha de médico/i)).toBeVisible()
+    expect(within(modal).getByRole('link', { name: 'Médicos' })).toHaveAttribute('href', '/medicos')
+    expect(within(modal).queryByLabelText(/especialidad/i)).toBeNull()
+    expect(within(modal).queryByLabelText(/número de junta/i)).toBeNull()
+    expect(screen.getByRole('button', { name: /añadir rol médico/i })).toBeDisabled()
+    expect(asignarRol).not.toHaveBeenCalled()
   })
 
-  it('a una cuenta con Médico pero sin ficha le ofrece completarla', async () => {
+  it('a una cuenta con Médico pero sin ficha le indica registrarla en Médicos', async () => {
     // Naun (fila 152) es Administrador y Médico, y su especialidad es null:
     // exactamente la cuenta que pasaba el permiso y recibía 403 al guardar.
-    asignarRol.mockResolvedValue({ ...DEL_API[0], especialidad: 'Medicina General' })
     const user = montar()
     await screen.findByText('Naun Enrique Flores Menjivar')
 
@@ -761,18 +721,8 @@ describe('asignar rol Médico · ficha de médico', () => {
     await user.click(within(fila).getByRole('button', { name: /^rol$/i }))
     const modal = await screen.findByRole('dialog')
 
-    expect(within(modal).getByText(/no su ficha de médico/i)).toBeVisible()
-    const completar = within(modal).getByRole('button', { name: /completar ficha de médico/i })
-    expect(completar).toBeDisabled()
-
-    const selector = within(modal).getAllByLabelText(/especialidad/i)[0]
-    await waitFor(() => expect(within(selector).getByRole('option', { name: 'Medicina General' })).toBeVisible())
-    await user.selectOptions(selector, '5')
-    expect(completar).toBeDisabled()
-    await user.type(within(modal).getByLabelText(/número de junta de vigilancia/i), '12345')
-    await user.click(completar)
-
-    await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(152, 2, 5, undefined, '12345'))
+    expect(within(modal).getByText(/no tiene ficha de médico/i)).toBeVisible()
+    expect(within(modal).getByRole('link', { name: 'Médicos' })).toHaveAttribute('href', '/medicos')
   })
 })
 
@@ -807,7 +757,7 @@ describe('asignar rol Médico o Enfermera · sede obligatoria', () => {
     await user.selectOptions(selector, '11')
     await user.click(confirmar)
 
-    await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(400, 3, undefined, 11))
+    await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(400, 3, 11))
   })
 
   it('a quien ya tiene sede no se la pide', async () => {

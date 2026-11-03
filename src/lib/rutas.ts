@@ -53,6 +53,10 @@ export const RUTAS_DEL_PORTAL: readonly RutaDelPortal[] = [
   { href: '/agenda', label: 'Agenda de Citas', icon: 'agenda', roles: ['medico', 'enfermera'] },
   { href: '/clinicas', label: 'Clínicas', icon: 'clinicas', roles: ['medico', 'Administrador'] },
   { href: '/usuarios', label: 'Usuarios y Roles', icon: 'usuarios', roles: ['Administrador'] },
+  // HU-02. Solo el Administrador: aquí se registra la ficha de cada médico
+  // (especialidad y número de junta) y se le da acceso al sistema. Va junto a
+  // Usuarios y Roles porque son las dos mitades del alta del personal.
+  { href: '/medicos', label: 'Médicos', icon: 'person', roles: ['Administrador'] },
   // HU-23. Solo el Administrador: mantener el catálogo es lo que lo hace una
   // lista CONTROLADA, y el backend responde 403 a cualquier otro rol que
   // intente escribir en él. El médico usa el catálogo desde la receta, no
