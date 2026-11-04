@@ -47,6 +47,8 @@ export interface SignosVitalesDto {
   paciente: SignosVitalesPacienteDto
   enfermera: SignosVitalesEnfermeraDto
   consultaId: number | null
+  /** Sede donde se tomó (HU-15); `null` si no se registró. */
+  clinica: { clinicaId: number; name: string } | null
   pesoKg: number | null
   estaturaCm: number | null
   temperaturaC: number | null
@@ -90,6 +92,8 @@ export type EstadoDeToma = 'ACTIVA' | 'ANULADA'
 export interface RegistrarSignosVitalesPayload {
   pacienteId: number
   consultaId?: number
+  /** Sede activa de la sesión (HU-15). Se omite si no hay ninguna. */
+  clinicaId?: number
   tomadoEn?: string
   pesoKg?: number
   estaturaCm?: number

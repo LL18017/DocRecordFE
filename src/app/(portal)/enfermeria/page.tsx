@@ -58,7 +58,7 @@ function medida(valor: number | string | null, unidad: string): React.ReactNode 
 
 export default function EnfermeriaPage() {
   const router = useRouter()
-  const { user } = useAppContext()
+  const { user, activeClinic } = useAppContext()
 
   // Espeja el hasRole('ENFERMERA') del backend. Sin sesión legible se asume que
   // NO puede: es la suposición que no ofrece un formulario que el servidor va a
@@ -140,7 +140,13 @@ export default function EnfermeriaPage() {
     setGuardando(true)
     setErrorAlGuardar(null)
     try {
-      const nueva = await registrarToma(payload)
+      // La sede activa viaja con la toma (HU-15): la línea de tiempo del
+      // expediente dice dónde se tomó cada constante. Igual que en la
+      // consulta, sin sede activa se registra igual.
+      const nueva = await registrarToma({
+        ...payload,
+        ...(activeClinic ? { clinicaId: activeClinic.id } : {}),
+      })
       // La fila aparece solo cuando el servidor confirmó el 201, nunca antes:
       // en un expediente clínico una fila optimista es una constante que puede
       // no existir.

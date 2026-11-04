@@ -46,6 +46,7 @@ const TOMA: SignosVitalesDto = {
   paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
   enfermera: { personaId: 10, nombres: 'Marta Lucía', apellidos: 'Guevara Mejía' },
   consultaId: null,
+  clinica: null,
   pesoKg: 68.4,
   estaturaCm: 162,
   temperaturaC: 36.8,

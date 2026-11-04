@@ -21,6 +21,7 @@ function toma(diasAtras: number, cambios: Partial<SignosVitalesDto> = {}): Signo
     paciente: { personaId: 1, expediente: 'EXP-000001', nombres: 'Ana', apellidos: 'Rivas' },
     enfermera: { personaId: 2, nombres: 'Marta', apellidos: 'Guevara' },
     consultaId: null,
+    clinica: null,
     pesoKg: 70,
     estaturaCm: 170,
     temperaturaC: 36.8,

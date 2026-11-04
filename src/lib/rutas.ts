@@ -66,18 +66,18 @@ export const RUTAS_DEL_PORTAL: readonly RutaDelPortal[] = [
   // pedidas fuera de la ventana y fija esa ventana. El médico pide la
   // anulación desde la consulta o la receta, no desde aquí.
   { href: '/anulaciones', label: 'Anulaciones', icon: 'shield', roles: ['Administrador'] },
-  // Lo único que el portal le ofrece hoy a una cuenta de paciente, y va al
-  // final porque `rutaPorDefecto` se queda con la PRIMERA entrada que el rol
-  // puede ver: así el personal sigue aterrizando en el Dashboard y solo quien
-  // no puede verlo cae aquí.
+  // HU-34. El portal del paciente: su expediente en solo lectura y en PDF.
+  // Es lo único que el menú le ofrece a una cuenta de paciente, porque es lo
+  // único que el backend le abre: `/mi/expediente` y `/mi/expediente/pdf`
+  // (`@PreAuthorize("hasRole('PACIENTE')")`), que arman siempre el expediente
+  // de la sesión. Todos los demás endpoints clínicos le siguen respondiendo
+  // 403, así que ninguna otra pantalla del personal debe llevar 'paciente'.
   //
-  // No es el portal del paciente. Ese es HU-34 y no está comprometido a ningún
-  // sprint; además el backend no tiene un solo `@PreAuthorize` que incluya
-  // PACIENTE, así que no hay ni un endpoint que una pantalla suya pudiera
-  // llamar sin llevarse un 403. Lo que hay es la cuenta autenticada viéndose a
-  // sí misma, que es exactamente el alcance que el documento de entrega
-  // declara para este rol.
-  { href: '/mi-panel', label: 'Mi información', icon: 'person', roles: ['paciente'] },
+  // Va al final porque `rutaPorDefecto` se queda con la PRIMERA entrada que el
+  // rol puede ver: así el personal sigue aterrizando en el Dashboard y solo
+  // quien no puede verlo cae aquí. La dirección es la de la antigua «Mi
+  // información», que creció hasta ser el portal.
+  { href: '/mi-panel', label: 'Mi expediente', icon: 'history', roles: ['paciente'] },
 ]
 
 /**
