@@ -113,6 +113,14 @@ vi.mock('@/services/habitos', async (importarOriginal) => {
   }
 })
 
+// Línea de tiempo (HU-15): vacía. Sus pruebas propias están en
+// components/clinico/LineaDeTiempo.test.tsx; aquí solo importa la pestaña.
+const obtenerLineaDeTiempo = vi.fn<(pacienteId: number) => Promise<never[]>>(async () => [])
+vi.mock('@/services/expediente', async (importarOriginal) => {
+  const real = await importarOriginal<typeof import('@/services/expediente')>()
+  return { ...real, obtenerLineaDeTiempo: (id: number) => obtenerLineaDeTiempo(id) }
+})
+
 const MEDICO: User = { name: 'naun@docrecord.sv', email: 'naun@docrecord.sv', roles: ['medico'] }
 
 const SESION: { user: User | null; activeClinic: Clinica | null } = {
@@ -208,6 +216,7 @@ const TOMA: SignosVitalesDto = {
   paciente: { personaId: 42, expediente: 'EXP-0042', nombres: 'Ana María', apellidos: 'Ramírez' },
   enfermera: { personaId: 10, nombres: 'Marta Lucía', apellidos: 'Guevara Mejía' },
   consultaId: null,
+  clinica: null,
   pesoKg: 68.4,
   estaturaCm: 162,
   temperaturaC: 37.2,
@@ -785,5 +794,23 @@ describe('ficha · HU-07 y HU-09 criterio 4 · trazabilidad del registro', () =>
     expect(tarjeta).toHaveTextContent(/registrado por\s*no consta/i)
     expect(tarjeta).toHaveTextContent(/clínica de registro\s*no consta/i)
     expect(tarjeta).toHaveTextContent(/última modificación por\s*sin modificaciones/i)
+  })
+})
+
+describe('expediente · HU-15 · pestaña Línea de tiempo', () => {
+  it('cambia a la línea de tiempo sin «Nueva consulta» ni las secciones de la ficha, y vuelve', async () => {
+    const user = await montar()
+
+    expect(screen.getByRole('button', { name: /nueva consulta/i })).toBeVisible()
+    await user.click(screen.getByRole('tab', { name: 'Línea de tiempo' }))
+
+    expect(screen.getByRole('tab', { name: 'Línea de tiempo' })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByText(/todavía no tiene consultas/i)).toBeInTheDocument()
+    expect(obtenerLineaDeTiempo).toHaveBeenCalledWith(42)
+    expect(screen.queryByRole('button', { name: /nueva consulta/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('Datos Personales')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: 'Ficha' }))
+    expect(screen.getByText('Datos Personales')).toBeVisible()
   })
 })
