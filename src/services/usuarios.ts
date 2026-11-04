@@ -233,24 +233,16 @@ export async function asignarRol(
   userId: number,
   roleId: number,
   /**
-   * Solo con MÉDICO: la especialidad con que el backend crea la ficha de
-   * médico. Obligatoria si la persona aún no tiene ficha —sin ella responde
-   * 400—, porque el rol solo no basta para registrar consultas ni recetas.
-   * A una cuenta que ya tiene el rol pero no la ficha, volver a asignarlo con
-   * la especialidad se la crea.
-   */
-  especialidadId?: number,
-  /**
    * Con MÉDICO o ENFERMERA: la primera sede donde va a trabajar. Obligatoria
    * si la cuenta aún no tiene ninguna —sin ella el backend responde 400—: sin
    * sede la cuenta se queda en la pantalla de selección de clínica.
+   *
+   * Con MÉDICO ya no viajan especialidad ni junta: la ficha se registra en
+   * Médicos (services/medicos.ts) y sin ella el backend responde 409.
    */
   clinicaId?: number,
 ): Promise<UsuarioDto> {
-  const parametros = new URLSearchParams()
-  if (especialidadId !== undefined) parametros.set('especialidadId', String(especialidadId))
-  if (clinicaId !== undefined) parametros.set('clinicaId', String(clinicaId))
-  const query = parametros.size > 0 ? `?${parametros}` : ''
+  const query = clinicaId !== undefined ? `?clinicaId=${clinicaId}` : ''
   return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}${query}`, { method: 'POST' })
 }
 

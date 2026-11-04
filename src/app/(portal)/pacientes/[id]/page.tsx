@@ -99,8 +99,8 @@ const inputDatoClass =
   'w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:border-doc-blue focus-visible:ring-2 focus-visible:ring-doc-blue/40'
 
 /** Cómo se pinta cada estado de consulta. El backend solo maneja estos dos. */
-const ETIQUETA_DE_ESTADO = { PENDIENTE: 'Pendiente', FINALIZADA: 'Finalizada' } as const
-const COLOR_DE_ESTADO = { PENDIENTE: 'yellow', FINALIZADA: 'green' } as const
+const ETIQUETA_DE_ESTADO = { PENDIENTE: 'Pendiente', FINALIZADA: 'Finalizada', ANULADA: 'Anulada' } as const
+const COLOR_DE_ESTADO = { PENDIENTE: 'yellow', FINALIZADA: 'green', ANULADA: 'red' } as const
 
 export default function ExpedienteDetailPage() {
   const params = useParams()
@@ -810,6 +810,7 @@ export default function ExpedienteDetailPage() {
           <DetalleDeConsulta
             consulta={consultaAbierta}
             onRecetasCambiaron={() => void cargarHistorial()}
+            onConsultaCambio={() => void cargarHistorial()}
           />
         )}
       </Modal>

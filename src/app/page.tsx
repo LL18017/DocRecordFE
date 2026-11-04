@@ -41,12 +41,6 @@ export default function HomePage() {
           >
             Iniciar sesión
           </Link>
-          <Link
-            href="/register"
-            className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-doc-amber hover:opacity-90 transition-all shadow-sm"
-          >
-            Registrarme
-          </Link>
         </div>
       </nav>
 
@@ -69,15 +63,12 @@ export default function HomePage() {
           </p>
 
           <div className="flex flex-wrap items-center gap-4">
-            <Link
-              href="/register"
-              className="px-8 py-3.5 rounded-2xl font-semibold text-white text-base bg-gradient-to-r from-doc-blue to-doc-blue-light shadow-lg shadow-doc-blue/25 hover:opacity-95 hover:-translate-y-0.5 transition-all"
-            >
-              Registrar médico
-            </Link>
+            {/* «Registrar médico» se retiró con el registro público (HU-02):
+                las cuentas del personal las crea el administrador. Ingresar
+                pasa a ser el botón principal. */}
             <Link
               href="/login"
-              className="px-8 py-3.5 rounded-2xl font-semibold text-slate-700 text-base border-2 border-slate-300 hover:border-slate-400 bg-white/50 backdrop-blur-xs transition-colors"
+              className="px-8 py-3.5 rounded-2xl font-semibold text-white text-base bg-gradient-to-r from-doc-blue to-doc-blue-light shadow-lg shadow-doc-blue/25 hover:opacity-95 hover:-translate-y-0.5 transition-all"
             >
               Ingresar
             </Link>

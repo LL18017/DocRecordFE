@@ -15,46 +15,6 @@ interface LoginResponseDto {
 }
 
 /**
- * Espejo de `RegistroMedicoResponseDto` del backend.
- *
- * (No confundir con el `UserResponseDto` del backend, que es otro DTO —el de
- * la gestión de usuarios— con `userName` y `RoleDto[]`. Este endpoint nunca
- * devolvió eso.)
- */
-export interface RegistroMedicoResponseDto {
-  userId: number
-  email: string
-  nombres: string
-  apellidos: string
-  /** El backend asigna el rol (MEDICO) por su cuenta; el cliente no lo envía. */
-  roles: string[]
-  especialidad: { especialidadId: number; nombre: string; activa: boolean }
-  /**
-   * `false` cuando la cuenta se creó pero el correo de confirmación NO salió.
-   *
-   * El envío ya no tumba el alta: si Gmail falla, el backend registra el fallo
-   * y responde 201 igual, con este campo en `false`. Es lo único que distingue
-   * «revisa tu bandeja» de «no te va a llegar nada», así que la interfaz tiene
-   * que leerlo; darlo por sentado deja a alguien esperando un correo que nunca
-   * existió, con una cuenta que no puede activar.
-   */
-  correoDeVerificacionEnviado: boolean
-}
-
-export interface RegistroPayload {
-  nombres: string
-  apellidos: string
-  email: string
-  password: string
-  especialidadId: number
-  /**
-   * Número de registro en la Junta de Vigilancia (HU-02 criterio 1). El backend
-   * lo exige y lo guarda en mayúsculas; su formato es el de `formatoDeJuntaValido` (lib/registroJunta).
-   */
-  registroJunta: string
-}
-
-/**
  * Convierte los roles del backend a la lista COMPLETA de `Role` de la
  * interfaz — ya no a uno solo.
  *
@@ -149,22 +109,21 @@ export async function login(
   }
 }
 
+// Aquí vivía `registrar` (POST /auth/register), el alta pública de médicos.
+// Se retiró junto con el endpoint (HU-02): las cuentas del personal las crea
+// el administrador desde Usuarios y Roles (services/usuarios.ts).
+
 /**
- * Registra un usuario vía `POST /auth/register`.
- *
- * El usuario queda **deshabilitado** hasta que abra el enlace de confirmación
- * que el backend envía por correo; intentar iniciar sesión antes falla.
- *
- * Que el alta responda 201 no garantiza que ese correo se haya enviado: eso lo
- * dice `correoDeVerificacionEnviado` en la respuesta.
+ * Activa una cuenta con la invitación del correo (HU-02): pone la contraseña
+ * elegida y deja la cuenta habilitada. La cuenta la abrió el administrador
+ * desde la ficha del médico. Un enlace inexistente, usado o vencido responde
+ * 400 con el mismo mensaje.
  */
-export async function registrar(
-  payload: RegistroPayload,
-): Promise<RegistroMedicoResponseDto> {
-  return apiFetch<RegistroMedicoResponseDto>('/auth/register', {
+export async function activarInvitacion(token: string, password: string): Promise<void> {
+  await apiFetch<void>('/auth/invitacion', {
     method: 'POST',
     auth: false,
-    body: payload,
+    body: { token, password },
   })
 }
 

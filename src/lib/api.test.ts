@@ -443,7 +443,7 @@ describe('apiFetch · forma de la petición y de la respuesta', () => {
     api.setTokens('t1', 'r1')
     fetchMock.mockResolvedValueOnce(respuesta(200, {}))
 
-    await api.apiFetch('/auth/register', { method: 'POST', auth: false, body: {} })
+    await api.apiFetch('/auth/login', { method: 'POST', auth: false, body: {} })
 
     expect(cabeceraDeLlamada(fetchMock, 0, 'Authorization')).toBeNull()
   })

@@ -2,14 +2,14 @@
 
 import React, { useState } from 'react'
 import { Icon } from '@/components/ui/Icon'
-import { Modal } from '@/components/ui/Modal'
 import {
   anularPrescripcion,
   imprimirPrescripcion,
-  MINIMO_MOTIVO_DE_ANULACION,
   type PrescripcionDto,
 } from '@/services/prescripciones'
+import type { SolicitudDeAnulacionDto } from '@/services/anulaciones'
 import { formatearFechaHora } from '@/services/consultas'
+import { DialogoDeAnulacion } from './DialogoDeAnulacion'
 
 /** HU-22 c4: baja el PDF de la receta para imprimirla. */
 export const BotonImprimirReceta: React.FC<{ prescripcionId: number }> = ({ prescripcionId }) => {
@@ -50,42 +50,16 @@ export const BotonImprimirReceta: React.FC<{ prescripcionId: number }> = ({ pres
 
 /**
  * HU-22 c3: anula una receta con su motivo. NO la borra: sigue en el
- * expediente, marcada como anulada. Pide el motivo antes de enviar, igual que
- * el servidor lo exige (10 a 500 caracteres).
+ * expediente, marcada como anulada. Pasada la ventana de anulación directa
+ * queda una solicitud que aprueban los administradores; el diálogo lo avisa y
+ * la receta sigue vigente (ver DialogoDeAnulacion).
  */
 export const BotonAnularReceta: React.FC<{
   prescripcionId: number
   onAnulada: (receta: PrescripcionDto) => void
-}> = ({ prescripcionId, onAnulada }) => {
+  onSolicitada?: (solicitud: SolicitudDeAnulacionDto) => void
+}> = ({ prescripcionId, onAnulada, onSolicitada }) => {
   const [abierto, setAbierto] = useState(false)
-  const [motivo, setMotivo] = useState('')
-  const [enviando, setEnviando] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const cerrar = () => {
-    setAbierto(false)
-    setMotivo('')
-    setError(null)
-  }
-
-  const enviar = async (e: React.SubmitEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (motivo.trim().length < MINIMO_MOTIVO_DE_ANULACION) {
-      setError(`Escriba el motivo de la anulación (al menos ${MINIMO_MOTIVO_DE_ANULACION} caracteres).`)
-      return
-    }
-    setEnviando(true)
-    setError(null)
-    try {
-      const anulada = await anularPrescripcion(prescripcionId, motivo)
-      cerrar()
-      onAnulada(anulada)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo anular la receta.')
-    } finally {
-      setEnviando(false)
-    }
-  }
 
   return (
     <>
@@ -98,63 +72,18 @@ export const BotonAnularReceta: React.FC<{
       >
         <Icon name="delete" size={14} />
       </button>
-      <Modal
-        isOpen={abierto}
-        onClose={cerrar}
-        title={`Anular la receta #${prescripcionId}`}
-        subtitle="La receta no se borra: queda marcada como anulada"
-        icon="prescripciones"
-        headerGradient="bg-gradient-to-r from-red-600 to-red-700"
-        maxWidth="md"
-      >
-        <form onSubmit={enviar} className="space-y-4">
-          {error && (
-            <p
-              role="alert"
-              className="rounded-xl border-2 border-red-100 bg-red-50 px-3.5 py-2.5 text-xs text-red-700"
-            >
-              {error}
-            </p>
-          )}
-          <div>
-            <label
-              htmlFor={`motivo-anulacion-${prescripcionId}`}
-              className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide"
-            >
-              Motivo de la anulación<span aria-hidden="true"> *</span>
-            </label>
-            <textarea
-              id={`motivo-anulacion-${prescripcionId}`}
-              required
-              maxLength={500}
-              rows={3}
-              value={motivo}
-              onChange={(e) => setMotivo(e.target.value)}
-              className="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:border-red-400 focus-visible:ring-2 focus-visible:ring-red-400/40 resize-none"
-            />
-            <p className="text-xs text-slate-400 mt-1">
-              Una receta emitida no se edita: para corregirla se anula y se emite una nueva. Quedan
-              guardados el motivo, quién la anuló y cuándo.
-            </p>
-          </div>
-          <div className="flex gap-3 pt-2 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={cerrar}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 hover:border-slate-300 transition-colors cursor-pointer"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={enviando}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {enviando ? 'Anulando…' : 'Anular receta'}
-            </button>
-          </div>
-        </form>
-      </Modal>
+      <DialogoDeAnulacion<PrescripcionDto>
+        abierto={abierto}
+        onCerrar={() => setAbierto(false)}
+        idCampo={`motivo-anulacion-${prescripcionId}`}
+        titulo={`Anular la receta #${prescripcionId}`}
+        subtitulo="La receta no se borra: queda marcada como anulada"
+        ayuda="Una receta emitida no se edita: para corregirla se anula y se emite una nueva. Quedan guardados el motivo, quién la anuló y cuándo."
+        textoDelBoton="Anular receta"
+        anular={(motivo) => anularPrescripcion(prescripcionId, motivo)}
+        onAnulado={onAnulada}
+        onSolicitada={onSolicitada}
+      />
     </>
   )
 }
