@@ -24,10 +24,10 @@ export type Page =
  * porque no tiene fila en `medicos`, pero para entonces ya se le había
  * ofrecido.
  *
- * Que exista aquí NO significa que haya portal del paciente: ese es HU-34, sin
- * comprometer a un sprint. Hoy el rol se autentica y llega a `/mi-panel`, que
- * es lo único que el backend le permite —ningún `@PreAuthorize` del servidor
- * incluye PACIENTE—. Ver `app/(portal)/mi-panel/page.tsx`.
+ * El rol se autentica y llega a `/mi-panel`, el portal del paciente (HU-34):
+ * su expediente en solo lectura, que es lo único que el backend le abre
+ * (`/mi/expediente`, resuelto por la sesión y nunca por un id). El resto de
+ * los endpoints clínicos le responden 403. Ver `app/(portal)/mi-panel/page.tsx`.
  */
 export type Role = 'medico' | 'enfermera' | 'Administrador' | 'paciente'
 

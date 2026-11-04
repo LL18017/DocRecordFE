@@ -45,7 +45,7 @@ describe('puedeVerRuta · el paciente no hereda el portal de trabajo', () => {
     }
   })
 
-  it('no ofrece «Mi información» a quien no es paciente', () => {
+  it('no ofrece «Mi expediente» (el portal del paciente) a quien no es paciente', () => {
     expect(puedeVerRuta('/mi-panel', ['medico'])).toBe(false)
     expect(puedeVerRuta('/mi-panel', ['enfermera'])).toBe(false)
     expect(puedeVerRuta('/mi-panel', ['Administrador'])).toBe(false)

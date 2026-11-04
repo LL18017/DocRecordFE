@@ -1,105 +1,166 @@
 'use client'
 
-// ─── Mi información · la pantalla del rol PACIENTE ─────────────────────────
+// ─── Mi expediente · el portal del paciente (HU-34) ────────────────────────
 //
-// Lo que esta pantalla ES: la confirmación de que la cuenta entró, con lo que
-// el sistema sabe de ella. Lo que NO es: el portal del paciente.
+// La pantalla del rol PACIENTE: su expediente clínico, en solo lectura, con
+// los términos técnicos explicados y la descarga en PDF.
 //
-// ── Por qué existe ────────────────────────────────────────────────────────
-// PACIENTE es uno de los cuatro roles del backend (RolesEnum), pero el
-// frontend no lo conocía: `mapearRoles` no lo reconocía y caía al rol por
-// defecto, 'medico'. El resultado era que una cuenta de paciente entraba con
-// el menú completo de un médico —Consultas, Prescripciones, Agenda— y el
-// servidor le respondía 403 a cada una, porque no tiene fila en `medicos`. El
-// portal le ofrecía seis pantallas que existían solo para negárselas.
+// ── De dónde salen los datos ──────────────────────────────────────────────
+// De UNA sola llamada, `GET /mi/expediente`, que no lleva ningún id: el
+// backend arma siempre el expediente de la sesión (PacienteAutenticado). Por
+// eso esta pantalla no lee un id de la URL ni del contexto, y no hay forma de
+// que muestre el de otra persona (criterio 2). Abrirla y descargar el PDF
+// quedan registrados en la bitácora de accesos del servidor (criterio 6).
 //
-// ── Por qué NO llama a ningún endpoint ────────────────────────────────────
-// Porque no hay ninguno que pueda llamar. Ni un solo `@PreAuthorize` del
-// backend incluye PACIENTE: no es que falte la pantalla, es que del lado del
-// servidor este rol todavía no tiene permiso sobre nada. Inventar aquí una
-// lista de consultas «del paciente» exigiría pedirla con las credenciales de
-// otro rol, que es exactamente lo que el control de acceso está para impedir.
+// ── Por qué no hay un solo botón de edición ───────────────────────────────
+// Criterio 4: el portal es de solo lectura. El backend no le acepta a este rol
+// ninguna escritura clínica; ofrecer aquí un botón de «editar» sería prometer
+// algo que el servidor va a rechazar con 403. Si un dato está mal, lo corrige
+// el personal de la clínica, y la pantalla lo dice.
 //
-// Así que todo lo que se pinta sale de la sesión —el mismo `LoginResponseDto`
-// que ya llegó— y no hay estados de carga ni de error que fingir.
-//
-// ── Por qué se dice en voz alta que el portal no está ─────────────────────
-// Una pantalla escueta sin explicación se lee como una pantalla rota, y quien
-// la vea va a buscar el fallo donde no está. El portal de consulta del
-// paciente es HU-34, un elemento del Product Backlog sin comprometer a ningún
-// sprint: no es una regresión ni un pendiente olvidado, es alcance que todavía
-// no se ha planificado. Decirlo cuesta un párrafo y evita que se reporte como
-// defecto.
-//
-// Cuando HU-34 entre a un sprint, esta pantalla es el lugar donde crece.
+// ── La ruta sigue siendo /mi-panel ────────────────────────────────────────
+// Era la pantalla «Mi información», que solo mostraba la sesión porque el
+// backend todavía no le permitía nada a este rol. Se conserva la dirección
+// —es la que `rutaPorDefecto` le da al paciente al iniciar sesión— y aquí
+// creció el portal, como estaba previsto.
 
-import React from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Icon } from '@/components/ui/Icon'
-import { useUsuarioAutenticado } from '@/context/AppContext'
-import { etiquetaDeRoles } from '@/lib/roles'
+import { ProveedorDelGlosario, TerminosDeLaSeccion } from '@/components/portal/Glosario'
+import {
+  DatosPersonales,
+  MisAlergias,
+  MisConsultas,
+  MisProximasCitas,
+  MisRecetas,
+  MisSignosVitales,
+} from '@/components/portal/SeccionesDelExpediente'
+import { descargarMiExpedientePdf, obtenerMiExpediente, type MiExpedienteDto } from '@/services/portal'
 
-export default function MiPanelPage() {
-  const user = useUsuarioAutenticado()
+export default function MiExpedientePage() {
+  const [expediente, setExpediente] = useState<MiExpedienteDto | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [cargando, setCargando] = useState(true)
+
+  const cargar = useCallback(async () => {
+    setCargando(true)
+    try {
+      setExpediente(await obtenerMiExpediente())
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo abrir tu expediente.')
+    } finally {
+      setCargando(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga remota al montar; ver medicamentos/page.tsx
+    void cargar()
+  }, [cargar])
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold text-slate-900 font-outfit">Mi información</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Los datos con los que figura tu cuenta en DocRecord Sv.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 font-outfit">Mi expediente</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {expediente
+              ? `${expediente.paciente.nombres} ${expediente.paciente.apellidos} · Expediente ${expediente.paciente.expediente}`
+              : 'Tu historia clínica en DocRecord Sv.'}
+          </p>
+        </div>
+        {expediente && <BotonDescargarPdf expediente={expediente.paciente.expediente} />}
       </header>
 
-      <section className="rounded-2xl border-2 border-slate-200 bg-white p-6">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-doc-navy flex items-center justify-center flex-shrink-0">
-            <Icon name="person" size={26} color="white" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-lg font-bold text-slate-900 font-outfit truncate">{user.name}</p>
-            <p className="text-sm text-slate-500 truncate">{user.email ?? 'Sin correo registrado'}</p>
-          </div>
-        </div>
+      <p
+        role="note"
+        className="rounded-xl border-2 border-doc-blue/20 bg-doc-blue/5 px-4 py-3 text-sm text-slate-700 flex gap-3"
+      >
+        <Icon name="eye" size={18} className="mt-0.5" />
+        <span>
+          <span className="font-semibold">Solo lectura.</span> Esto es lo que el personal de tu clínica registró en
+          tu expediente. Desde aquí no se puede modificar: si algún dato no es correcto, pide en tu clínica que lo
+          corrijan.
+        </span>
+      </p>
 
-        <dl className="mt-6 grid gap-4 sm:grid-cols-2 border-t border-slate-100 pt-6">
-          <div>
-            <dt className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Rol</dt>
-            {/* `etiquetaDeRoles` y no el texto «Paciente» escrito a mano: una
-                cuenta puede tener varios roles a la vez, y si a esta se le
-                añade otro, aquí debe verse. */}
-            <dd className="text-sm text-slate-900 mt-1">{etiquetaDeRoles(user.roles)}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Estado de la cuenta
-            </dt>
-            {/* No es un dato inventado aunque esté escrito fijo: el backend
-                rechaza el login de una cuenta deshabilitada, así que estar
-                viendo esta pantalla ya demuestra que está activa. Si algún día
-                `LoginResponseDto` trae el estado, se lee de ahí. */}
-            <dd className="text-sm text-slate-900 mt-1">Activa</dd>
-          </div>
-        </dl>
-      </section>
+      {cargando && !expediente && (
+        <p role="status" className="text-sm text-slate-500">
+          Cargando tu expediente…
+        </p>
+      )}
 
-      <section className="rounded-2xl border-2 border-doc-amber/30 bg-doc-amber/5 p-6">
-        <div className="flex gap-4">
-          <div className="w-10 h-10 rounded-xl bg-doc-amber flex items-center justify-center flex-shrink-0">
-            <Icon name="history" size={18} color="white" />
-          </div>
-          <div>
-            <h2 className="font-bold text-slate-900 font-outfit">
-              Tu historial clínico todavía no se consulta desde aquí
-            </h2>
-            <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-              El portal donde podrás ver tus consultas, tus recetas y tus signos vitales está
-              definido en el Product Backlog como HU-34 y aún no se ha comprometido a un sprint.
-              Mientras tanto, tu expediente sí existe y lo consulta el personal de la clínica
-              cuando te atiende.
-            </p>
-          </div>
+      {error && (
+        <div role="alert" className="rounded-xl border-2 border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <p>{error}</p>
+          <button
+            type="button"
+            onClick={() => void cargar()}
+            className="mt-2 text-sm font-semibold underline cursor-pointer"
+          >
+            Reintentar
+          </button>
         </div>
-      </section>
+      )}
+
+      {expediente && (
+        <ProveedorDelGlosario terminos={expediente.glosario}>
+          <DatosPersonales paciente={expediente.paciente} />
+          <MisAlergias alergias={expediente.alergias} />
+          <MisProximasCitas citas={expediente.proximasCitas} />
+          <MisSignosVitales toma={expediente.ultimosSignosVitales} />
+          <MisConsultas consultas={expediente.consultas} />
+          <MisRecetas recetas={expediente.recetas} />
+
+          {/* El glosario entero, para leerlo de corrido; cada sección ya trae
+              sus términos explicados donde aparecen. */}
+          <details className="rounded-2xl border-2 border-slate-200 bg-white p-6">
+            <summary className="cursor-pointer font-bold text-slate-900 font-outfit">
+              Glosario: qué significa cada término
+            </summary>
+            <div className="mt-4">
+              <TerminosDeLaSeccion claves={expediente.glosario.map((t) => t.clave)} titulo="Términos del expediente" />
+            </div>
+          </details>
+        </ProveedorDelGlosario>
+      )}
+    </div>
+  )
+}
+
+/** HU-34 c5: baja el expediente en PDF. */
+const BotonDescargarPdf: React.FC<{ expediente: string }> = ({ expediente }) => {
+  const [generando, setGenerando] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const descargar = async () => {
+    setGenerando(true)
+    setError(null)
+    try {
+      await descargarMiExpedientePdf(expediente)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo generar el PDF de tu expediente.')
+    } finally {
+      setGenerando(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        onClick={descargar}
+        disabled={generando}
+        className="h-10 px-4 rounded-xl bg-doc-blue text-white text-sm font-semibold hover:opacity-90 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        {generando ? 'Generando PDF…' : 'Descargar mi expediente (PDF)'}
+      </button>
+      {error && (
+        <p role="alert" className="text-xs text-red-600">
+          {error}
+        </p>
+      )}
     </div>
   )
 }
