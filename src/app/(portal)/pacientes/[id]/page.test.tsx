@@ -121,6 +121,20 @@ vi.mock('@/services/expediente', async (importarOriginal) => {
   return { ...real, obtenerLineaDeTiempo: (id: number) => obtenerLineaDeTiempo(id) }
 })
 
+// Acceso al portal (HU-34): un paciente sin cuenta. Sus pruebas propias están
+// en components/clinico/AccesoAlPortal.test.tsx; aquí solo importa que se monte.
+const obtenerAccesoAlPortal = vi.fn(async (pacienteId: number) => ({
+  pacienteId,
+  correoDeContacto: null,
+  cuenta: null,
+  invitacionEnviada: false,
+  correoEnviado: false,
+}))
+vi.mock('@/services/portal', async (importarOriginal) => {
+  const real = await importarOriginal<typeof import('@/services/portal')>()
+  return { ...real, obtenerAccesoAlPortal: (id: number) => obtenerAccesoAlPortal(id) }
+})
+
 const MEDICO: User = { name: 'naun@docrecord.sv', email: 'naun@docrecord.sv', roles: ['medico'] }
 
 const SESION: { user: User | null; activeClinic: Clinica | null } = {
@@ -812,5 +826,14 @@ describe('expediente · HU-15 · pestaña Línea de tiempo', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Ficha' }))
     expect(screen.getByText('Datos Personales')).toBeVisible()
+  })
+})
+
+describe('expediente · HU-34 · acceso al portal del paciente', () => {
+  it('la ficha monta el acceso al portal de ESTE paciente', async () => {
+    await montar()
+
+    expect(await screen.findByRole('button', { name: /dar acceso al portal/i })).toBeVisible()
+    expect(obtenerAccesoAlPortal).toHaveBeenCalledWith(42)
   })
 })

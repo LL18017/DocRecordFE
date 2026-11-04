@@ -49,6 +49,7 @@ import { pacienteDtoAPatient } from '@/lib/pacienteAdapter'
 import { ConsultationForm } from '@/components/forms/ConsultationForm'
 import { DetalleDeConsulta } from '@/components/clinico/DetalleDeConsulta'
 import { LineaDeTiempo } from '@/components/clinico/LineaDeTiempo'
+import { AccesoAlPortal } from '@/components/clinico/AccesoAlPortal'
 import { FiltrosDeConsultas } from '@/components/clinico/FiltrosDeConsultas'
 import {
   AvisoDeAnulacion,
@@ -813,6 +814,10 @@ export default function ExpedienteDetailPage() {
                   </div>
                 ))}
               </div>
+
+              {/* HU-34: si el paciente ya puede entrar a su portal y, si no, darle
+                  acceso. Carga su propio estado (GET /pacientes/{id}/acceso-portal). */}
+              <AccesoAlPortal pacienteId={Number(patientId)} nombrePaciente={patient.name} />
 
               {/* Signos vitales: ESTE SÍ tiene endpoint (GET /signos-vitales/ultima).
                   El detalle (qué botones no hay, qué se resalta en rojo, el IMC)
