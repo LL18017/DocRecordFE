@@ -425,6 +425,56 @@ describe('apiFetch · traducción de errores', () => {
 
     expect(error.message).toBe('No tiene permisos para realizar esta acción.')
   })
+
+  it('el 403 de no poder escribir en el expediente propio llega con su motivo, no con el genérico', async () => {
+    // Cuerpo exacto del backend para esa regla: `error` es solo la categoría.
+    const api = await cargarApi()
+    fetchMock.mockResolvedValueOnce(
+      respuesta(403, {
+        error: 'Error',
+        message:
+          'No puede registrar ni modificar información clínica de su propio expediente. Pídale a otro miembro del personal que lo haga.',
+      }),
+    )
+
+    const error = await errorDe(api.apiFetch('/alergias', { method: 'POST', body: {} }))
+
+    expect(error.status).toBe(403)
+    expect(error.message).toBe(
+      'No puede registrar ni modificar información clínica de su propio expediente. Pídale a otro miembro del personal que lo haga.',
+    )
+    expect(api.esNegativaGenericaDePermisos(error)).toBe(false)
+  })
+})
+
+describe('esNegativaGenericaDePermisos', () => {
+  it('reconoce la negativa por rol de Spring Security, la de por defecto y la que solo trae la categoría', async () => {
+    const api = await cargarApi()
+    for (const mensaje of [
+      'No tienes permisos para realizar esta acción',
+      'No tiene permisos para realizar esta acción.',
+      'Acceso denegado',
+    ]) {
+      expect(api.esNegativaGenericaDePermisos(new api.ApiError(403, mensaje))).toBe(true)
+    }
+  })
+
+  it('no confunde con ella un 403 con motivo propio ni otro código', async () => {
+    const api = await cargarApi()
+    expect(
+      api.esNegativaGenericaDePermisos(
+        new api.ApiError(
+          403,
+          'No puede aprobar ni rechazar la anulación de un documento de su propio expediente.',
+        ),
+      ),
+    ).toBe(false)
+    expect(
+      api.esNegativaGenericaDePermisos(
+        new api.ApiError(400, 'No tienes permisos para realizar esta acción'),
+      ),
+    ).toBe(false)
+  })
 })
 
 describe('apiFetch · forma de la petición y de la respuesta', () => {

@@ -9,11 +9,12 @@
 //   · Registrar y editar → MÉDICO y ENFERMERA.
 //   · Eliminar           → solo MÉDICO.
 //   · Leer               → ADMIN, MÉDICO y ENFERMERA.
+//   · Nadie del personal escribe en su propio expediente: 403 con el motivo.
 //
 // Los tipos de hábito son un catálogo que mantiene el administrador; si está
 // vacío no hay con qué registrar, y la sección lo dice en vez de ofrecer un
 // formulario que no se puede llenar.
-import { apiFetch, ApiError } from '@/lib/api'
+import { apiFetch, ApiError, esNegativaGenericaDePermisos } from '@/lib/api'
 
 export type NivelDeHabito = 'BAJO' | 'MODERADO' | 'ALTO'
 
@@ -130,7 +131,9 @@ function traducirError(error: unknown): Error {
   if (!(error instanceof ApiError)) {
     return error instanceof Error ? error : new Error('No se pudo completar la operación.')
   }
-  if (error.status === 403) {
+  // Solo la negativa genérica por rol: un 403 con motivo propio —como el de
+  // no poder escribir en el expediente propio— pasa con el texto del backend.
+  if (esNegativaGenericaDePermisos(error)) {
     return new ApiError(
       403,
       'Registran y editan hábitos el médico y la enfermera; eliminarlos es solo del médico.',

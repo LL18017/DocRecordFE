@@ -219,6 +219,38 @@ describe('asignarRol', () => {
     expect(resultado.roles).toEqual([{ id: 3, name: 'ENFERMERA' }])
   })
 
+  it('con la sede de trabajo, la manda como clinicaId y nada más', async () => {
+    fetchMock.mockResolvedValueOnce(respuesta(200, usuario(400)))
+
+    await asignarRol(400, 3, 11)
+
+    expect(urlPedida()).toBe('http://localhost:8080/user/400/role/3?clinicaId=11')
+  })
+
+  it('al dar Paciente con expediente nuevo, manda fecha de nacimiento, sexo y sede como query params, sin cuerpo', async () => {
+    fetchMock.mockResolvedValueOnce(
+      respuesta(200, usuario(500, { roles: [{ id: 4, name: 'PACIENTE' }], expediente: 'EXP-000123' })),
+    )
+
+    const resultado = await asignarRol(500, 4, 10, { fechaNacimiento: '1990-05-14', sexo: 'F' })
+
+    expect(urlPedida()).toBe(
+      'http://localhost:8080/user/500/role/4?clinicaId=10&fechaNacimiento=1990-05-14&sexo=F',
+    )
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.method).toBe('POST')
+    expect(init.body).toBeUndefined()
+    expect(resultado.expediente).toBe('EXP-000123')
+  })
+
+  it('sin sede activa, el expediente nuevo viaja igual, sin clinicaId', async () => {
+    fetchMock.mockResolvedValueOnce(respuesta(200, usuario(500)))
+
+    await asignarRol(500, 4, undefined, { fechaNacimiento: '1990-05-14', sexo: 'M' })
+
+    expect(urlPedida()).toBe('http://localhost:8080/user/500/role/4?fechaNacimiento=1990-05-14&sexo=M')
+  })
+
   it('deja pasar el motivo del 409 cuando el rol ya estaba asignado', async () => {
     fetchMock.mockResolvedValueOnce(
       respuesta(409, { message: 'El usuario ya cuenta con este rol', error: 'Error' }),
