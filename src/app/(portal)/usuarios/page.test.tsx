@@ -15,7 +15,8 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ApiError } from '@/lib/api'
 import { users as usuariosDeMaqueta } from '@/data/mockData'
-import type { User } from '@/types'
+import type { Clinica, User } from '@/types'
+import { hoyEnElSalvador } from '@/lib/validaciones'
 import type {
   AltaUsuarioDto,
   CrearUsuarioPayload,
@@ -29,7 +30,11 @@ import UsuariosPage from './page'
 
 const listarUsuarios = vi.fn<() => Promise<UsuarioDto[]>>()
 const crearUsuario = vi.fn<(payload: CrearUsuarioPayload) => Promise<AltaUsuarioDto>>()
-const asignarRol = vi.fn<(userId: number, roleId: number, clinicaId?: number) => Promise<UsuarioDto>>()
+type ExpedienteNuevo = { fechaNacimiento: string; sexo: 'M' | 'F' }
+const asignarRol =
+  vi.fn<
+    (userId: number, roleId: number, clinicaId?: number, expedienteNuevo?: ExpedienteNuevo) => Promise<UsuarioDto>
+  >()
 const listarTodasLasClinicas = vi.fn<() => Promise<ClinicaDto[]>>()
 const listarEspecialidades = vi.fn<() => Promise<EspecialidadDto[]>>()
 const asignarContrasena = vi.fn<(userId: number, password: string) => Promise<UsuarioDto>>()
@@ -44,8 +49,8 @@ vi.mock('@/services/usuarios', () => ({
   crearUsuario: (payload: CrearUsuarioPayload) => crearUsuario(payload),
   // Los parámetros opcionales del final solo se reenvían cuando vienen: así
   // las pruebas de los otros roles siguen comprobando exactamente (userId, roleId).
-  asignarRol: (userId: number, roleId: number, clinicaId?: number) => {
-    const argumentos: [number, number, number?] = [userId, roleId, clinicaId]
+  asignarRol: (userId: number, roleId: number, clinicaId?: number, expedienteNuevo?: ExpedienteNuevo) => {
+    const argumentos: [number, number, number?, ExpedienteNuevo?] = [userId, roleId, clinicaId, expedienteNuevo]
     while (argumentos.length > 2 && argumentos[argumentos.length - 1] === undefined) argumentos.pop()
     return asignarRol(...argumentos)
   },
@@ -67,9 +72,12 @@ vi.mock('@/services/personas', () => ({
 }))
 
 let sesion: User
+/** Sede en la que opera la sesión; la usa el rol Paciente para abrir el expediente. */
+let sedeActiva: Clinica | null
 
 vi.mock('@/context/AppContext', () => ({
   useUsuarioAutenticado: () => sesion,
+  useAppContext: () => ({ user: sesion, activeClinic: sedeActiva }),
 }))
 
 const ADMIN: User = {
@@ -137,6 +145,7 @@ beforeEach(() => {
     { id: 4, name: 'PACIENTE' },
   ])
   sesion = ADMIN
+  sedeActiva = null
 })
 
 function montar() {
@@ -622,8 +631,10 @@ describe('asignar rol', () => {
     expect(within(modal).getByText(/roles actuales/i)).toBeVisible()
     expect(within(modal).getAllByRole('button', { name: /^quitar$/i }).length).toBeGreaterThan(0)
 
-    // Esta pantalla administra personal, no pacientes.
-    expect(within(modal).queryByRole('radio', { name: /^paciente$/i })).toBeNull()
+    // Antes Paciente no se ofrecía porque no había portal del paciente y el
+    // rol no concedía nada. Con «Mi expediente» (DRS-101) sí se ofrece: el
+    // personal también se atiende en la red.
+    expect(within(modal).getByRole('radio', { name: /^paciente$/i })).toBeVisible()
   })
 
   it('no deja que un administrador se quite a sí mismo el acceso', async () => {
@@ -786,6 +797,162 @@ describe('asignar rol Médico o Enfermera · sede obligatoria', () => {
     const admin = screen.getByText('Otro Admin').closest('tr')!
     expect(within(admin).queryByRole('button', { name: /sin sede/i })).toBeNull()
     expect(within(admin).getByRole('button', { name: /sedes/i })).toBeVisible()
+  })
+})
+
+// ─── Rol Paciente para el personal ──────────────────────────────────────────
+// Con el portal del paciente (DRS-101, «Mi expediente») el rol ya concede algo.
+// A quien aún no es paciente el backend le abre el expediente en el mismo paso
+// y exige fecha de nacimiento y sexo; a quien ya lo es, solo le agrega el rol.
+// En ninguno de los dos casos hay sede de trabajo: un paciente no trabaja en
+// ninguna.
+describe('asignar rol Paciente · expediente del personal', () => {
+  const SIN_EXPEDIENTE: UsuarioDto = {
+    userId: 500,
+    email: 'marta.guevara@docrecord.sv',
+    userName: 'Marta Guevara',
+    especialidad: null,
+    activo: true,
+    sedes: 1,
+    roles: [{ id: 3, name: 'ENFERMERA' }],
+    expediente: null,
+  }
+  const CON_EXPEDIENTE: UsuarioDto = {
+    ...SIN_EXPEDIENTE,
+    userId: 501,
+    email: 'ana.rivas@docrecord.sv',
+    userName: 'Ana Rivas',
+    expediente: 'EXP-000045',
+  }
+  const SANTA_ANA: Clinica = { id: 10, name: 'Clínica Regional de Santa Ana', lat: null, lng: null }
+
+  /** Abre «Asignar rol» en la fila de `nombre`, elige Paciente y devuelve el diálogo. */
+  async function elegirPaciente(user: ReturnType<typeof userEvent.setup>, nombre: string) {
+    const fila = (await screen.findByText(nombre)).closest('tr')!
+    await user.click(within(fila).getByRole('button', { name: /^rol$/i }))
+    await user.click(await screen.findByRole('radio', { name: /^paciente$/i }))
+    return screen.getByRole('dialog')
+  }
+
+  it('a quien no tiene expediente le pide fecha de nacimiento y sexo, sin sede, y no deja confirmar hasta tenerlos', async () => {
+    listarUsuarios.mockResolvedValue([SIN_EXPEDIENTE])
+    const user = montar()
+    const modal = await elegirPaciente(user, 'Marta Guevara')
+
+    // Un paciente no trabaja en ninguna sede: no se le pide una.
+    expect(within(modal).queryByLabelText(/sede donde va a trabajar/i)).toBeNull()
+    expect(within(modal).getByText(/se le abre un expediente.*sin DUI/i)).toBeVisible()
+
+    const confirmar = within(modal).getByRole('button', { name: /añadir rol paciente/i })
+    expect(confirmar).toBeDisabled()
+
+    const fecha = within(modal).getByLabelText(/fecha de nacimiento/i)
+    expect(fecha).toHaveAttribute('max', hoyEnElSalvador())
+    await user.type(fecha, '1990-05-14')
+    // Falta el sexo: no arranca con uno elegido por defecto.
+    expect(confirmar).toBeDisabled()
+
+    await user.click(within(modal).getByRole('radio', { name: /femenino/i }))
+    expect(confirmar).toBeEnabled()
+  })
+
+  it('rechaza una fecha de nacimiento futura y no deja confirmar', async () => {
+    listarUsuarios.mockResolvedValue([SIN_EXPEDIENTE])
+    const user = montar()
+    const modal = await elegirPaciente(user, 'Marta Guevara')
+
+    await user.click(within(modal).getByRole('radio', { name: /masculino/i }))
+    await user.type(within(modal).getByLabelText(/fecha de nacimiento/i), '2999-01-01')
+
+    expect(await within(modal).findByText(/no puede ser posterior a hoy/i)).toBeVisible()
+    expect(within(modal).getByRole('button', { name: /añadir rol paciente/i })).toBeDisabled()
+    expect(asignarRol).not.toHaveBeenCalled()
+  })
+
+  it('manda la fecha, el sexo y la sede activa, y avisa que hay que volver a iniciar sesión', async () => {
+    sedeActiva = SANTA_ANA
+    listarUsuarios.mockResolvedValue([SIN_EXPEDIENTE])
+    asignarRol.mockResolvedValue({
+      ...SIN_EXPEDIENTE,
+      roles: [
+        { id: 3, name: 'ENFERMERA' },
+        { id: 4, name: 'PACIENTE' },
+      ],
+      expediente: 'EXP-000123',
+    })
+    const user = montar()
+    const modal = await elegirPaciente(user, 'Marta Guevara')
+
+    // La nota dice en qué sede se abre el expediente.
+    expect(within(modal).getByText('Clínica Regional de Santa Ana')).toBeVisible()
+
+    await user.type(within(modal).getByLabelText(/fecha de nacimiento/i), '1990-05-14')
+    await user.click(within(modal).getByRole('radio', { name: /femenino/i }))
+    await user.click(within(modal).getByRole('button', { name: /añadir rol paciente/i }))
+
+    await waitFor(() =>
+      expect(asignarRol).toHaveBeenCalledWith(500, 4, 10, { fechaNacimiento: '1990-05-14', sexo: 'F' }),
+    )
+
+    // El modal no se cierra solo: los roles viajan en el token, y sin este
+    // aviso la persona no encontraría «Mi expediente» y pensaría que falló.
+    const aviso = await within(screen.getByRole('dialog')).findByRole('status')
+    expect(aviso).toHaveTextContent(/cerrar sesión y volver a entrar/i)
+    expect(aviso).toHaveTextContent('EXP-000123')
+
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^cerrar$/i }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    const fila = screen.getByText('Marta Guevara').closest('tr')!
+    expect(within(fila).getByText('Paciente')).toBeVisible()
+  })
+
+  it('a quien ya tiene expediente no le pide datos: solo le da acceso, sin fecha, sexo ni sede', async () => {
+    sedeActiva = SANTA_ANA
+    listarUsuarios.mockResolvedValue([CON_EXPEDIENTE])
+    asignarRol.mockResolvedValue({
+      ...CON_EXPEDIENTE,
+      roles: [
+        { id: 3, name: 'ENFERMERA' },
+        { id: 4, name: 'PACIENTE' },
+      ],
+    })
+    const user = montar()
+    const modal = await elegirPaciente(user, 'Ana Rivas')
+
+    expect(within(modal).getByText(/ya tiene el expediente/i)).toHaveTextContent('EXP-000045')
+    expect(within(modal).queryByLabelText(/fecha de nacimiento/i)).toBeNull()
+    expect(within(modal).queryByRole('radio', { name: /femenino/i })).toBeNull()
+    expect(within(modal).queryByLabelText(/sede donde va a trabajar/i)).toBeNull()
+
+    const confirmar = within(modal).getByRole('button', { name: /añadir rol paciente/i })
+    expect(confirmar).toBeEnabled()
+    await user.click(confirmar)
+
+    // Exactamente (userId, roleId): el backend ignoraría fecha y sexo, y la
+    // sede solo sirve para abrir un expediente que ya existe.
+    await waitFor(() => expect(asignarRol).toHaveBeenCalledWith(501, 4))
+    expect(await within(screen.getByRole('dialog')).findByRole('status')).toHaveTextContent(
+      /cerrar sesión y volver a entrar/i,
+    )
+  })
+
+  it('si el backend rechaza la asignación, muestra su motivo y conserva lo escrito', async () => {
+    listarUsuarios.mockResolvedValue([SIN_EXPEDIENTE])
+    asignarRol.mockRejectedValue(
+      new ApiError(422, 'Para abrir el expediente hacen falta la fecha de nacimiento y el sexo'),
+    )
+    const user = montar()
+    const modal = await elegirPaciente(user, 'Marta Guevara')
+
+    await user.type(within(modal).getByLabelText(/fecha de nacimiento/i), '1990-05-14')
+    await user.click(within(modal).getByRole('radio', { name: /masculino/i }))
+    await user.click(within(modal).getByRole('button', { name: /añadir rol paciente/i }))
+
+    expect(await within(modal).findByRole('alert')).toHaveTextContent(
+      'Para abrir el expediente hacen falta la fecha de nacimiento y el sexo',
+    )
+    expect(within(modal).getByLabelText(/fecha de nacimiento/i)).toHaveValue('1990-05-14')
+    expect(within(modal).queryByRole('status')).toBeNull()
   })
 })
 

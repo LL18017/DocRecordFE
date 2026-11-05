@@ -10,7 +10,8 @@ import { sinTildes } from '@/lib/texto'
 import { Modal } from '@/components/ui/Modal'
 import { ApiError } from '@/lib/api'
 import { AYUDA_CONTRASENA, motivoContrasenaInvalida } from '@/lib/contrasena'
-import { useUsuarioAutenticado } from '@/context/AppContext'
+import { hoyEnElSalvador, motivoNacimientoInvalido } from '@/lib/validaciones'
+import { useAppContext, useUsuarioAutenticado } from '@/context/AppContext'
 import { etiquetaDeRoles } from '@/lib/roles'
 import {
   asignarClinica,
@@ -104,19 +105,26 @@ function normalizarNombreDeRol(nombre: string | null): string | null {
 }
 
 /**
- * Los roles que esta pantalla deja asignar, aunque `GET /roles/all` traiga
- * los cuatro del catálogo.
+ * Los roles que esta pantalla deja asignar.
  *
- * PACIENTE queda fuera, pero NO porque una cuenta de personal no pueda serlo
- * también —el modelo de `persona` con especializaciones de clave compartida
- * existe justo para eso: una enfermera puede a la vez ser paciente—. Se
- * excluye porque hoy asignarlo no concede NADA: no existe ningún portal del
- * paciente bajo `src/app/(portal)/` (DRS-101), así que el rol quedaría
- * decorativo, exactamente lo que se ha ido quitando de esta pantalla todo el
- * día. Cuando exista ese portal, este es el sitio donde volver a asignarlo
- * —incluido el caso de una cuenta que ya tiene otro rol de personal—.
+ * PACIENTE estuvo fuera mientras no concedía nada: no había portal del
+ * paciente y el rol quedaba decorativo. Desde DRS-101 existe «Mi expediente»
+ * (/mi-panel), así que darlo aquí sí abre algo, y el caso es real: el personal
+ * también se atiende en la red —el modelo de `persona` con especializaciones
+ * de clave compartida existe justo para eso: una enfermera puede a la vez ser
+ * paciente—. Al paciente que no es del personal se le sigue dando acceso desde
+ * su expediente (AccesoAlPortal), que le crea la cuenta y le manda la
+ * invitación.
+ *
+ * Darlo no se parece a los otros tres: si la persona aún no tiene expediente,
+ * el backend se lo abre en el mismo paso y pide fecha de nacimiento y sexo; y
+ * no lleva sede de trabajo, porque un paciente no trabaja en ninguna.
+ *
+ * Se listan a mano en vez de ofrecer todo lo que traiga `GET /roles/all`: la
+ * tabla `role` es texto libre, y un rol nuevo no debe aparecer aquí antes de
+ * que la pantalla sepa qué hay que pedir para darlo.
  */
-const NOMBRES_DE_ROL_ASIGNABLES: readonly string[] = ['ADMIN', 'MEDICO', 'ENFERMERA']
+const NOMBRES_DE_ROL_ASIGNABLES: readonly string[] = ['ADMIN', 'MEDICO', 'ENFERMERA', 'PACIENTE']
 
 function iniciales(nombre: string): string {
   return nombre
@@ -235,10 +243,18 @@ export default function UsuariosPage() {
   /** Reemplaza en la lista la cuenta que acaba de volver actualizada del API. */
   const actualizarEnLista = (actualizado: UsuarioDto) => {
     // Algunos endpoints no calculan `sedes` (cambiar estado, contraseña): se
-    // conserva el que ya se sabía en vez de perderlo y dejar de avisar.
+    // conserva el que ya se sabía en vez de perderlo y dejar de avisar. Con
+    // `expediente` igual, y ahí conservarlo nunca miente: un expediente no se
+    // borra, así que el número que ya se conocía sigue siendo cierto.
     setUsuarios((prev) =>
       prev.map((u) =>
-        u.userId === actualizado.userId ? { ...actualizado, sedes: actualizado.sedes ?? u.sedes } : u,
+        u.userId === actualizado.userId
+          ? {
+              ...actualizado,
+              sedes: actualizado.sedes ?? u.sedes,
+              expediente: actualizado.expediente ?? u.expediente,
+            }
+          : u,
       ),
     )
   }
@@ -571,11 +587,11 @@ export default function UsuariosPage() {
               actualizarEnLista(actualizado)
               setUsuarioParaRol(null)
             }}
-            onQuitado={(actualizado) => {
+            onActualizado={(actualizado) => {
               actualizarEnLista(actualizado)
               // El modal sigue abierto, pero apuntando a la versión nueva de la
               // cuenta: si no, la lista de roles de dentro seguiría mostrando
-              // el que se acaba de quitar.
+              // los de antes del cambio.
               setUsuarioParaRol(actualizado)
             }}
             onCancel={() => setUsuarioParaRol(null)}
@@ -1047,22 +1063,29 @@ const FormularioNuevoUsuario: React.FC<FormularioNuevoUsuarioProps> = ({
 
 interface FormularioAsignarRolProps {
   usuario: UsuarioDto
-  /** Añadir un rol SÍ cierra el modal: es una acción y se acabó. */
+  /**
+   * Añadir un rol SÍ cierra el modal: es una acción y se acabó. Salvo
+   * Paciente, que pasa por `onActualizado` (ver abajo).
+   */
   onAsignado: (usuario: UsuarioDto) => void
   /**
-   * Quitar un rol NO cierra el modal: quien administra permisos suele tocar
-   * varios roles de la misma cuenta seguidos, y cerrarlo al primero le
-   * obligaría a reabrirlo. Refresca la lista con lo que devolvió el servidor,
-   * así que lo que se ve es lo que quedó guardado.
+   * Refresca la cuenta SIN cerrar el modal, con lo que devolvió el servidor:
+   * lo que se ve es lo que quedó guardado. Lo usan dos acciones:
+   *
+   * · Quitar un rol: quien administra permisos suele tocar varios roles de la
+   *   misma cuenta seguidos, y cerrarlo al primero le obligaría a reabrirlo.
+   * · Dar el rol Paciente: el modal se queda con el aviso de que la persona
+   *   tiene que volver a iniciar sesión para ver «Mi expediente». Si se
+   *   cerrara solo, ese aviso no lo leería nadie.
    */
-  onQuitado: (usuario: UsuarioDto) => void
+  onActualizado: (usuario: UsuarioDto) => void
   onCancel: () => void
 }
 
 const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   usuario,
   onAsignado,
-  onQuitado,
+  onActualizado,
   onCancel,
 }) => {
   const [roles, setRoles] = useState<RolDto[] | null>(null)
@@ -1072,6 +1095,19 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [quitandoId, setQuitandoId] = useState<number | null>(null)
   const usuarioEnSesion = useUsuarioAutenticado()
+  // La sede activa es donde se abre el expediente al dar el rol Paciente a
+  // quien todavía no lo tiene, igual que al registrar un paciente en
+  // Pacientes (HU-07 criterio 4).
+  const { activeClinic } = useAppContext()
+
+  // Los dos datos que el backend exige para abrir un expediente. Arrancan
+  // vacíos, sexo incluido: un valor por defecto se confirmaría sin que nadie
+  // lo hubiera elegido, y quedaría escrito en un expediente clínico.
+  const [fechaNacimiento, setFechaNacimiento] = useState('')
+  const [sexo, setSexo] = useState<'M' | 'F' | ''>('')
+  // La cuenta tal como quedó tras darle el rol Paciente; mientras tenga
+  // valor, el modal muestra el aviso de volver a iniciar sesión.
+  const [pacienteAsignado, setPacienteAsignado] = useState<UsuarioDto | null>(null)
 
   // La primera sede. Un médico o una enfermera sin ninguna no puede entrar a
   // trabajar, así que a quien aún no tiene sede el rol clínico se le da junto
@@ -1141,22 +1177,46 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   const necesitaSede = seleccionaRolClinico && (usuario.sedes ?? 0) === 0
   const faltaSede = necesitaSede && sedeId === ''
 
+  // Paciente no pide sede de trabajo. Pide los datos del expediente solo si
+  // la persona aún no tiene uno; ausente cuenta como «no tiene» (ver
+  // `UsuarioDto.expediente`).
+  const seleccionaPaciente =
+    rolSeleccionado !== null && normalizarNombreDeRol(rolSeleccionado.name) === 'PACIENTE'
+  const expedienteExistente = usuario.expediente ?? null
+  const abreExpediente = seleccionaPaciente && expedienteExistente === null
+  const hoy = hoyEnElSalvador()
+  const errorNacimiento = abreExpediente ? motivoNacimientoInvalido(fechaNacimiento, hoy) : null
+  const faltanDatosDeExpediente =
+    abreExpediente && (fechaNacimiento === '' || sexo === '' || errorNacimiento !== null)
+
   // Cuentas que ya tienen el rol MÉDICO pero no la ficha: las de antes de que
   // la ficha fuera obligatoria. Pasan el control de permisos y reciben 403 al
   // guardar una consulta; se reparan registrando su ficha en Médicos.
   const medicoSinFicha = yaTiene.has('MEDICO') && !tieneFicha
 
   const handleConfirmar = async () => {
-    if (rolSeleccionadoId === null || faltaFicha || faltaSede) return
+    if (rolSeleccionadoId === null || faltaFicha || faltaSede || faltanDatosDeExpediente) return
     setAsignando(true)
     setError(null)
     try {
+      // `clinicaId` dice cosas distintas según el rol: con Médico o Enfermera
+      // es la sede donde va a trabajar; con Paciente, la sede donde se abre su
+      // expediente. Si ya tiene expediente no viaja nada de eso: el backend lo
+      // ignoraría.
+      const clinicaId =
+        necesitaSede && sedeId !== '' ? sedeId : abreExpediente ? activeClinic?.id : undefined
       const actualizado = await asignarRol(
         usuario.userId,
         rolSeleccionadoId,
-        necesitaSede && sedeId !== '' ? sedeId : undefined,
+        clinicaId,
+        abreExpediente && sexo !== '' ? { fechaNacimiento, sexo } : undefined,
       )
-      onAsignado(actualizado)
+      if (seleccionaPaciente) {
+        onActualizado(actualizado)
+        setPacienteAsignado(actualizado)
+      } else {
+        onAsignado(actualizado)
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo asignar el rol.')
     } finally {
@@ -1176,12 +1236,50 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
     setQuitandoId(roleId)
     setError(null)
     try {
-      onQuitado(await quitarRol(usuario.userId, roleId))
+      onActualizado(await quitarRol(usuario.userId, roleId))
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo quitar el rol.')
     } finally {
       setQuitandoId(null)
     }
+  }
+
+  if (pacienteAsignado) {
+    // `null` si el backend no devolvió el número (uno anterior a este
+    // campo): entonces se confirma el rol sin inventar un expediente.
+    const numero = pacienteAsignado.expediente ?? null
+    return (
+      <div className="space-y-4">
+        <div
+          role="status"
+          className="rounded-xl border-2 border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 space-y-2"
+        >
+          <p>
+            <strong>{pacienteAsignado.userName}</strong> ya tiene el rol Paciente
+            {numero && (
+              <>
+                {' '}
+                y el expediente <strong>{numero}</strong>
+              </>
+            )}
+            .
+          </p>
+          {/* Sin esto el rol parece no haber funcionado: los roles viajan en
+              el token, y el de la sesión que esa persona tenga abierta se
+              emitió sin Paciente, así que «Mi expediente» no le aparece hasta
+              que entre de nuevo. */}
+          <p>
+            Para ver «Mi expediente» tiene que cerrar sesión y volver a entrar: los roles viajan
+            en su sesión, y la que tenga abierta todavía no incluye el nuevo.
+          </p>
+        </div>
+        <div className="flex pt-4 border-t border-slate-100">
+          <button type="button" onClick={onCancel} className={botonCancelar}>
+            Cerrar
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -1264,8 +1362,8 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
 
       {!errorCarga && roles !== null && disponibles.length === 0 && (
         <p className="text-sm text-slate-500">
-          Esta cuenta ya tiene los tres roles que se pueden asignar desde aquí (Enfermera,
-          Médico, Administrador).
+          Esta cuenta ya tiene todos los roles que se pueden asignar desde aquí (Administrador,
+          Médico, Enfermera y Paciente).
         </p>
       )}
 
@@ -1291,6 +1389,23 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
               <SelectorDeSede sedes={sedesDisponibles} valor={sedeId} onCambio={setSedeId} />
             </div>
           )}
+          {seleccionaPaciente &&
+            (expedienteExistente !== null ? (
+              <p className="rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                Esta persona ya tiene el expediente <strong>{expedienteExistente}</strong>: solo se
+                le da acceso a su portal, «Mi expediente».
+              </p>
+            ) : (
+              <CamposDeExpedienteNuevo
+                sede={activeClinic?.name ?? null}
+                hoy={hoy}
+                fechaNacimiento={fechaNacimiento}
+                onFechaNacimiento={setFechaNacimiento}
+                errorNacimiento={errorNacimiento}
+                sexo={sexo}
+                onSexo={setSexo}
+              />
+            ))}
         </div>
       )}
 
@@ -1311,7 +1426,13 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
           <button
             type="button"
             onClick={() => void handleConfirmar()}
-            disabled={asignando || rolSeleccionadoId === null || faltaFicha || faltaSede}
+            disabled={
+              asignando ||
+              rolSeleccionadoId === null ||
+              faltaFicha ||
+              faltaSede ||
+              faltanDatosDeExpediente
+            }
             className={botonConfirmar}
           >
             {asignando
@@ -1380,6 +1501,88 @@ const SelectorDeSede: React.FC<{
       <p className="mt-1.5 text-xs text-slate-500">
         Un médico o una enfermera necesita al menos una sede: sin ella no puede entrar a trabajar.
       </p>
+    </div>
+  )
+}
+
+/**
+ * Lo mínimo para abrirle expediente a una cuenta que se va a atender como
+ * paciente: fecha de nacimiento y sexo, que el backend exige. El nombre ya lo
+ * tiene la cuenta y el DUI no se pide; el resto de la ficha se completa
+ * después en Pacientes, donde sí se edita, en vez de convertir este diálogo de
+ * permisos en un segundo formulario de alta de pacientes.
+ *
+ * La fecha se compara con hoy en El Salvador (`hoyEnElSalvador`), la misma
+ * regla que el backend y que el alta de pacientes.
+ */
+const CamposDeExpedienteNuevo: React.FC<{
+  /** Nombre de la sede activa, donde se abre el expediente; `null` si no hay. */
+  sede: string | null
+  hoy: string
+  fechaNacimiento: string
+  onFechaNacimiento: (valor: string) => void
+  errorNacimiento: string | null
+  sexo: 'M' | 'F' | ''
+  onSexo: (valor: 'M' | 'F') => void
+}> = ({ sede, hoy, fechaNacimiento, onFechaNacimiento, errorNacimiento, sexo, onSexo }) => {
+  const uid = useId()
+  return (
+    <div className="space-y-3 pt-1">
+      <p className="rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+        Todavía no es paciente: se le abre un expediente
+        {sede && (
+          <>
+            {' '}
+            en <strong>{sede}</strong>
+          </>
+        )}{' '}
+        con el nombre de la cuenta y sin DUI. Los demás datos se completan después desde la ficha
+        del paciente.
+      </p>
+      <div>
+        <label htmlFor={`${uid}-nacimiento`} className={labelClass}>
+          Fecha de nacimiento<Obligatorio />
+        </label>
+        <input
+          id={`${uid}-nacimiento`}
+          type="date"
+          required
+          max={hoy}
+          value={fechaNacimiento}
+          onChange={(e) => onFechaNacimiento(e.target.value)}
+          aria-invalid={errorNacimiento ? true : undefined}
+          aria-describedby={errorNacimiento ? `${uid}-nacimiento-error` : undefined}
+          className={inputClass}
+        />
+        {errorNacimiento && (
+          <p id={`${uid}-nacimiento-error`} role="alert" className="text-xs text-red-600 mt-1">
+            {errorNacimiento}
+          </p>
+        )}
+      </div>
+      <div>
+        <span id={`${uid}-sexo`} className={labelClass}>
+          Sexo<Obligatorio />
+        </span>
+        <div role="radiogroup" aria-labelledby={`${uid}-sexo`} className="flex gap-4">
+          {(
+            [
+              ['M', 'Masculino'],
+              ['F', 'Femenino'],
+            ] as const
+          ).map(([valor, etiqueta]) => (
+            <label key={valor} className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+              <input
+                type="radio"
+                name={`${uid}-sexo`}
+                checked={sexo === valor}
+                onChange={() => onSexo(valor)}
+              />
+              {etiqueta}
+            </label>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

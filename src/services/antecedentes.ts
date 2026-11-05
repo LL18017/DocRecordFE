@@ -11,12 +11,13 @@
 // QUIÉN PUEDE QUÉ (lo impone el backend, esto solo lo refleja):
 //   · Registrar y eliminar → solo MÉDICO. Una enfermera recibe 403.
 //   · Leer                 → ADMIN, MÉDICO y ENFERMERA.
+//   · Nadie del personal escribe en su propio expediente: 403 con el motivo.
 //
 // El tipo, el estado y el parentesco son listas cerradas y viajan como el
 // valor del enum del backend (`CIRUGIA`, `MADRE`…). La etiqueta para mostrar
 // sale de las tablas de este archivo, no de lo que mande el servidor: así un
 // valor desconocido se ve como tal y no como texto suelto.
-import { apiFetch, ApiError } from '@/lib/api'
+import { apiFetch, ApiError, esNegativaGenericaDePermisos } from '@/lib/api'
 
 // ── HU-12 · Antecedentes patológicos ─────────────────────────────────────────
 
@@ -172,7 +173,11 @@ function traducirError(error: unknown, que: string): Error {
   }
   switch (error.status) {
     case 403:
-      return new ApiError(403, `Solo un médico puede registrar o eliminar ${que}.`)
+      // Solo la negativa genérica por rol: un 403 con motivo propio —como el
+      // de no poder escribir en el expediente propio— pasa entero.
+      return esNegativaGenericaDePermisos(error)
+        ? new ApiError(403, `Solo un médico puede registrar o eliminar ${que}.`)
+        : error
     case 404:
       return new ApiError(404, `No se encontró ${que} o el paciente; puede que se haya eliminado.`)
     default:

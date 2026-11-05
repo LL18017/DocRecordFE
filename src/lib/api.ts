@@ -270,6 +270,33 @@ async function extraerMensajeDeError(respuesta: Response): Promise<string> {
   }
 }
 
+/**
+ * Si un 403 es la negativa GENÉRICA por rol y no una regla con motivo propio.
+ *
+ * El backend responde dos clases de 403. La de Spring Security cuando el rol
+ * no alcanza, siempre con el mismo texto:
+ *
+ *   {"message":"No tienes permisos para realizar esta acción","error":"Acceso denegado",…}
+ *
+ * y la de una regla concreta, que dice cuál se incumplió:
+ *
+ *   {"error":"Error","message":"No puede registrar ni modificar información clínica de su propio expediente. …"}
+ *
+ * Algunos servicios cambian la primera por un texto que dice QUIÉN sí puede
+ * («Solo un médico puede registrar…»), y ahí el local es más útil. Cambiar
+ * también la segunda mentía: a un médico que intenta escribir en su propio
+ * expediente, «solo un médico puede» no le explica nada. Con esta función
+ * sustituyen solo la genérica —también la de `extraerMensajeDeError` cuando el
+ * cuerpo no trae motivo, y un cuerpo que solo trae la categoría «Acceso
+ * denegado»— y dejan pasar cualquier otra con el texto del backend.
+ */
+export function esNegativaGenericaDePermisos(error: ApiError): boolean {
+  return (
+    error.status === 403 &&
+    /permisos para realizar esta acci[oó]n|^acceso denegado\.?$/i.test(error.message.trim())
+  )
+}
+
 /** Primer texto no vacío de `message`, `error` o `detail`, en ese orden. */
 function mensajeDirecto(cuerpo: unknown): string | null {
   if (typeof cuerpo !== 'object' || cuerpo === null) return null

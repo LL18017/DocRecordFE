@@ -5,6 +5,7 @@
 // QUIÉN PUEDE QUÉ (lo impone el backend, esto solo lo refleja):
 //   · Registrar y eliminar → MÉDICO y ENFERMERA. El administrador recibe 403.
 //   · Leer                 → ADMIN, MÉDICO y ENFERMERA.
+//   · Nadie del personal escribe en su propio expediente: 403 con el motivo.
 //
 // Eliminar es baja lógica: el backend conserva la fila con quién la eliminó y
 // cuándo, y el listado deja de incluirla. Por eso aquí no hay "editar": una
@@ -14,7 +15,7 @@
 // La severidad es lista cerrada y viaja como el valor del enum del backend
 // (`SEVERA`…). La etiqueta para mostrar sale de la tabla de este archivo, no
 // de lo que mande el servidor: así un valor desconocido se ve como tal.
-import { apiFetch, ApiError } from '@/lib/api'
+import { apiFetch, ApiError, esNegativaGenericaDePermisos } from '@/lib/api'
 
 export type SeveridadDeAlergia = 'LEVE' | 'MODERADA' | 'SEVERA'
 
@@ -104,7 +105,11 @@ function traducirError(error: unknown): Error {
   }
   switch (error.status) {
     case 403:
-      return new ApiError(403, 'Solo un médico o una enfermera pueden registrar o eliminar alergias.')
+      // Solo la negativa genérica por rol: un 403 con motivo propio —como el
+      // de no poder escribir en el expediente propio— pasa entero.
+      return esNegativaGenericaDePermisos(error)
+        ? new ApiError(403, 'Solo un médico o una enfermera pueden registrar o eliminar alergias.')
+        : error
     case 404:
       return new ApiError(404, 'No se encontró la alergia o el paciente; puede que ya se haya eliminado.')
     default:

@@ -97,6 +97,18 @@ export interface UsuarioDto {
    * el endpoint no lo calculó: no es lo mismo que cero.
    */
   sedes?: number | null
+  /**
+   * El número de expediente si la persona de la cuenta ya es paciente; `null`
+   * si no lo es. Decide qué pide el diálogo al dar el rol Paciente: sin
+   * expediente hay que abrirle uno (fecha de nacimiento y sexo), con él solo
+   * se le da acceso al portal.
+   *
+   * Opcional porque no todas las respuestas lo traen —el alta (`POST /user`)
+   * no lo promete, y un backend anterior a este campo no lo manda—. Ausente
+   * se trata como «sin expediente»: si en realidad lo tuviera, el backend
+   * ignora la fecha y el sexo y solo agrega el rol.
+   */
+  expediente?: string | null
 }
 
 /**
@@ -220,9 +232,8 @@ export async function crearUsuario(payload: CrearUsuarioPayload): Promise<AltaUs
  * ADMIN.
  *
  * Añade, no reemplaza: una cuenta puede acumular varios roles (en la base de
- * desarrollo hay usuarios ADMIN y MEDICO a la vez). No existe el inverso —el
- * backend no expone quitar un rol—, así que una asignación equivocada solo se
- * corrige en la base.
+ * desarrollo hay usuarios ADMIN y MEDICO a la vez). Una asignación equivocada
+ * se deshace con `quitarRol`.
  *
  * `roleId` sale de la tabla `role`: 1 ADMIN, 2 MEDICO, 3 ENFERMERA,
  * 4 PACIENTE. Respuestas comprobadas: 409 «El usuario ya cuenta con este rol»
@@ -239,11 +250,30 @@ export async function asignarRol(
    *
    * Con MÉDICO ya no viajan especialidad ni junta: la ficha se registra en
    * Médicos (services/medicos.ts) y sin ella el backend responde 409.
+   *
+   * Con PACIENTE significa otra cosa: la sede donde se abre el expediente, y
+   * NO se le asigna a la cuenta, porque un paciente no trabaja en ninguna.
    */
   clinicaId?: number,
+  /**
+   * Solo con PACIENTE y cuando la persona aún no tiene expediente: el backend
+   * se lo abre en el mismo paso, sobre esa misma persona, y para eso exige
+   * estos dos datos (422 si faltan, 400 si la fecha es futura o el sexo no es
+   * M/F). No se pide DUI. Si ya tenía expediente, los ignora y solo agrega el
+   * rol.
+   */
+  expedienteNuevo?: { fechaNacimiento: string; sexo: 'M' | 'F' },
 ): Promise<UsuarioDto> {
-  const query = clinicaId !== undefined ? `?clinicaId=${clinicaId}` : ''
-  return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}${query}`, { method: 'POST' })
+  const params = new URLSearchParams()
+  if (clinicaId !== undefined) params.set('clinicaId', String(clinicaId))
+  if (expedienteNuevo) {
+    params.set('fechaNacimiento', expedienteNuevo.fechaNacimiento)
+    params.set('sexo', expedienteNuevo.sexo)
+  }
+  const query = params.toString()
+  return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}${query ? `?${query}` : ''}`, {
+    method: 'POST',
+  })
 }
 
 /**
@@ -333,8 +363,8 @@ export interface ClinicaAsignadaDto {
  * ADMIN antes de montarse.
  *
  * Devuelve los CUATRO roles de la tabla `role` (ADMIN, MEDICO, ENFERMERA,
- * PACIENTE); a quien arme un selector de personal le toca descartar PACIENTE,
- * no a este servicio.
+ * PACIENTE); cuáles se ofrecen para asignar lo decide la pantalla
+ * (`NOMBRES_DE_ROL_ASIGNABLES` en usuarios/page.tsx), no este servicio.
  */
 export async function listarRoles(): Promise<RolDto[]> {
   return apiFetch<RolDto[]>('/roles/all')
