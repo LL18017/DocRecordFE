@@ -30,7 +30,7 @@ import UsuariosPage from './page'
 
 const listarUsuarios = vi.fn<() => Promise<UsuarioDto[]>>()
 const crearUsuario = vi.fn<(payload: CrearUsuarioPayload) => Promise<AltaUsuarioDto>>()
-type ExpedienteNuevo = { fechaNacimiento: string; sexo: 'M' | 'F' }
+type ExpedienteNuevo = { dui?: string; fechaNacimiento: string; sexo: 'M' | 'F' }
 const asignarRol =
   vi.fn<
     (userId: number, roleId: number, clinicaId?: number, expedienteNuevo?: ExpedienteNuevo) => Promise<UsuarioDto>
@@ -834,14 +834,14 @@ describe('asignar rol Paciente · expediente del personal', () => {
     return screen.getByRole('dialog')
   }
 
-  it('a quien no tiene expediente le pide fecha de nacimiento y sexo, sin sede, y no deja confirmar hasta tenerlos', async () => {
+  it('a quien no tiene expediente le pide DUI, fecha de nacimiento y sexo, sin sede, y no deja confirmar hasta tenerlos', async () => {
     listarUsuarios.mockResolvedValue([SIN_EXPEDIENTE])
     const user = montar()
     const modal = await elegirPaciente(user, 'Marta Guevara')
 
     // Un paciente no trabaja en ninguna sede: no se le pide una.
     expect(within(modal).queryByLabelText(/sede donde va a trabajar/i)).toBeNull()
-    expect(within(modal).getByText(/se le abre un expediente.*sin DUI/i)).toBeVisible()
+    expect(within(modal).getByText(/se le abre un expediente.*con el nombre de la cuenta y su DUI/i)).toBeVisible()
 
     const confirmar = within(modal).getByRole('button', { name: /añadir rol paciente/i })
     expect(confirmar).toBeDisabled()
@@ -853,6 +853,16 @@ describe('asignar rol Paciente · expediente del personal', () => {
     expect(confirmar).toBeDisabled()
 
     await user.click(within(modal).getByRole('radio', { name: /femenino/i }))
+    // Falta el DUI: sin él el expediente no se encontraría al buscarlo por DUI.
+    expect(confirmar).toBeDisabled()
+
+    const dui = within(modal).getByLabelText(/^dui/i)
+    await user.type(dui, '0123')
+    expect(await within(modal).findByText(/el dui tiene 9 dígitos/i)).toBeVisible()
+    expect(confirmar).toBeDisabled()
+
+    await user.clear(dui)
+    await user.type(dui, '01234567-8')
     expect(confirmar).toBeEnabled()
   })
 
@@ -869,7 +879,7 @@ describe('asignar rol Paciente · expediente del personal', () => {
     expect(asignarRol).not.toHaveBeenCalled()
   })
 
-  it('manda la fecha, el sexo y la sede activa, y avisa que hay que volver a iniciar sesión', async () => {
+  it('manda el DUI con su guion, la fecha, el sexo y la sede activa, y avisa que hay que volver a iniciar sesión', async () => {
     sedeActiva = SANTA_ANA
     listarUsuarios.mockResolvedValue([SIN_EXPEDIENTE])
     asignarRol.mockResolvedValue({
@@ -886,12 +896,18 @@ describe('asignar rol Paciente · expediente del personal', () => {
     // La nota dice en qué sede se abre el expediente.
     expect(within(modal).getByText('Clínica Regional de Santa Ana')).toBeVisible()
 
+    // Sin guion: se manda como se guarda, 01234567-8.
+    await user.type(within(modal).getByLabelText(/^dui/i), '012345678')
     await user.type(within(modal).getByLabelText(/fecha de nacimiento/i), '1990-05-14')
     await user.click(within(modal).getByRole('radio', { name: /femenino/i }))
     await user.click(within(modal).getByRole('button', { name: /añadir rol paciente/i }))
 
     await waitFor(() =>
-      expect(asignarRol).toHaveBeenCalledWith(500, 4, 10, { fechaNacimiento: '1990-05-14', sexo: 'F' }),
+      expect(asignarRol).toHaveBeenCalledWith(500, 4, 10, {
+        dui: '01234567-8',
+        fechaNacimiento: '1990-05-14',
+        sexo: 'F',
+      }),
     )
 
     // El modal no se cierra solo: los roles viajan en el token, y sin este
@@ -944,6 +960,7 @@ describe('asignar rol Paciente · expediente del personal', () => {
     const user = montar()
     const modal = await elegirPaciente(user, 'Marta Guevara')
 
+    await user.type(within(modal).getByLabelText(/^dui/i), '01234567-8')
     await user.type(within(modal).getByLabelText(/fecha de nacimiento/i), '1990-05-14')
     await user.click(within(modal).getByRole('radio', { name: /masculino/i }))
     await user.click(within(modal).getByRole('button', { name: /añadir rol paciente/i }))
