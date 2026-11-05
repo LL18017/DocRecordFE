@@ -1103,6 +1103,7 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   // Los dos datos que el backend exige para abrir un expediente. Arrancan
   // vacíos, sexo incluido: un valor por defecto se confirmaría sin que nadie
   // lo hubiera elegido, y quedaría escrito en un expediente clínico.
+  const [dui, setDui] = useState('')
   const [fechaNacimiento, setFechaNacimiento] = useState('')
   const [sexo, setSexo] = useState<'M' | 'F' | ''>('')
   // La cuenta tal como quedó tras darle el rol Paciente; mientras tenga
@@ -1186,8 +1187,18 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   const abreExpediente = seleccionaPaciente && expedienteExistente === null
   const hoy = hoyEnElSalvador()
   const errorNacimiento = abreExpediente ? motivoNacimientoInvalido(fechaNacimiento, hoy) : null
+  // El DUI se pide para que el expediente se encuentre después al buscar por
+  // DUI en Pacientes, también desde otra sede: sin él, quien lo atiende solo
+  // lo halla por el nombre. Quien recibe este rol es personal, y el personal
+  // es mayor de edad, así que siempre tiene DUI.
+  const duiNormalizado = normalizarDui(dui)
+  const errorDui =
+    abreExpediente && dui.trim() !== '' && !DUI_VALIDO.test(duiNormalizado)
+      ? 'El DUI tiene 9 dígitos, por ejemplo 01234567-8.'
+      : null
   const faltanDatosDeExpediente =
-    abreExpediente && (fechaNacimiento === '' || sexo === '' || errorNacimiento !== null)
+    abreExpediente &&
+    (dui.trim() === '' || errorDui !== null || fechaNacimiento === '' || sexo === '' || errorNacimiento !== null)
 
   // Cuentas que ya tienen el rol MÉDICO pero no la ficha: las de antes de que
   // la ficha fuera obligatoria. Pasan el control de permisos y reciben 403 al
@@ -1209,7 +1220,7 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
         usuario.userId,
         rolSeleccionadoId,
         clinicaId,
-        abreExpediente && sexo !== '' ? { fechaNacimiento, sexo } : undefined,
+        abreExpediente && sexo !== '' ? { dui: duiNormalizado, fechaNacimiento, sexo } : undefined,
       )
       if (seleccionaPaciente) {
         onActualizado(actualizado)
@@ -1399,6 +1410,9 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
               <CamposDeExpedienteNuevo
                 sede={activeClinic?.name ?? null}
                 hoy={hoy}
+                dui={dui}
+                onDui={setDui}
+                errorDui={errorDui}
                 fechaNacimiento={fechaNacimiento}
                 onFechaNacimiento={setFechaNacimiento}
                 errorNacimiento={errorNacimiento}
@@ -1505,12 +1519,23 @@ const SelectorDeSede: React.FC<{
   )
 }
 
+/** El formato con que se guarda el DUI: 8 dígitos, guion y el verificador. */
+const DUI_VALIDO = /^\d{8}-\d$/
+
+/** «012345678» y «01234567-8» son el mismo DUI: se guarda con el guion. */
+function normalizarDui(valor: string): string {
+  const limpio = valor.trim()
+  return /^\d{9}$/.test(limpio) ? `${limpio.slice(0, 8)}-${limpio.slice(8)}` : limpio
+}
+
 /**
  * Lo mínimo para abrirle expediente a una cuenta que se va a atender como
- * paciente: fecha de nacimiento y sexo, que el backend exige. El nombre ya lo
- * tiene la cuenta y el DUI no se pide; el resto de la ficha se completa
- * después en Pacientes, donde sí se edita, en vez de convertir este diálogo de
- * permisos en un segundo formulario de alta de pacientes.
+ * paciente: DUI, fecha de nacimiento y sexo. Fecha y sexo los exige el
+ * backend; el DUI se pide aquí porque es lo que usa Pacientes para encontrar
+ * a alguien, y un expediente sin él solo se halla por el nombre. El nombre ya
+ * lo tiene la cuenta; el resto de la ficha se completa después en Pacientes,
+ * donde sí se edita, en vez de convertir este diálogo de permisos en un
+ * segundo formulario de alta de pacientes.
  *
  * La fecha se compara con hoy en El Salvador (`hoyEnElSalvador`), la misma
  * regla que el backend y que el alta de pacientes.
@@ -1519,12 +1544,15 @@ const CamposDeExpedienteNuevo: React.FC<{
   /** Nombre de la sede activa, donde se abre el expediente; `null` si no hay. */
   sede: string | null
   hoy: string
+  dui: string
+  onDui: (valor: string) => void
+  errorDui: string | null
   fechaNacimiento: string
   onFechaNacimiento: (valor: string) => void
   errorNacimiento: string | null
   sexo: 'M' | 'F' | ''
   onSexo: (valor: 'M' | 'F') => void
-}> = ({ sede, hoy, fechaNacimiento, onFechaNacimiento, errorNacimiento, sexo, onSexo }) => {
+}> = ({ sede, hoy, dui, onDui, errorDui, fechaNacimiento, onFechaNacimiento, errorNacimiento, sexo, onSexo }) => {
   const uid = useId()
   return (
     <div className="space-y-3 pt-1">
@@ -1536,9 +1564,32 @@ const CamposDeExpedienteNuevo: React.FC<{
             en <strong>{sede}</strong>
           </>
         )}{' '}
-        con el nombre de la cuenta y sin DUI. Los demás datos se completan después desde la ficha
+        con el nombre de la cuenta y su DUI. Los demás datos se completan después desde la ficha
         del paciente.
       </p>
+      <div>
+        <label htmlFor={`${uid}-dui`} className={labelClass}>
+          DUI<Obligatorio />
+        </label>
+        <input
+          id={`${uid}-dui`}
+          type="text"
+          inputMode="numeric"
+          required
+          maxLength={10}
+          placeholder="01234567-8"
+          value={dui}
+          onChange={(e) => onDui(e.target.value)}
+          aria-invalid={errorDui ? true : undefined}
+          aria-describedby={errorDui ? `${uid}-dui-error` : undefined}
+          className={inputClass}
+        />
+        {errorDui && (
+          <p id={`${uid}-dui-error`} role="alert" className="text-xs text-red-600 mt-1">
+            {errorDui}
+          </p>
+        )}
+      </div>
       <div>
         <label htmlFor={`${uid}-nacimiento`} className={labelClass}>
           Fecha de nacimiento<Obligatorio />

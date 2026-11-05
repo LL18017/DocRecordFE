@@ -258,17 +258,19 @@ export async function asignarRol(
   /**
    * Solo con PACIENTE y cuando la persona aún no tiene expediente: el backend
    * se lo abre en el mismo paso, sobre esa misma persona, y para eso exige
-   * estos dos datos (422 si faltan, 400 si la fecha es futura o el sexo no es
-   * M/F). No se pide DUI. Si ya tenía expediente, los ignora y solo agrega el
-   * rol.
+   * fecha y sexo (422 si faltan, 400 si la fecha es futura o el sexo no es
+   * M/F). El DUI lo pide la pantalla para que el expediente se encuentre al
+   * buscar por DUI; el backend lo valida (400 con otro formato, 409 si ya es de
+   * otra persona). Si ya tenía expediente, los ignora y solo agrega el rol.
    */
-  expedienteNuevo?: { fechaNacimiento: string; sexo: 'M' | 'F' },
+  expedienteNuevo?: { dui?: string; fechaNacimiento: string; sexo: 'M' | 'F' },
 ): Promise<UsuarioDto> {
   const params = new URLSearchParams()
   if (clinicaId !== undefined) params.set('clinicaId', String(clinicaId))
   if (expedienteNuevo) {
     params.set('fechaNacimiento', expedienteNuevo.fechaNacimiento)
     params.set('sexo', expedienteNuevo.sexo)
+    if (expedienteNuevo.dui) params.set('dui', expedienteNuevo.dui)
   }
   const query = params.toString()
   return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}${query ? `?${query}` : ''}`, {
