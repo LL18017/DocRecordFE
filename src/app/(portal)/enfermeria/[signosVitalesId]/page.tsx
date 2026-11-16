@@ -17,6 +17,11 @@
 // servidor solo se lo acepta a la que la registró: la sesión del cliente no trae
 // el id de persona con el que comparar, así que el 403 de las demás se muestra
 // dentro del propio diálogo, con el motivo que da el servidor.
+import {
+  MAXIMO_MOTIVO_DE_ANULACION,
+  MENSAJE_MOTIVO_DE_ANULACION,
+  motivoDeAnulacionInvalido,
+} from '@/lib/validaciones'
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
@@ -72,10 +77,10 @@ export default function DetalleDeTomaPage() {
   const [error, setError] = useState<string | null>(null)
   const [noEncontrada, setNoEncontrada] = useState(false)
 
-  // Anulación (HU-16, criterio 4). Solo enfermería: espeja el hasRole('ENFERMERA')
-  // del backend. Sin sesión legible se asume que NO puede.
+  // Anulación (HU-16, criterio 4). Enfermería y administración: espeja el
+  // permiso del backend. Sin sesión legible se asume que NO puede.
   const { user } = useAppContext()
-  const puedeAnular = user ? user.roles.includes('enfermera') : false
+  const puedeAnular = user ? user.roles.includes('enfermera') || user.roles.includes('Administrador') : false
   const [anulando, setAnulando] = useState(false)
   const [motivo, setMotivo] = useState('')
   const [guardandoAnulacion, setGuardandoAnulacion] = useState(false)
@@ -106,7 +111,7 @@ export default function DetalleDeTomaPage() {
 
   const confirmarAnulacion = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!toma || motivo.trim() === '' || guardandoAnulacion) return
+    if (!toma || motivoDeAnulacionInvalido(motivo) || guardandoAnulacion) return
     setGuardandoAnulacion(true)
     setErrorAlAnular(null)
     try {
@@ -376,12 +381,22 @@ export default function DetalleDeTomaPage() {
             <textarea
               id="motivo-anulacion"
               rows={3}
-              maxLength={500}
+              maxLength={MAXIMO_MOTIVO_DE_ANULACION}
               value={motivo}
               onChange={(e) => setMotivo(e.target.value)}
               placeholder="Por qué esta toma no es válida (por ejemplo, paciente equivocado)"
               className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-400 bg-white"
             />
+            <p
+              className={`mt-1 text-xs ${
+                motivo.length > 0 && motivoDeAnulacionInvalido(motivo) ? 'text-red-600' : 'text-slate-400'
+              }`}
+            >
+              {motivo.length > 0 && motivoDeAnulacionInvalido(motivo)
+                ? `${MENSAJE_MOTIVO_DE_ANULACION}. `
+                : ''}
+              {motivo.length}/{MAXIMO_MOTIVO_DE_ANULACION}
+            </p>
           </div>
 
           {errorAlAnular && (
@@ -403,7 +418,7 @@ export default function DetalleDeTomaPage() {
             </button>
             <button
               type="submit"
-              disabled={guardandoAnulacion || motivo.trim() === ''}
+              disabled={guardandoAnulacion || motivoDeAnulacionInvalido(motivo)}
               className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {guardandoAnulacion ? 'Anulando…' : 'Confirmar anulación'}

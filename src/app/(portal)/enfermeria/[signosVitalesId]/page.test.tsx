@@ -144,6 +144,25 @@ describe('detalle de la toma · anulación (HU-16 criterio 4)', () => {
     expect(screen.queryByRole('button', { name: 'Anular toma' })).not.toBeInTheDocument()
   })
 
+  it('el administrador también ve el botón «Anular toma»', async () => {
+    SESION.user = { name: 'Admin', roles: ['Administrador'] }
+    await montar(TOMA)
+
+    expect(screen.getByRole('button', { name: 'Anular toma' })).toBeInTheDocument()
+  })
+
+  it('un motivo de menos de 10 caracteres bloquea el envío y avisa en línea', async () => {
+    const user = await montar(TOMA)
+
+    await user.click(screen.getByRole('button', { name: 'Anular toma' }))
+    await user.type(screen.getByLabelText('Motivo de la anulación'), 'Error')
+
+    expect(screen.getByText(/El motivo debe tener entre 10 y 500 caracteres/)).toBeInTheDocument()
+    expect(screen.getByText(/6\/500/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirmar anulación' })).toBeDisabled()
+    expect(anularToma).not.toHaveBeenCalled()
+  })
+
   it('no hay forma de eliminarla: ningún botón de borrar', async () => {
     await montar(TOMA)
 
@@ -200,7 +219,7 @@ describe('detalle de la toma · anulación (HU-16 criterio 4)', () => {
     const user = await montar(TOMA)
 
     await user.click(screen.getByRole('button', { name: 'Anular toma' }))
-    await user.type(screen.getByLabelText('Motivo de la anulación'), 'No es mía')
+    await user.type(screen.getByLabelText('Motivo de la anulación'), 'No es mía, es de otro paciente')
     await user.click(screen.getByRole('button', { name: 'Confirmar anulación' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -208,6 +227,6 @@ describe('detalle de la toma · anulación (HU-16 criterio 4)', () => {
     )
     // La pantalla no cambió y lo escrito sigue ahí para corregirlo.
     expect(screen.queryByText(/Toma ANULADA/)).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Motivo de la anulación')).toHaveValue('No es mía')
+    expect(screen.getByLabelText('Motivo de la anulación')).toHaveValue('No es mía, es de otro paciente')
   })
 })

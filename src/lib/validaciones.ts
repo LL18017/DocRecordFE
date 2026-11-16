@@ -45,3 +45,16 @@ export function motivoNacimientoInvalido(fecha: string, hoy: string = hoyEnElSal
   if (fecha < FECHA_MINIMA_DE_NACIMIENTO) return 'La fecha de nacimiento no puede ser anterior a 1900.'
   return null
 }
+
+// ─── Motivo de anulación o cancelación ─────────────────────────────────────
+// El backend exige de 10 a 500 caracteres (sin contar espacios de los extremos)
+// al anular una toma de signos vitales y al cancelar una cita.
+export const MINIMO_MOTIVO_DE_ANULACION = 10
+export const MAXIMO_MOTIVO_DE_ANULACION = 500
+export const MENSAJE_MOTIVO_DE_ANULACION = 'El motivo debe tener entre 10 y 500 caracteres'
+
+/** `true` si el motivo no cumple la regla de 10 a 500 caracteres. */
+export function motivoDeAnulacionInvalido(texto: string): boolean {
+  const largo = texto.trim().length
+  return largo < MINIMO_MOTIVO_DE_ANULACION || largo > MAXIMO_MOTIVO_DE_ANULACION
+}

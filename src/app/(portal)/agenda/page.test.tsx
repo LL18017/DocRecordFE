@@ -109,23 +109,29 @@ describe('agenda · cancelar (HU-32)', () => {
   it('c1 y c5: cancelar exige motivo y la cita sigue en la lista, cancelada y con su motivo', async () => {
     const user = userEvent.setup()
     listarAgenda.mockResolvedValueOnce([cita({})])
-    const cancelada = cita({ estado: 'CANCELADA', motivoCancelacion: 'Viaje' })
+    const cancelada = cita({ estado: 'CANCELADA', motivoCancelacion: 'Viaje del paciente' })
     cancelarCita.mockResolvedValue(cancelada)
     render(<AgendaPage />)
 
     await user.click(await screen.findByRole('button', { name: 'Cancelar' }))
     await user.click(screen.getByRole('button', { name: 'Cancelar la cita' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('El motivo de la cancelación es obligatorio.')
+    expect(screen.getByRole('alert')).toHaveTextContent('El motivo debe tener entre 10 y 500 caracteres.')
     expect(cancelarCita).not.toHaveBeenCalled()
 
-    listarAgenda.mockResolvedValue([cancelada])
     await user.type(screen.getByLabelText(/Motivo/), 'Viaje')
     await user.click(screen.getByRole('button', { name: 'Cancelar la cita' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('El motivo debe tener entre 10 y 500 caracteres.')
+    expect(cancelarCita).not.toHaveBeenCalled()
+    await user.clear(screen.getByLabelText(/Motivo/))
 
-    expect(cancelarCita).toHaveBeenCalledWith(1, 'Viaje')
+    listarAgenda.mockResolvedValue([cancelada])
+    await user.type(screen.getByLabelText(/Motivo/), 'Viaje del paciente')
+    await user.click(screen.getByRole('button', { name: 'Cancelar la cita' }))
+
+    expect(cancelarCita).toHaveBeenCalledWith(1, 'Viaje del paciente')
     const fila = await screen.findByRole('listitem', { name: /Cita de Rosa Martínez/ })
     expect(within(fila).getByText('Cancelada')).toBeVisible()
-    expect(within(fila).getByText('Motivo: Viaje')).toBeVisible()
+    expect(within(fila).getByText('Motivo: Viaje del paciente')).toBeVisible()
   })
 
   it('c2: con menos de 4 horas no ofrece cancelar ni reprogramar', async () => {
