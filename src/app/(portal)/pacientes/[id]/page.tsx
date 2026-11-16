@@ -593,12 +593,14 @@ export default function ExpedienteDetailPage() {
               />
 
               {/* ── HU-14: hábitos (GET /api/habitos-estilo-de-vida/paciente/{id}).
-                  Registran y editan médico y enfermera, como las alergias;
-                  eliminar es solo del médico. ── */}
+                  Registran y editan médico y enfermera, como las alergias.
+                  DEF-03: ya no se borran; los anulan médico, enfermera o
+                  administrador (el backend exige además ser quien escribió la
+                  versión vigente, o administrador). ── */}
               <SeccionHabitos
                 pacienteId={Number(patientId)}
                 puedeEditar={puedeRegistrarAlergias}
-                puedeEliminar={esMedico}
+                puedeAnular={puedeRegistrarAlergias || esAdministrador}
                 expanded={expanded.includes('habitos')}
                 onToggle={() => toggle('habitos')}
               />
