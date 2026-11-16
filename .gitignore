@@ -73,3 +73,5 @@ CLAUDE.md
 AGENTS.md
 # (AGENTS.md lo vuelve a escribir `next dev` en cada arranque.)
 .claude/
+# Evidencia de e2e/pendientes-ejecutados.spec.ts (capturas con datos de prueba).
+/e2e-evidencia/
