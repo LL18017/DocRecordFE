@@ -15,15 +15,20 @@
 //   c4 contraste WCAG 2.1 AA y etiqueta en cada campo (axe-core)
 //   c5 flujos completos solo con teclado
 //
-// Las pantallas públicas corren sin credenciales, también contra el despliegue
-// (E2E_BASE_URL). Las internas necesitan cuentas reales y se saltan sin ellas.
-// Ninguna escribe datos: el envío del login con Enter se intercepta antes de
-// llegar al servidor.
+// Todas corren sin credenciales, también contra el despliegue (E2E_BASE_URL).
+// Las internas simulan la sesión y la API en el navegador (ver
+// `sesion-simulada.ts`): lo que se mide aquí es el frontend desplegado —su
+// diseño, su contraste, su teclado—, y para eso basta con que la API responda
+// datos con la forma correcta. Si están las variables E2E_MEDICO_EMAIL /
+// E2E_ADMIN_EMAIL se usa el login real en su lugar. Ninguna escribe datos: el
+// envío del login con Enter se intercepta antes de llegar al servidor, y la
+// API simulada rechaza toda escritura.
 import fs from 'node:fs'
 import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { CUENTAS, entrar } from './sesion'
+import { simularApi, simularSesion, type ApiSimulada } from './sesion-simulada'
 
 // Teléfono, tableta vertical y portátil: los tres anchos del criterio 1. El
 // alto no importa para el desborde horizontal, pero se fija para que las
@@ -352,8 +357,53 @@ test.describe('HU-35 · c5 · inicio de sesión solo con teclado', () => {
 })
 
 // --------------------------------------------------------------------------
-// Pantallas internas: necesitan una sesión real.
+// Pantallas internas: sesión y API simuladas por defecto, login real si hay
+// credenciales en el entorno.
+//
+// Qué validan con la simulación: el layout, el contraste, las etiquetas y el
+// recorrido con teclado de las pantallas tal como las sirve el despliegue
+// (HTML, JS y CSS se descargan de E2E_BASE_URL). Qué NO validan: la lógica del
+// backend —permisos, validaciones, qué datos devuelve—, que cubren las pruebas
+// de integración de DocRecordBE y `acceso-por-rol.spec.ts` con sesión real.
+// Con datos simulados, además, la pantalla se mide siempre con los mismos
+// nombres largos y la misma cantidad de filas, cosa que la base de producción
+// no garantiza de una corrida a otra.
 // --------------------------------------------------------------------------
+
+/** API simulada de la prueba en curso, para revisar al final que nada salió. */
+let apiSimulada: ApiSimulada | null = null
+
+/**
+ * Deja el navegador dentro del portal con el rol pedido.
+ *
+ * Con credenciales en el entorno hace el login real (`entrar`). Sin ellas, que
+ * es lo normal, simula la sesión y la API: el login real exigiría guardar
+ * contraseñas en algún sitio de un repositorio público.
+ */
+async function entrarComo(page: Page, rol: 'medico' | 'Administrador') {
+  const variable = rol === 'medico' ? 'E2E_MEDICO_EMAIL' : 'E2E_ADMIN_EMAIL'
+  if (process.env[variable]) {
+    apiSimulada = null
+    await entrar(page, rol === 'medico' ? CUENTAS.medico : CUENTAS.admin)
+    return
+  }
+  await simularSesion(page, rol)
+  apiSimulada = await simularApi(page)
+}
+
+/**
+ * Tras cada prueba interna: ninguna respuesta de la API llegó del backend real,
+ * y las peticiones sin respuesta preparada quedan adjuntas para revisarlas.
+ */
+async function revisarApiSimulada(testInfo: TestInfo) {
+  if (!apiSimulada) return
+  await testInfo.attach('api-simulada.json', {
+    body: JSON.stringify(apiSimulada, null, 2),
+    contentType: 'application/json',
+  })
+  expect(apiSimulada.alBackendReal, 'Respuestas que llegaron del backend real').toEqual([])
+  apiSimulada = null
+}
 
 const INTERNAS_MEDICO: Pantalla[] = [
   { nombre: 'dashboard', ruta: '/dashboard', titulo: /.+/ },
@@ -406,11 +456,11 @@ async function comprobarTablas(page: Page) {
 }
 
 test.describe('HU-35 · pantallas internas (sesión de Médico)', () => {
-  test.skip(!process.env.E2E_MEDICO_EMAIL, 'Necesita credenciales E2E')
+  test.afterEach(async ({}, testInfo) => revisarApiSimulada(testInfo))
 
   for (const pantalla of INTERNAS_MEDICO) {
     test(`c1 y c4 · ${pantalla.ruta} a 360, 768 y 1280 px`, async ({ page }, testInfo) => {
-      await entrar(page, CUENTAS.medico)
+      await entrarComo(page, 'medico')
       await comprobarSinDesborde(page, testInfo, pantalla)
       for (const vista of ANCHOS) {
         await page.setViewportSize(vista)
@@ -421,7 +471,7 @@ test.describe('HU-35 · pantallas internas (sesión de Médico)', () => {
   }
 
   test('c1 y c4 · expediente a 360, 768 y 1280 px', async ({ page }, testInfo) => {
-    await entrar(page, CUENTAS.medico)
+    await entrarComo(page, 'medico')
     const expediente: Pantalla = { nombre: 'expediente', ruta: '/pacientes/{id}', titulo: /.+/ }
     await comprobarSinDesborde(page, testInfo, expediente, () => abrirExpediente(page))
     for (const vista of ANCHOS) {
@@ -432,7 +482,7 @@ test.describe('HU-35 · pantallas internas (sesión de Médico)', () => {
   })
 
   test('c2 · el formulario de nuevo paciente cae en una columna a 360 px', async ({ page }, testInfo) => {
-    await entrar(page, CUENTAS.medico)
+    await entrarComo(page, 'medico')
     await page.setViewportSize(ANCHOS[0])
     await abrir(page, INTERNAS_MEDICO[1])
     await page.getByRole('button', { name: /nuevo paciente/i }).first().click()
@@ -444,7 +494,7 @@ test.describe('HU-35 · pantallas internas (sesión de Médico)', () => {
 
   for (const pantalla of [INTERNAS_MEDICO[1], INTERNAS_MEDICO[2]]) {
     test(`c3 · las tablas de ${pantalla.ruta} se desplazan dentro de su contenedor`, async ({ page }, testInfo) => {
-      await entrar(page, CUENTAS.medico)
+      await entrarComo(page, 'medico')
       for (const vista of ANCHOS) {
         await test.step(`${vista.width} px`, async () => {
           await page.setViewportSize(vista)
@@ -458,7 +508,7 @@ test.describe('HU-35 · pantallas internas (sesión de Médico)', () => {
   }
 
   test('c5 · buscar un paciente y abrir su ficha solo con teclado', async ({ page }) => {
-    await entrar(page, CUENTAS.medico)
+    await entrarComo(page, 'medico')
     await abrir(page, INTERNAS_MEDICO[1])
 
     // Tab hasta el buscador de la tabla, sin hacer clic en él.
@@ -482,10 +532,10 @@ test.describe('HU-35 · pantallas internas (sesión de Médico)', () => {
 })
 
 test.describe('HU-35 · pantallas internas (sesión de Administrador)', () => {
-  test.skip(!process.env.E2E_ADMIN_EMAIL, 'Necesita credenciales E2E')
+  test.afterEach(async ({}, testInfo) => revisarApiSimulada(testInfo))
 
   test('c1, c3 y c4 · /usuarios a 360, 768 y 1280 px', async ({ page }, testInfo) => {
-    await entrar(page, CUENTAS.admin)
+    await entrarComo(page, 'Administrador')
     await comprobarSinDesborde(page, testInfo, USUARIOS)
     for (const vista of ANCHOS) {
       await page.setViewportSize(vista)
