@@ -13,10 +13,11 @@
 // registro de lo que pasó, no el estado actual de un formulario —por eso el
 // backend no expone PUT ni DELETE aquí, solo la anulación—.
 //
-// El botón «Anular toma» lo ve cualquier ENFERMERA con la toma activa, pero el
-// servidor solo se lo acepta a la que la registró: la sesión del cliente no trae
-// el id de persona con el que comparar, así que el 403 de las demás se muestra
-// dentro del propio diálogo, con el motivo que da el servidor.
+// El botón «Anular toma» lo ven las ENFERMERAS y el ADMINISTRADOR con la toma
+// activa, pero el servidor solo se lo acepta a la enfermera que la registró o a
+// un administrador: la sesión del cliente no trae el id de persona con el que
+// comparar, así que el 403 de las demás se muestra dentro del propio diálogo,
+// con el motivo que da el servidor. El motivo va de 10 a 500 caracteres.
 import {
   MAXIMO_MOTIVO_DE_ANULACION,
   MENSAJE_MOTIVO_DE_ANULACION,
