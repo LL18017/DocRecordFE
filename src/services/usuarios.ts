@@ -109,6 +109,35 @@ export interface UsuarioDto {
    * ignora la fecha y el sexo y solo agrega el rol.
    */
   expediente?: string | null
+  /**
+   * El nombre de la persona de la cuenta, por partes (`userName` es la unión).
+   * El diálogo de rol los propone al abrir el expediente o registrar la ficha
+   * de médico, para confirmarlos o corregirlos. Opcionales: el alta y un
+   * backend anterior no los mandan.
+   */
+  nombres?: string | null
+  apellidos?: string | null
+}
+
+/**
+ * Lo que acompaña a un rol cuando darlo crea algo más (ver `asignarRol`).
+ * Cada campo viaja solo si viene.
+ */
+export interface DatosAlAsignarRol {
+  /** PACIENTE sin expediente: para abrirlo (HU-07). */
+  fechaNacimiento?: string
+  sexo?: 'M' | 'F'
+  dui?: string
+  /**
+   * PACIENTE sin expediente o MÉDICO sin ficha: el nombre con que quedan, que
+   * es el de la persona de la cuenta (cambia también en la cuenta).
+   */
+  nombres?: string
+  apellidos?: string
+  /** MÉDICO sin ficha: para registrarla en el mismo paso (HU-02 c1). */
+  especialidadId?: number
+  registroJunta?: string
+  telefono?: string
 }
 
 /**
@@ -248,30 +277,36 @@ export async function asignarRol(
    * si la cuenta aún no tiene ninguna —sin ella el backend responde 400—: sin
    * sede la cuenta se queda en la pantalla de selección de clínica.
    *
-   * Con MÉDICO ya no viajan especialidad ni junta: la ficha se registra en
-   * Médicos (services/medicos.ts) y sin ella el backend responde 409.
+   * Con MÉDICO, si la persona aún no tiene ficha, especialidad y junta van en
+   * `datos` y el backend la registra en el mismo paso; sin ellas responde 409.
    *
    * Con PACIENTE significa otra cosa: la sede donde se abre el expediente, y
    * NO se le asigna a la cuenta, porque un paciente no trabaja en ninguna.
    */
   clinicaId?: number,
   /**
-   * Solo con PACIENTE y cuando la persona aún no tiene expediente: el backend
-   * se lo abre en el mismo paso, sobre esa misma persona, y para eso exige
-   * fecha y sexo (422 si faltan, 400 si la fecha es futura o el sexo no es
-   * M/F). El DUI lo pide la pantalla para que el expediente se encuentre al
-   * buscar por DUI; el backend lo valida (400 con otro formato, 409 si ya es de
-   * otra persona). Si ya tenía expediente, los ignora y solo agrega el rol.
+   * Con PACIENTE y cuando la persona aún no tiene expediente: el backend se lo
+   * abre en el mismo paso, sobre esa misma persona, y para eso exige fecha y
+   * sexo (422 si faltan, 400 si la fecha es futura o anterior a 1900, o el sexo
+   * no es M/F). El DUI lo pide la pantalla para que el expediente se encuentre
+   * al buscar por DUI; el backend lo valida (400 con otro formato, 409 si ya es
+   * de otra persona). Si ya tenía expediente, los ignora y solo agrega el rol.
+   *
+   * Con MÉDICO y sin ficha: especialidad, junta y teléfono para registrarla.
+   * En los dos casos, nombres y apellidos corrigen el nombre de la persona.
    */
-  expedienteNuevo?: { dui?: string; fechaNacimiento: string; sexo: 'M' | 'F' },
+  datos?: DatosAlAsignarRol,
 ): Promise<UsuarioDto> {
   const params = new URLSearchParams()
   if (clinicaId !== undefined) params.set('clinicaId', String(clinicaId))
-  if (expedienteNuevo) {
-    params.set('fechaNacimiento', expedienteNuevo.fechaNacimiento)
-    params.set('sexo', expedienteNuevo.sexo)
-    if (expedienteNuevo.dui) params.set('dui', expedienteNuevo.dui)
-  }
+  if (datos?.fechaNacimiento) params.set('fechaNacimiento', datos.fechaNacimiento)
+  if (datos?.sexo) params.set('sexo', datos.sexo)
+  if (datos?.dui) params.set('dui', datos.dui)
+  if (datos?.nombres?.trim()) params.set('nombres', datos.nombres.trim())
+  if (datos?.apellidos?.trim()) params.set('apellidos', datos.apellidos.trim())
+  if (datos?.especialidadId !== undefined) params.set('especialidadId', String(datos.especialidadId))
+  if (datos?.registroJunta?.trim()) params.set('registroJunta', datos.registroJunta.trim())
+  if (datos?.telefono?.trim()) params.set('telefono', datos.telefono.trim())
   const query = params.toString()
   return apiFetch<UsuarioDto>(`/user/${userId}/role/${roleId}${query ? `?${query}` : ''}`, {
     method: 'POST',

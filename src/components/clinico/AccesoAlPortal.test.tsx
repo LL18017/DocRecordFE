@@ -107,17 +107,25 @@ describe('AccesoAlPortal · sin cuenta', () => {
 })
 
 describe('AccesoAlPortal · con cuenta', () => {
-  it('sin activar ofrece reenviar la invitación, sin pedir el correo', async () => {
+  it('sin activar reenvía la invitación al correo de la cuenta, y deja corregirlo si estaba mal escrito', async () => {
     const user = await montar(acceso({ cuenta: { ...CUENTA, estado: 'SIN_ACTIVAR' } }))
     await user.click(await screen.findByRole('button', { name: 'Reenviar invitación' }))
     const dialogo = within(screen.getByRole('dialog'))
-    expect(dialogo.queryByLabelText(/correo/i)).not.toBeInTheDocument()
+    const correo = dialogo.getByLabelText(/correo/i)
+    expect(correo).toHaveValue('ana.perez@correo.sv')
+    await user.clear(correo)
+    await user.type(correo, 'ana.perez2@correo.sv')
 
     darAccesoAlPortal.mockResolvedValue(
-      acceso({ cuenta: { ...CUENTA, estado: 'SIN_ACTIVAR' }, invitacionEnviada: true, correoEnviado: true }),
+      acceso({
+        cuenta: { ...CUENTA, email: 'ana.perez2@correo.sv', estado: 'SIN_ACTIVAR' },
+        invitacionEnviada: true,
+        correoEnviado: true,
+      }),
     )
     await user.click(dialogo.getByRole('button', { name: 'Reenviar invitación' }))
-    await waitFor(() => expect(darAccesoAlPortal).toHaveBeenCalledWith(42, undefined))
+    await waitFor(() => expect(darAccesoAlPortal).toHaveBeenCalledWith(42, 'ana.perez2@correo.sv'))
+    expect(await screen.findByRole('status')).toHaveTextContent('ana.perez2@correo.sv')
   })
 
   it('una cuenta del personal sin el rol recibe el acceso', async () => {

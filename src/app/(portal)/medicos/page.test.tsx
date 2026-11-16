@@ -139,6 +139,19 @@ describe('médicos · la ficha', () => {
 })
 
 describe('médicos · el acceso', () => {
+  it('la cuenta del médico enlaza a Usuarios y Roles por su id, no por su correo', async () => {
+    listarMedicos.mockResolvedValue([
+      medico({
+        cuenta: { userId: 7, email: 'lucia@docrecord.sv', estado: 'ACTIVA', conRolMedico: true, sedes: [] },
+      }),
+    ])
+    await montar()
+    expect(screen.getByRole('link', { name: /ver la cuenta de lucía mejía/i })).toHaveAttribute(
+      'href',
+      '/usuarios?cuenta=7',
+    )
+  })
+
   it('a una ficha sin cuenta le pide correo y sede, y avisa que salió la invitación', async () => {
     darAcceso.mockResolvedValue({ medico: CON_INVITACION, invitacionEnviada: true, correoEnviado: true })
     const user = await montar()
@@ -160,7 +173,7 @@ describe('médicos · el acceso', () => {
     expect(within(screen.getByText('Lucía Mejía').closest('tr')!).getByText('Invitación enviada')).toBeVisible()
   })
 
-  it('a una cuenta sin activar le ofrece reenviar la invitación, sin pedir el correo', async () => {
+  it('a una cuenta sin activar le reenvía la invitación a su correo, que se puede corregir', async () => {
     listarMedicos.mockResolvedValue([
       medico({
         cuenta: {
@@ -177,10 +190,10 @@ describe('médicos · el acceso', () => {
 
     await user.click(screen.getByRole('button', { name: /reenviar invitación: lucía mejía/i }))
     const modal = within(await screen.findByRole('dialog'))
-    expect(modal.queryByLabelText(/correo para iniciar sesión/i)).toBeNull()
+    expect(modal.getByLabelText(/correo para iniciar sesión/i)).toHaveValue('lucia@docrecord.sv')
     await user.click(modal.getByRole('button', { name: /reenviar invitación/i }))
 
-    await waitFor(() => expect(darAcceso).toHaveBeenCalledWith(42, {}))
+    await waitFor(() => expect(darAcceso).toHaveBeenCalledWith(42, { email: 'lucia@docrecord.sv' }))
     expect(await screen.findByRole('status')).toHaveTextContent(/no salió/i)
   })
 })

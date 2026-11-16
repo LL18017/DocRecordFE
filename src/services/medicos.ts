@@ -47,6 +47,12 @@ export interface GuardarMedicoPayload {
   telefono?: string
   especialidadId: number
   registroJunta: string
+  /**
+   * Solo al crear: la cuenta que ya existe de esta persona. La ficha se cuelga
+   * de su persona en vez de crear otra, y nombres y apellidos corrigen los de
+   * esa persona (es la misma de la cuenta). Lo usa Usuarios y Roles.
+   */
+  userId?: number
 }
 
 export interface AccesoPayload {
@@ -138,6 +144,7 @@ function limpiar(payload: GuardarMedicoPayload): GuardarMedicoPayload {
     ...(telefono ? { telefono } : {}),
     especialidadId: payload.especialidadId,
     registroJunta: payload.registroJunta.trim(),
+    ...(payload.userId !== undefined ? { userId: payload.userId } : {}),
   }
 }
 

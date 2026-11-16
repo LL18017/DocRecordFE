@@ -26,11 +26,12 @@ import type {
 import type { RegistroDeBitacoraDto } from '@/services/usuarios'
 import type { EspecialidadDto } from '@/services/personas'
 import type { ClinicaDto } from '@/services/clinicas'
+import type { GuardarMedicoPayload, MedicoDto } from '@/services/medicos'
 import UsuariosPage from './page'
 
 const listarUsuarios = vi.fn<() => Promise<UsuarioDto[]>>()
 const crearUsuario = vi.fn<(payload: CrearUsuarioPayload) => Promise<AltaUsuarioDto>>()
-type ExpedienteNuevo = { dui?: string; fechaNacimiento: string; sexo: 'M' | 'F' }
+type ExpedienteNuevo = import('@/services/usuarios').DatosAlAsignarRol
 const asignarRol =
   vi.fn<
     (userId: number, roleId: number, clinicaId?: number, expedienteNuevo?: ExpedienteNuevo) => Promise<UsuarioDto>
@@ -71,6 +72,15 @@ vi.mock('@/services/personas', () => ({
   listarEspecialidades: () => listarEspecialidades(),
 }))
 
+const crearMedico = vi.fn<(payload: GuardarMedicoPayload) => Promise<MedicoDto>>()
+vi.mock('@/services/medicos', () => ({
+  crearMedico: (payload: GuardarMedicoPayload) => crearMedico(payload),
+}))
+
+// `?cuenta=<userId>`, con que Médicos enlaza a una cuenta.
+let parametros = new URLSearchParams()
+vi.mock('next/navigation', () => ({ useSearchParams: () => parametros }))
+
 let sesion: User
 /** Sede en la que opera la sesión; la usa el rol Paciente para abrir el expediente. */
 let sedeActiva: Clinica | null
@@ -98,6 +108,8 @@ const DEL_API: UsuarioDto[] = [
     userId: 152,
     email: 'naun@docrecord.sv',
     userName: 'Naun Enrique Flores Menjivar',
+    nombres: 'Naun Enrique',
+    apellidos: 'Flores Menjivar',
     especialidad: null,
     activo: true,
     sedes: 1,
@@ -110,6 +122,8 @@ const DEL_API: UsuarioDto[] = [
     userId: 353,
     email: 'sin.rol@docrecord.sv',
     userName: 'Cuenta Sin Rol',
+    nombres: 'Cuenta',
+    apellidos: 'Sin Rol',
     especialidad: null,
     activo: true,
     sedes: 1,
@@ -127,6 +141,8 @@ beforeEach(() => {
   listarRoles.mockReset()
   quitarRol.mockReset()
   listarEspecialidades.mockReset()
+  crearMedico.mockReset()
+  parametros = new URLSearchParams()
   listarTodasLasClinicas.mockReset()
   listarTodasLasClinicas.mockResolvedValue([
     { clinicaId: 10, name: 'Clínica Regional de Santa Ana' } as ClinicaDto,
@@ -703,10 +719,11 @@ describe('asignar rol', () => {
 // exigen además la ficha, que lleva la especialidad. Dar el rol sin ella
 // dejaba la cuenta viendo botones que respondían 403.
 describe('asignar rol Médico · ficha de médico', () => {
-  // HU-02: la ficha —especialidad y número de junta— se registra en Médicos.
-  // Usuarios y Roles ya no la crea, así que a una cuenta sin ficha no le
-  // ofrece el rol: le dice dónde registrarla.
-  it('al elegir Médico para una cuenta sin ficha, manda a registrarla en Médicos y no deja confirmar', async () => {
+  // HU-02: el rol Médico no se da sin ficha —especialidad y número de junta—.
+  // A quien no la tiene se le registra aquí mismo, en el mismo paso que el
+  // rol, con el nombre de la cuenta propuesto para corregirlo.
+  it('al elegir Médico para una cuenta sin ficha, pide la ficha y la manda con el rol y el nombre corregido', async () => {
+    asignarRol.mockResolvedValue({ ...DEL_API[1], especialidad: 'Pediatría', roles: [{ id: 2, name: 'MEDICO' }] })
     const user = montar()
     await screen.findByText('Cuenta Sin Rol')
 
@@ -715,16 +732,56 @@ describe('asignar rol Médico · ficha de médico', () => {
 
     const modal = screen.getByRole('dialog')
     expect(within(modal).getByText(/no tiene ficha de médico/i)).toBeVisible()
-    expect(within(modal).getByRole('link', { name: 'Médicos' })).toHaveAttribute('href', '/medicos')
-    expect(within(modal).queryByLabelText(/especialidad/i)).toBeNull()
-    expect(within(modal).queryByLabelText(/número de junta/i)).toBeNull()
-    expect(screen.getByRole('button', { name: /añadir rol médico/i })).toBeDisabled()
-    expect(asignarRol).not.toHaveBeenCalled()
+    const confirmar = within(modal).getByRole('button', { name: /añadir rol médico/i })
+    expect(confirmar).toBeDisabled()
+
+    const nombres = within(modal).getByLabelText(/^nombres/i)
+    expect(nombres).toHaveValue('Cuenta')
+    expect(within(modal).getByLabelText(/^apellidos/i)).toHaveValue('Sin Rol')
+
+    // Solo las especialidades vigentes.
+    const especialidad = within(modal).getByLabelText(/especialidad/i)
+    await waitFor(() => expect(within(modal).getByRole('option', { name: 'Pediatría' })).toBeInTheDocument())
+    expect(within(modal).queryByRole('option', { name: 'Especialidad retirada' })).toBeNull()
+    await user.selectOptions(especialidad, '6')
+
+    const junta = within(modal).getByLabelText(/número de junta/i)
+    await user.type(junta, 'x')
+    expect(within(modal).getByText(/use de 3 a 20 letras/i)).toBeVisible()
+    expect(confirmar).toBeDisabled()
+    await user.clear(junta)
+    await user.type(junta, 'JVPM-4471')
+
+    await user.clear(nombres)
+    await user.type(nombres, 'Lucía')
+    expect(confirmar).toBeEnabled()
+    await user.click(confirmar)
+
+    await waitFor(() =>
+      expect(asignarRol).toHaveBeenCalledWith(353, 2, undefined, {
+        nombres: 'Lucía',
+        apellidos: 'Sin Rol',
+        especialidadId: 6,
+        registroJunta: 'JVPM-4471',
+        telefono: '',
+      }),
+    )
   })
 
-  it('a una cuenta con Médico pero sin ficha le indica registrarla en Médicos', async () => {
+  it('a una cuenta con Médico pero sin ficha le deja registrar la ficha ahí mismo', async () => {
     // Naun (fila 152) es Administrador y Médico, y su especialidad es null:
     // exactamente la cuenta que pasaba el permiso y recibía 403 al guardar.
+    crearMedico.mockResolvedValue({
+      personaId: 99,
+      nombres: 'Naun Enrique',
+      apellidos: 'Flores Menjivar',
+      telefono: null,
+      especialidadId: 5,
+      especialidad: 'Medicina General',
+      registroJunta: 'JVPM-1001',
+      activo: true,
+      cuenta: null,
+    })
     const user = montar()
     await screen.findByText('Naun Enrique Flores Menjivar')
 
@@ -733,7 +790,37 @@ describe('asignar rol Médico · ficha de médico', () => {
     const modal = await screen.findByRole('dialog')
 
     expect(within(modal).getByText(/no tiene ficha de médico/i)).toBeVisible()
-    expect(within(modal).getByRole('link', { name: 'Médicos' })).toHaveAttribute('href', '/medicos')
+    const registrar = within(modal).getByRole('button', { name: /registrar ficha de médico/i })
+    expect(registrar).toBeDisabled()
+
+    await waitFor(() => expect(within(modal).getByRole('option', { name: 'Medicina General' })).toBeInTheDocument())
+    await user.selectOptions(within(modal).getByLabelText(/especialidad/i), '5')
+    await user.type(within(modal).getByLabelText(/número de junta/i), 'JVPM-1001')
+    await user.click(registrar)
+
+    await waitFor(() =>
+      expect(crearMedico).toHaveBeenCalledWith({
+        nombres: 'Naun Enrique',
+        apellidos: 'Flores Menjivar',
+        telefono: '',
+        especialidadId: 5,
+        registroJunta: 'JVPM-1001',
+        userId: 152,
+      }),
+    )
+    expect(await within(modal).findByRole('status')).toHaveTextContent(/ficha de médico registrada/i)
+    expect(within(modal).queryByText(/no tiene ficha de médico/i)).toBeNull()
+  })
+})
+
+describe('Usuarios y Roles · enlace desde Médicos', () => {
+  it('con ?cuenta=<id> arranca filtrada a esa cuenta', async () => {
+    parametros = new URLSearchParams('cuenta=353')
+    montar()
+
+    expect(await screen.findByText('Cuenta Sin Rol')).toBeVisible()
+    expect(screen.getByPlaceholderText(/buscar por nombre/i)).toHaveValue('sin.rol@docrecord.sv')
+    expect(screen.queryByText('Naun Enrique Flores Menjivar')).toBeNull()
   })
 })
 
@@ -811,6 +898,8 @@ describe('asignar rol Paciente · expediente del personal', () => {
     userId: 500,
     email: 'marta.guevara@docrecord.sv',
     userName: 'Marta Guevara',
+    nombres: 'Marta',
+    apellidos: 'Guevara',
     especialidad: null,
     activo: true,
     sedes: 1,
@@ -841,13 +930,17 @@ describe('asignar rol Paciente · expediente del personal', () => {
 
     // Un paciente no trabaja en ninguna sede: no se le pide una.
     expect(within(modal).queryByLabelText(/sede donde va a trabajar/i)).toBeNull()
-    expect(within(modal).getByText(/se le abre un expediente.*con el nombre de la cuenta y su DUI/i)).toBeVisible()
+    expect(within(modal).getByText(/se le abre un expediente.*con este nombre y su DUI/i)).toBeVisible()
+    // El nombre de la cuenta, propuesto para confirmarlo o corregirlo.
+    expect(within(modal).getByLabelText(/^nombres/i)).toHaveValue('Marta')
+    expect(within(modal).getByLabelText(/^apellidos/i)).toHaveValue('Guevara')
 
     const confirmar = within(modal).getByRole('button', { name: /añadir rol paciente/i })
     expect(confirmar).toBeDisabled()
 
     const fecha = within(modal).getByLabelText(/fecha de nacimiento/i)
     expect(fecha).toHaveAttribute('max', hoyEnElSalvador())
+    expect(fecha).toHaveAttribute('min', '1900-01-01')
     await user.type(fecha, '1990-05-14')
     // Falta el sexo: no arranca con uno elegido por defecto.
     expect(confirmar).toBeDisabled()
@@ -896,6 +989,11 @@ describe('asignar rol Paciente · expediente del personal', () => {
     // La nota dice en qué sede se abre el expediente.
     expect(within(modal).getByText('Clínica Regional de Santa Ana')).toBeVisible()
 
+    // El nombre se corrige aquí: la cuenta traía uno incompleto.
+    const nombres = within(modal).getByLabelText(/^nombres/i)
+    await user.clear(nombres)
+    await user.type(nombres, 'Marta Elena')
+
     // Sin guion: se manda como se guarda, 01234567-8.
     await user.type(within(modal).getByLabelText(/^dui/i), '012345678')
     await user.type(within(modal).getByLabelText(/fecha de nacimiento/i), '1990-05-14')
@@ -907,6 +1005,8 @@ describe('asignar rol Paciente · expediente del personal', () => {
         dui: '01234567-8',
         fechaNacimiento: '1990-05-14',
         sexo: 'F',
+        nombres: 'Marta Elena',
+        apellidos: 'Guevara',
       }),
     )
 

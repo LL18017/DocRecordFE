@@ -32,6 +32,12 @@ describe('motivoNacimientoInvalido', () => {
     expect(motivoNacimientoInvalido('', '2026-05-10')).toBeNull()
   })
 
+  it('rechaza una fecha anterior a 1900 y acepta el 1 de enero de 1900', () => {
+    expect(motivoNacimientoInvalido('1899-12-31', '2026-05-10')).toMatch(/anterior a 1900/)
+    expect(motivoNacimientoInvalido('0990-05-20', '2026-05-10')).toMatch(/anterior a 1900/)
+    expect(motivoNacimientoInvalido('1900-01-01', '2026-05-10')).toBeNull()
+  })
+
   it('rechaza una fecha posterior a hoy', () => {
     expect(motivoNacimientoInvalido('2026-05-11', '2026-05-10')).toBe(
       'La fecha de nacimiento no puede ser posterior a hoy.',
