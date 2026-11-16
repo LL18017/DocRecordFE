@@ -340,7 +340,7 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
         <button
           type="submit"
           disabled={enviando}
-          className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-doc-amber hover:opacity-90 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+          className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-doc-navy bg-doc-amber hover:opacity-90 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {enviando ? 'Guardando…' : editando ? 'Guardar cambios' : 'Guardar consulta'}
         </button>

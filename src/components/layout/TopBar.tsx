@@ -82,7 +82,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         {/* User avatar button */}
         <button
-          className="w-9 h-9 rounded-full bg-doc-amber flex items-center justify-center text-white font-bold text-sm shadow-2xs hover:opacity-90 transition-opacity cursor-pointer"
+          className="w-9 h-9 rounded-full bg-doc-amber flex items-center justify-center text-doc-navy font-bold text-sm shadow-2xs hover:opacity-90 transition-opacity cursor-pointer"
           onClick={() => setMenuOpen((v) => !v)}
           aria-label="Menú de usuario"
         >

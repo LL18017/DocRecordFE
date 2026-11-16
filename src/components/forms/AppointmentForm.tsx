@@ -154,7 +154,7 @@ export const AppointmentForm: React.FC<AppointmentFormProps> = ({
         </button>
         <button
           type="submit"
-          className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-doc-amber hover:opacity-90 shadow-sm transition-all cursor-pointer"
+          className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-doc-navy bg-doc-amber hover:opacity-90 shadow-sm transition-all cursor-pointer"
         >
           Agendar Cita
         </button>

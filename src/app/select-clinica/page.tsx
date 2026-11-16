@@ -163,9 +163,9 @@ export default function SelectClinicaPage() {
                   </p>
                   <Link
                     href="/clinicas"
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-doc-amber hover:opacity-90 shadow-sm transition-all"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-doc-navy bg-doc-amber hover:opacity-90 shadow-sm transition-all"
                   >
-                    <Icon name="add" size={16} color="white" /> Registrar una clínica
+                    <Icon name="add" size={16} color="currentColor" /> Registrar una clínica
                   </Link>
                 </>
               ) : (

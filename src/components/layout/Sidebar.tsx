@@ -101,7 +101,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen })
 
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-full bg-doc-amber flex items-center justify-center flex-shrink-0 shadow-sm">
-              <span className="text-sm font-bold text-white">{userInitials}</span>
+              <span className="text-sm font-bold text-doc-navy">{userInitials}</span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-medium truncate">{user.name}</p>

@@ -222,7 +222,7 @@ export default function ClinicasPage() {
           </button>
         </div>
       ) : (
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left clinic list */}
         <div className="space-y-3">
           <h3 className="font-semibold text-slate-500 text-xs uppercase tracking-wider">

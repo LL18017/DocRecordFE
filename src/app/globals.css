@@ -12,6 +12,24 @@
   --color-doc-amber-dark: #D4922A;
   --color-doc-teal: #0E9A8C;
   --color-doc-surface: #EEF2F7;
+
+  /* HU-35 c4 · contraste WCAG 2.1 AA (≥ 4.5:1 para texto normal).
+     Los grises de Tailwind v4 no alcanzan sobre los fondos claros del portal:
+       slate-400 #90A1B9 → 2.63 blanco · 2.51 #F8FAFC · 2.40 #FEF2F2
+       slate-500 #62748E → 4.23 #EEF2F7 (doc-surface) · 4.34 #F1F5F9 · 4.35 #FEF2F2
+     Se oscurecen aquí, una vez, en vez de cambiar 300 clases a mano. Los
+     valores nuevos y su razón sobre cada fondo:
+       slate-400 #58687F → 5.67 blanco · 5.42 #F8FAFC · 5.18 #F1F5F9 ·
+                            5.05 #EEF2F7 · 5.19 #FEF2F2 · 4.60 #E2E8F0
+       slate-500 #45556C (el slate-600 de Tailwind) → 7.58 blanco · 7.25 #F8FAFC ·
+                            6.92 #F1F5F9 · 6.75 #EEF2F7 · 6.93 #FEF2F2
+     Se mantiene el orden 400 más claro que 500, así la jerarquía visual entre
+     texto secundario y terciario no se invierte. Afecta también a los pocos
+     bordes y fondos slate-400 (un punto de estado, dos bordes), que solo se
+     oscurecen. Ningún texto slate-400/500 va sobre los fondos oscuros (barra
+     lateral, encabezados en degradado), donde oscurecer sí restaría contraste. */
+  --color-slate-400: #58687F;
+  --color-slate-500: #45556C;
 }
 
 :root {
