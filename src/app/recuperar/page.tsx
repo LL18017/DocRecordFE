@@ -24,7 +24,7 @@ const ID_ERROR = 'recuperar-error'
 const inputClass =
   'w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm bg-white focus:outline-none focus:border-doc-blue focus-visible:ring-2 focus-visible:ring-doc-blue/40 transition-colors'
 const labelClass =
-  'block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider'
+  'block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider'
 
 export default function RecuperarPage() {
   const [email, setEmail] = useState('')
@@ -58,7 +58,7 @@ export default function RecuperarPage() {
       <div className="w-full max-w-md">
         <Link
           href="/login"
-          className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-6 transition-colors"
+          className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-700 mb-6 transition-colors"
         >
           <Icon name="back" size={16} /> Volver a iniciar sesión
         </Link>
@@ -67,7 +67,7 @@ export default function RecuperarPage() {
           <h1 className="text-3xl font-bold text-slate-800 mb-2 font-outfit">
             Recuperar contraseña
           </h1>
-          <p className="text-slate-500 text-sm">
+          <p className="text-slate-600 text-sm">
             Te enviaremos un enlace para que definas una nueva.
           </p>
         </div>
@@ -82,7 +82,7 @@ export default function RecuperarPage() {
             <p role="status" className="text-sm text-slate-700 leading-relaxed">
               {confirmacion}
             </p>
-            <p className="text-xs text-slate-500 mt-4 leading-relaxed">
+            <p className="text-xs text-slate-600 mt-4 leading-relaxed">
               El enlace vence en una hora y solo puede usarse una vez. Si no llega, revisa
               la carpeta de correo no deseado.
             </p>
@@ -114,7 +114,7 @@ export default function RecuperarPage() {
                 aria-describedby={error ? ID_ERROR : undefined}
                 className={inputClass}
               />
-              <p className="text-xs text-slate-500 mt-2">
+              <p className="text-xs text-slate-600 mt-2">
                 Escribe el correo con el que inicias sesión.
               </p>
             </div>

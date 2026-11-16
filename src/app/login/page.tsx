@@ -35,7 +35,7 @@ const ID_ERROR = 'login-error'
 const inputClass =
   'w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm bg-white focus:outline-none focus:border-doc-blue focus-visible:ring-2 focus-visible:ring-doc-blue/40 transition-colors'
 const labelClass =
-  'block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider'
+  'block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider'
 
 function FormularioDeLogin() {
   const router = useRouter()
@@ -83,13 +83,13 @@ function FormularioDeLogin() {
         <div className="w-full max-w-md">
           <Link
             href="/"
-            className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-6 transition-colors"
+            className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-700 mb-6 transition-colors"
           >
             <Icon name="back" size={16} /> Volver
           </Link>
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-slate-800 mb-2 font-outfit">Iniciar sesión</h1>
-            <p className="text-slate-500 text-sm">Ingresa tus credenciales para continuar</p>
+            <p className="text-slate-600 text-sm">Ingresa tus credenciales para continuar</p>
           </div>
 
           {expiroPorInactividad && (
@@ -166,7 +166,7 @@ function FormularioDeLogin() {
             <p className="text-center text-sm mt-4">
               <Link
                 href="/recuperar"
-                className="text-slate-500 hover:text-doc-blue hover:underline cursor-pointer"
+                className="text-slate-600 hover:text-doc-blue hover:underline cursor-pointer"
               >
                 ¿Olvidaste tu contraseña?
               </Link>
@@ -175,14 +175,14 @@ function FormularioDeLogin() {
             {/* Aquí estaba «Registrarme como médico». El registro público se
                 retiró (HU-02): las cuentas del personal las crea el
                 administrador, que es quien responde por quién entra. */}
-            <p className="text-center text-sm text-slate-500 mt-5">
+            <p className="text-center text-sm text-slate-600 mt-5">
               ¿Sin cuenta? Pídala al administrador de su clínica.
             </p>
           </form>
 
           {/* Fuera del formulario: no es parte de iniciar sesión, es lo que
               puede hacer quien llegó aquí buscando dónde atenderse (HU-28). */}
-          <p className="text-center text-sm text-slate-500 mt-6">
+          <p className="text-center text-sm text-slate-600 mt-6">
             ¿Buscas dónde atenderte?{' '}
             <Link href="/mapa" className="font-semibold text-doc-blue hover:underline">
               Ver el mapa de clínicas

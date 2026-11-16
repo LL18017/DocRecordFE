@@ -143,7 +143,7 @@ export function VistaDelMapa() {
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex min-w-0 flex-col gap-1">
-            <label htmlFor={idSelector} className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <label htmlFor={idSelector} className="text-xs font-semibold uppercase tracking-wide text-slate-600">
               Departamento
             </label>
             <select
