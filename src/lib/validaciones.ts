@@ -27,9 +27,21 @@ export function hoyEnElSalvador(ahora: Date = new Date()): string {
   }).format(ahora)
 }
 
+/**
+ * La fecha de nacimiento más antigua que se acepta, la misma que el backend
+ * (PersonaRequestDto.PRIMERA_FECHA_DE_NACIMIENTO). Nadie que se atienda hoy
+ * nació antes de 1900: una fecha así es un año mal escrito (0990 por 1990).
+ */
+export const FECHA_MINIMA_DE_NACIMIENTO = '1900-01-01'
+
+/** Lo que se acepta, dicho de antemano junto al campo (CampoFechaDeNacimiento). */
+export const AYUDA_NACIMIENTO = 'Desde el 1 de enero de 1900 hasta hoy.'
+
 /** `fecha` es `YYYY-MM-DD`. Vacía no es un error aquí: de eso se ocupa `required`. */
 export function motivoNacimientoInvalido(fecha: string, hoy: string = hoyEnElSalvador()): string | null {
   if (!fecha) return null
   // Comparar texto ISO es comparar fechas: el formato es de ancho fijo.
-  return fecha > hoy ? 'La fecha de nacimiento no puede ser posterior a hoy.' : null
+  if (fecha > hoy) return 'La fecha de nacimiento no puede ser posterior a hoy.'
+  if (fecha < FECHA_MINIMA_DE_NACIMIENTO) return 'La fecha de nacimiento no puede ser anterior a 1900.'
+  return null
 }

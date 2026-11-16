@@ -292,6 +292,26 @@ describe('pacientes · confirmación antes de dar de baja', () => {
 })
 
 describe('pacientes · HU-08 criterios 1 y 3 y sede de registro', () => {
+  it('busca también por DUI y por correo de contacto', async () => {
+    const conCorreo = paciente(7, 'Paciente')
+    conCorreo.persona.apellidos = 'Portal'
+    conCorreo.persona.email = 'Naunflores6200@gmail.com'
+    listarPacientes.mockResolvedValue([CON_DOS, conCorreo])
+    const user = userEvent.setup()
+    render(<PacientesPage />)
+    await screen.findByText(/Carlos/)
+
+    const buscador = screen.getByPlaceholderText(/buscar por nombre, dui, teléfono o correo/i)
+    await user.type(buscador, 'naunflores6200')
+    expect(await screen.findByText('Paciente Portal')).toBeVisible()
+    expect(screen.queryByText(/Carlos/)).toBeNull()
+
+    await user.clear(buscador)
+    await user.type(buscador, conCorreo.persona.dui!)
+    expect(await screen.findByText('Paciente Portal')).toBeVisible()
+    expect(screen.queryByText(/Carlos/)).toBeNull()
+  })
+
   it('pagina de a 10', async () => {
     listarPacientes.mockResolvedValue(
       Array.from({ length: 12 }, (_, i) => paciente(i + 1, `Nombre${String(i + 1).padStart(2, '0')}`)),

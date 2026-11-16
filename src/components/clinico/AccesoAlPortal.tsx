@@ -190,12 +190,18 @@ const FormularioDeAcceso: React.FC<{
 }> = ({ acceso, quien, textoDelBoton, onListo, onCancelar }) => {
   const uid = useId()
   const sinCuenta = acceso.cuenta === null
-  // Se propone el correo de contacto de la ficha: casi siempre es el mismo, y
-  // el backend lo usa igual si no se manda ninguno.
-  const [email, setEmail] = useState(acceso.correoDeContacto ?? '')
+  // Sin activar, el correo todavía se puede corregir: nadie ha entrado con esa
+  // cuenta, y una invitación a un correo mal escrito no le llega a nadie. Al
+  // reenviar con otro, el backend corrige el de la cuenta y la invitación
+  // anterior deja de servir.
+  const sinActivar = acceso.cuenta?.estado === 'SIN_ACTIVAR'
+  const pideCorreo = sinCuenta || sinActivar
+  // Se propone el correo de contacto de la ficha (casi siempre es el mismo, y
+  // el backend lo usa igual si no se manda ninguno) o el de la invitación.
+  const [email, setEmail] = useState((sinActivar ? acceso.cuenta?.email : acceso.correoDeContacto) ?? '')
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const faltaCorreo = sinCuenta && !email.trim()
+  const faltaCorreo = pideCorreo && !email.trim()
 
   const enviar = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -203,7 +209,7 @@ const FormularioDeAcceso: React.FC<{
     setEnviando(true)
     setError(null)
     try {
-      const r = await darAccesoAlPortal(acceso.pacienteId, sinCuenta ? email : undefined)
+      const r = await darAccesoAlPortal(acceso.pacienteId, pideCorreo ? email : undefined)
       const correo = r.cuenta?.email ?? email.trim()
       onListo(
         r,
@@ -231,7 +237,7 @@ const FormularioDeAcceso: React.FC<{
         En el portal, {quien} ve su expediente en solo lectura —alergias, consultas, recetas y próximas citas— y lo
         puede descargar en PDF. No puede modificar nada.
       </p>
-      {sinCuenta ? (
+      {pideCorreo ? (
         <div>
           <label htmlFor={`${uid}-email`} className={labelClass}>
             Correo para iniciar sesión *
@@ -246,15 +252,15 @@ const FormularioDeAcceso: React.FC<{
             className={inputClass}
           />
           <p className="text-xs text-slate-400 mt-1">
-            Le llegará una invitación para elegir su contraseña. Hasta que la use, la cuenta no se puede usar.
+            {sinActivar
+              ? 'Todavía no activa su cuenta: se le enviará una invitación nueva y la anterior dejará de servir. Si el correo estaba mal escrito, corríjalo aquí.'
+              : 'Le llegará una invitación para elegir su contraseña. Hasta que la use, la cuenta no se puede usar.'}
           </p>
         </div>
       ) : (
         <p className="text-sm text-slate-600">
-          Cuenta: <strong>{acceso.cuenta?.email}</strong>
-          {acceso.cuenta?.estado === 'SIN_ACTIVAR'
-            ? '. Todavía no la activa: se le enviará una invitación nueva y la anterior dejará de servir.'
-            : '. Ya la usa para entrar; se le agregará el acceso a su portal.'}
+          Cuenta: <strong>{acceso.cuenta?.email}</strong>. Ya la usa para entrar; se le agregará el acceso a su
+          portal.
         </p>
       )}
       <div className="flex gap-3 pt-2 border-t border-slate-100">

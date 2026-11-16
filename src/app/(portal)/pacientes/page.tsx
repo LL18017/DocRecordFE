@@ -344,11 +344,16 @@ export default function PacientesPage() {
         // no dispara la fila cuando el clic sale de un botón o un enlace.
         onRowClick={(p) => router.push(`/pacientes/${p.id}`)}
         searchable
-        searchPlaceholder="Buscar por nombre, teléfono o expediente..."
+        // `id_num` es el DUI (ver pacienteAdapter), no el expediente: el texto
+        // de ayuda decía «expediente» y no era cierto. El correo de contacto
+        // se agregó porque es lo que se tiene a mano de un paciente que
+        // también es personal (su cuenta).
+        searchPlaceholder="Buscar por nombre, DUI, teléfono o correo..."
         searchFilter={(p, q) =>
           sinTildes(p.name).includes(sinTildes(q)) ||
           p.phone.includes(q) ||
-          p.id_num.includes(q)
+          p.id_num.includes(q) ||
+          p.email.toLowerCase().includes(q.toLowerCase())
         }
         // HU-08 criterio 1: de a 10 por página.
         pageSize={10}

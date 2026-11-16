@@ -3,6 +3,7 @@
 import React, { useId, useMemo, useState } from 'react'
 import { ApiError } from '@/lib/api'
 import { hoyEnElSalvador, motivoNacimientoInvalido, motivoTelefonoInvalido } from '@/lib/validaciones'
+import { CampoFechaDeNacimiento } from '@/components/forms/CampoFechaDeNacimiento'
 import {
   actualizarPaciente,
   type ActualizarPacientePayload,
@@ -155,22 +156,14 @@ export const EditPatientForm: React.FC<EditPatientFormProps> = ({ paciente, onUp
           <label htmlFor={id('fecha-nacimiento')} className={labelClass}>
             Fecha de nacimiento<Obligatorio />
           </label>
-          <input
-            required
-            type="date"
+          <CampoFechaDeNacimiento
             id={id('fecha-nacimiento')}
-            max={hoy}
-            value={fechaNacimiento}
-            onChange={(e) => setFechaNacimiento(e.target.value)}
-            aria-invalid={errorNacimiento ? true : undefined}
-            aria-describedby={errorNacimiento ? id('fecha-nacimiento-error') : undefined}
+            valor={fechaNacimiento}
+            onCambio={setFechaNacimiento}
+            hoy={hoy}
+            error={errorNacimiento}
             className={inputClass}
           />
-          {errorNacimiento && (
-            <p id={id('fecha-nacimiento-error')} role="alert" className="text-xs text-red-600 mt-1">
-              {errorNacimiento}
-            </p>
-          )}
         </div>
 
         <div className="col-span-2">

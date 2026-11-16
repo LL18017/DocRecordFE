@@ -45,6 +45,12 @@ interface DataTableProps<T> {
   emptyMessage?: React.ReactNode
   headerRight?: React.ReactNode
   className?: string
+  /**
+   * Texto con que arranca el buscador, p. ej. cuando otra pantalla enlaza a
+   * una fila concreta. Solo cuenta al montar la tabla; después manda quien
+   * escribe.
+   */
+  initialSearch?: string
 }
 
 export function DataTable<T>({
@@ -60,8 +66,9 @@ export function DataTable<T>({
   emptyMessage = 'No se encontraron registros.',
   headerRight,
   className = '',
+  initialSearch = '',
 }: DataTableProps<T>) {
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(initialSearch)
   const [currentPage, setCurrentPage] = useState(1)
 
   // Filtered data based on search

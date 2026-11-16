@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import React, { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
@@ -208,7 +209,20 @@ export default function MedicosPage() {
                   >
                     <td className="px-4 py-3">
                       <p className="font-medium">{nombre}</p>
-                      {m.cuenta && <p className="text-xs text-slate-400">{m.cuenta.email}</p>}
+                      {/* La cuenta con que entra, y el camino a ella: sus roles,
+                          sedes y estado se ven y se cambian en Usuarios y Roles. */}
+                      {m.cuenta ? (
+                        <Link
+                          href={`/usuarios?cuenta=${m.cuenta.userId}`}
+                          title="Ver la cuenta en Usuarios y Roles"
+                          aria-label={`Ver la cuenta de ${nombre} en Usuarios y Roles: ${m.cuenta.email}`}
+                          className="text-xs text-doc-blue hover:underline underline-offset-2"
+                        >
+                          Cuenta: {m.cuenta.email}
+                        </Link>
+                      ) : (
+                        <p className="text-xs text-slate-400">Sin cuenta</p>
+                      )}
                     </td>
                     <td className="px-4 py-3">{m.especialidad}</td>
                     <td className="px-4 py-3 font-mono text-xs">{m.registroJunta}</td>
@@ -441,15 +455,20 @@ const FormularioDeAcceso: React.FC<{
   onCancelar: () => void
 }> = ({ medico, sedes, onListo, onCancelar }) => {
   const uid = useId()
-  const [email, setEmail] = useState('')
+  const sinCuenta = medico.cuenta === null
+  // Sin activar, el correo todavía se puede corregir (ver AccesoAlPortal):
+  // nadie ha entrado con esa cuenta, y al reenviar con otro el backend corrige
+  // el de la cuenta y la invitación anterior deja de servir.
+  const sinActivar = medico.cuenta?.estado === 'SIN_ACTIVAR'
+  const pideCorreo = sinCuenta || sinActivar
+  const [email, setEmail] = useState(sinActivar ? (medico.cuenta?.email ?? '') : '')
   const [sedeId, setSedeId] = useState<number | ''>('')
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const sinCuenta = medico.cuenta === null
   // Sin ninguna sede el médico entra y se queda en la selección de clínica.
   const necesitaSede = sinCuenta || (medico.cuenta?.sedes.length ?? 0) === 0
-  const faltaDato = (sinCuenta && !email.trim()) || (necesitaSede && sedeId === '')
+  const faltaDato = (pideCorreo && !email.trim()) || (necesitaSede && sedeId === '')
 
   const enviar = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -458,7 +477,7 @@ const FormularioDeAcceso: React.FC<{
     setError(null)
     try {
       const r = await darAcceso(medico.personaId, {
-        email: sinCuenta ? email : undefined,
+        email: pideCorreo ? email : undefined,
         clinicaId: sedeId === '' ? undefined : sedeId,
       })
       const correo = r.medico.cuenta?.email ?? email
@@ -484,7 +503,7 @@ const FormularioDeAcceso: React.FC<{
           {error}
         </p>
       )}
-      {sinCuenta ? (
+      {pideCorreo ? (
         <div>
           <label htmlFor={`${uid}-email`} className={labelClass}>
             Correo para iniciar sesión *
@@ -499,14 +518,14 @@ const FormularioDeAcceso: React.FC<{
             className={inputClass}
           />
           <p className="text-xs text-slate-400 mt-1">
-            Le llegará una invitación para elegir su contraseña. Hasta que la use, la cuenta no se puede usar.
+            {sinActivar
+              ? 'Todavía no activa su cuenta: se le enviará una invitación nueva y la anterior dejará de servir. Si el correo estaba mal escrito, corríjalo aquí.'
+              : 'Le llegará una invitación para elegir su contraseña. Hasta que la use, la cuenta no se puede usar.'}
           </p>
         </div>
       ) : (
         <p className="text-sm text-slate-600">
           Cuenta: <strong>{medico.cuenta?.email}</strong>
-          {medico.cuenta?.estado === 'SIN_ACTIVAR' &&
-            '. Todavía no la activa: se le enviará una invitación nueva y la anterior dejará de servir.'}
         </p>
       )}
       <div>

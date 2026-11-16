@@ -1,7 +1,7 @@
 'use client'
 
-import Link from 'next/link'
-import React, { useCallback, useEffect, useId, useState } from 'react'
+import React, { Suspense, useCallback, useEffect, useId, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Role } from '@/types'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
@@ -10,7 +10,9 @@ import { sinTildes } from '@/lib/texto'
 import { Modal } from '@/components/ui/Modal'
 import { ApiError } from '@/lib/api'
 import { AYUDA_CONTRASENA, motivoContrasenaInvalida } from '@/lib/contrasena'
-import { hoyEnElSalvador, motivoNacimientoInvalido } from '@/lib/validaciones'
+import { hoyEnElSalvador, motivoNacimientoInvalido, motivoTelefonoInvalido } from '@/lib/validaciones'
+import { formatoDeJuntaValido } from '@/lib/registroJunta'
+import { CampoFechaDeNacimiento } from '@/components/forms/CampoFechaDeNacimiento'
 import { useAppContext, useUsuarioAutenticado } from '@/context/AppContext'
 import { etiquetaDeRoles } from '@/lib/roles'
 import {
@@ -26,11 +28,14 @@ import {
   quitarRol,
   reenviarConfirmacion,
   type AltaUsuarioDto,
+  type DatosAlAsignarRol,
   type RolDto,
   type UsuarioDto,
 } from '@/services/usuarios'
 import { HistorialDeUsuario } from '@/components/usuarios/HistorialDeUsuario'
 import { listarTodasLasClinicas, type ClinicaDto } from '@/services/clinicas'
+import { listarEspecialidades, type EspecialidadDto } from '@/services/personas'
+import { crearMedico } from '@/services/medicos'
 
 // Esta pantalla ya no es de solo lectura: sabe listar, dar de alta personal,
 // asignar un rol inicial y asignar/reestablecer contraseña. Lo que SIGUE sin
@@ -173,8 +178,25 @@ function SinAcceso({ detalle }: { detalle: string }) {
   )
 }
 
+/**
+ * `useSearchParams` obliga a que quien lo usa esté dentro de un Suspense: sin
+ * él, `next build` falla al prerenderizar la ruta (igual que en /activar).
+ */
 export default function UsuariosPage() {
+  return (
+    <Suspense fallback={null}>
+      <PantallaDeUsuarios />
+    </Suspense>
+  )
+}
+
+function PantallaDeUsuarios() {
   const usuario = useUsuarioAutenticado()
+  // Médicos enlaza a la cuenta de cada médico con `?cuenta=<userId>`: la
+  // tabla arranca filtrada por su correo. Viaja el id y no el correo, para no
+  // dejar datos personales en la URL (historial, registros del servidor).
+  // Fuera del router de Next (las pruebas) no hay parámetros: null.
+  const cuentaPedida = Number(useSearchParams()?.get('cuenta') ?? NaN)
   // Basta con que Administrador esté ENTRE sus roles, no que sea el único: una
   // cuenta ADMIN+MEDICO conserva el acceso a esta pantalla.
   const tieneAcceso = usuario.roles.includes(ROL_CON_ACCESO)
@@ -532,6 +554,7 @@ export default function UsuariosPage() {
               columns={columns}
               keyExtractor={(u) => u.userId}
               searchable
+              initialSearch={usuarios.find((u) => u.userId === cuentaPedida)?.email ?? ''}
               searchPlaceholder="Buscar por nombre, correo o rol..."
               searchFilter={(u, q) =>
                 sinTildes(u.userName).includes(sinTildes(q)) ||
@@ -1061,6 +1084,21 @@ const FormularioNuevoUsuario: React.FC<FormularioNuevoUsuarioProps> = ({
   )
 }
 
+/**
+ * Nombres y apellidos a partir del nombre completo, con la misma regla que el
+ * alta en el backend (UserService.dividirNombreCompleto): la primera palabra
+ * son los nombres y el resto los apellidos. Solo para cuando la cuenta no trae
+ * las partes —la respuesta del alta no las incluye—; quien confirma el rol las
+ * ve y las corrige.
+ */
+function partirNombre(completo: string): [string, string] {
+  const limpio = completo.trim()
+  const espacio = limpio.indexOf(' ')
+  if (espacio < 0) return [limpio, limpio]
+  const apellidos = limpio.slice(espacio + 1).trim()
+  return [limpio.slice(0, espacio), apellidos || limpio.slice(0, espacio)]
+}
+
 interface FormularioAsignarRolProps {
   usuario: UsuarioDto
   /**
@@ -1110,6 +1148,24 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   // valor, el modal muestra el aviso de volver a iniciar sesión.
   const [pacienteAsignado, setPacienteAsignado] = useState<UsuarioDto | null>(null)
 
+  // El nombre con que quedan el expediente o la ficha que se abren aquí. Es
+  // el de la persona de la cuenta, y se propone para confirmarlo o
+  // corregirlo: una cuenta puede traer uno de relleno —el primer
+  // administrador nace como «Administrador Del Sistema»— y sin esto el
+  // expediente lo heredaba. Corregirlo aquí lo corrige también en la cuenta,
+  // porque es la misma persona.
+  const [nombres, setNombres] = useState(usuario.nombres ?? partirNombre(usuario.userName)[0])
+  const [apellidos, setApellidos] = useState(usuario.apellidos ?? partirNombre(usuario.userName)[1])
+
+  // La ficha de médico (HU-02 c1) de quien todavía no la tiene: se registra
+  // al darle el rol, o sola si la cuenta ya tenía el rol sin ficha.
+  const [especialidades, setEspecialidades] = useState<EspecialidadDto[] | null>(null)
+  const [especialidadId, setEspecialidadId] = useState<number | ''>('')
+  const [junta, setJunta] = useState('')
+  const [telefono, setTelefono] = useState('')
+  const [registrandoFicha, setRegistrandoFicha] = useState(false)
+  const [fichaRegistrada, setFichaRegistrada] = useState<string | null>(null)
+
   // La primera sede. Un médico o una enfermera sin ninguna no puede entrar a
   // trabajar, así que a quien aún no tiene sede el rol clínico se le da junto
   // con ella (el backend responde 400 si falta).
@@ -1142,6 +1198,20 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   }, [])
 
   useEffect(() => {
+    let vigente = true
+    listarEspecialidades()
+      .then((lista) => {
+        if (vigente) setEspecialidades(lista.filter((e) => e.activa))
+      })
+      .catch(() => {
+        if (vigente) setEspecialidades([])
+      })
+    return () => {
+      vigente = false
+    }
+  }, [])
+
+  useEffect(() => {
     // Se pide al abrir el modal, no al montar la pantalla: `GET /roles/all`
     // no cambia entre una fila y otra, pero pedirlo solo cuando hace falta
     // evita una llamada de más en cada visita a Usuarios y Roles.
@@ -1165,10 +1235,9 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
 
   const rolSeleccionado = disponibles.find((rol) => rol.id === rolSeleccionadoId) ?? null
   const seleccionaMedico = rolSeleccionado !== null && normalizarNombreDeRol(rolSeleccionado.name) === 'MEDICO'
-  // `especialidad` no nula = la persona ya tiene ficha de médico. HU-02: la
-  // ficha —especialidad y número de junta— se registra en Médicos, y es ahí
-  // donde se da de alta a un médico; aquí solo se le da el rol a quien ya la
-  // tiene. Sin ficha el backend responde 409, así que ni se ofrece.
+  // `especialidad` no nula = la persona ya tiene ficha de médico. HU-02: el
+  // rol Médico no se da sin ficha —especialidad y número de junta—; a quien no
+  // la tiene se le registra aquí mismo, en el mismo paso que el rol.
   const tieneFicha = usuario.especialidad !== null
   const faltaFicha = seleccionaMedico && !tieneFicha
   const seleccionaRolClinico =
@@ -1205,22 +1274,42 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
   // guardar una consulta; se reparan registrando su ficha en Médicos.
   const medicoSinFicha = yaTiene.has('MEDICO') && !tieneFicha
 
+  // El nombre se pide cuando se crea algo que lo lleva: el expediente o la
+  // ficha. Con los demás roles no se toca.
+  const pideNombreAlAsignar = abreExpediente || faltaFicha
+  const faltaNombre = nombres.trim() === '' || apellidos.trim() === ''
+  const errorJunta =
+    junta.trim() !== '' && !formatoDeJuntaValido(junta)
+      ? 'Use de 3 a 20 letras, números o guiones, con al menos un número.'
+      : null
+  const errorTelefono = motivoTelefonoInvalido(telefono)
+  const fichaIncompleta =
+    faltaNombre || especialidadId === '' || !formatoDeJuntaValido(junta) || errorTelefono !== null
+  const faltanDatosDeFicha = faltaFicha && fichaIncompleta
+
   const handleConfirmar = async () => {
-    if (rolSeleccionadoId === null || faltaFicha || faltaSede || faltanDatosDeExpediente) return
+    if (
+      rolSeleccionadoId === null ||
+      faltanDatosDeFicha ||
+      (pideNombreAlAsignar && faltaNombre) ||
+      faltaSede ||
+      faltanDatosDeExpediente
+    )
+      return
     setAsignando(true)
     setError(null)
     try {
       // `clinicaId` dice cosas distintas según el rol: con Médico o Enfermera
       // es la sede donde va a trabajar; con Paciente, la sede donde se abre su
       // expediente. Si ya tiene expediente no viaja nada de eso: el backend lo
-      // ignoraría.
+      // ignoraría. Con Médico sin ficha viajan los datos de la ficha.
       const clinicaId =
         necesitaSede && sedeId !== '' ? sedeId : abreExpediente ? activeClinic?.id : undefined
       const actualizado = await asignarRol(
         usuario.userId,
         rolSeleccionadoId,
         clinicaId,
-        abreExpediente && sexo !== '' ? { dui: duiNormalizado, fechaNacimiento, sexo } : undefined,
+        datosDelRol(),
       )
       if (seleccionaPaciente) {
         onActualizado(actualizado)
@@ -1232,6 +1321,53 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
       setError(err instanceof ApiError ? err.message : 'No se pudo asignar el rol.')
     } finally {
       setAsignando(false)
+    }
+  }
+
+  /** Lo que acompaña al rol, si darlo crea el expediente o la ficha. */
+  const datosDelRol = (): DatosAlAsignarRol | undefined => {
+    if (abreExpediente && sexo !== '') {
+      return { dui: duiNormalizado, fechaNacimiento, sexo, nombres, apellidos }
+    }
+    if (faltaFicha && especialidadId !== '') {
+      return { nombres, apellidos, especialidadId, registroJunta: junta, telefono }
+    }
+    return undefined
+  }
+
+  /**
+   * Registra la ficha de médico de una cuenta que ya tiene el rol Médico sin
+   * ella (las de antes de que la ficha fuera obligatoria): pasan el control de
+   * permisos y reciben 403 al guardar una consulta. La ficha se cuelga de la
+   * persona de la cuenta (`userId`); el modal sigue abierto con la cuenta ya
+   * arreglada.
+   */
+  const handleRegistrarFicha = async () => {
+    // `fichaIncompleta` ya incluye la especialidad vacía.
+    if (fichaIncompleta) return
+    setRegistrandoFicha(true)
+    setError(null)
+    try {
+      const ficha = await crearMedico({
+        nombres,
+        apellidos,
+        telefono,
+        especialidadId,
+        registroJunta: junta,
+        userId: usuario.userId,
+      })
+      onActualizado({
+        ...usuario,
+        especialidad: ficha.especialidad,
+        nombres: ficha.nombres,
+        apellidos: ficha.apellidos,
+        userName: `${ficha.nombres} ${ficha.apellidos}`.trim(),
+      })
+      setFichaRegistrada(`Ficha de médico registrada: ${ficha.especialidad}, junta ${ficha.registroJunta}.`)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo registrar la ficha de médico.')
+    } finally {
+      setRegistrandoFicha(false)
     }
   }
 
@@ -1350,7 +1486,49 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
         )}
       </div>
 
-      {medicoSinFicha && <AvisoSinFicha />}
+      {fichaRegistrada && (
+        <p
+          role="status"
+          className="rounded-xl border-2 border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+        >
+          {fichaRegistrada}
+        </p>
+      )}
+
+      {medicoSinFicha && (
+        <div className="space-y-3 rounded-xl border-2 border-amber-200 bg-amber-50/60 px-4 py-3">
+          <p className="text-sm text-amber-900">
+            Esta cuenta tiene el rol Médico pero <strong>no tiene ficha de médico</strong>: sin ella
+            puede ver las pantallas clínicas, pero no registrar consultas, recetas ni antecedentes.
+            Complétela aquí.
+          </p>
+          <CamposDeNombre
+            nombres={nombres}
+            onNombres={setNombres}
+            apellidos={apellidos}
+            onApellidos={setApellidos}
+          />
+          <CamposDeFichaNueva
+            especialidades={especialidades}
+            especialidadId={especialidadId}
+            onEspecialidad={setEspecialidadId}
+            junta={junta}
+            onJunta={setJunta}
+            errorJunta={errorJunta}
+            telefono={telefono}
+            onTelefono={setTelefono}
+            errorTelefono={errorTelefono}
+          />
+          <button
+            type="button"
+            onClick={() => void handleRegistrarFicha()}
+            disabled={registrandoFicha || fichaIncompleta}
+            className={botonConfirmar}
+          >
+            {registrandoFicha ? 'Registrando…' : 'Registrar ficha de médico'}
+          </button>
+        </div>
+      )}
 
       <div className="pt-3 border-t border-slate-100">
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
@@ -1394,7 +1572,31 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
               {etiquetaDeRol(rol.name)}
             </label>
           ))}
-          {faltaFicha && <AvisoSinFicha />}
+          {faltaFicha && (
+            <div className="space-y-3 pt-1">
+              <p className="rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                Todavía no tiene ficha de médico: se registra con estos datos al darle el rol. Después
+                se corrige en Médicos.
+              </p>
+              <CamposDeNombre
+                nombres={nombres}
+                onNombres={setNombres}
+                apellidos={apellidos}
+                onApellidos={setApellidos}
+              />
+              <CamposDeFichaNueva
+                especialidades={especialidades}
+                especialidadId={especialidadId}
+                onEspecialidad={setEspecialidadId}
+                junta={junta}
+                onJunta={setJunta}
+                errorJunta={errorJunta}
+                telefono={telefono}
+                onTelefono={setTelefono}
+                errorTelefono={errorTelefono}
+              />
+            </div>
+          )}
           {necesitaSede && (
             <div className="pt-1">
               <SelectorDeSede sedes={sedesDisponibles} valor={sedeId} onCambio={setSedeId} />
@@ -1408,6 +1610,14 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
               </p>
             ) : (
               <CamposDeExpedienteNuevo
+                campoDeNombre={
+                  <CamposDeNombre
+                    nombres={nombres}
+                    onNombres={setNombres}
+                    apellidos={apellidos}
+                    onApellidos={setApellidos}
+                  />
+                }
                 sede={activeClinic?.name ?? null}
                 hoy={hoy}
                 dui={dui}
@@ -1443,7 +1653,8 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
             disabled={
               asignando ||
               rolSeleccionadoId === null ||
-              faltaFicha ||
+              faltanDatosDeFicha ||
+              (pideNombreAlAsignar && faltaNombre) ||
               faltaSede ||
               faltanDatosDeExpediente
             }
@@ -1460,20 +1671,136 @@ const FormularioAsignarRol: React.FC<FormularioAsignarRolProps> = ({
 }
 
 /**
- * Aviso para quien quiere dar el rol Médico a una cuenta sin ficha (HU-02).
- * La ficha —especialidad y número de junta— se registra en Médicos, colgada
- * de esta misma cuenta, y desde ahí se le da el acceso.
+ * Nombres y apellidos de la persona de la cuenta, propuestos para confirmar o
+ * corregir. Los lleva el expediente o la ficha de médico que se abre, y como
+ * es la misma persona, también la cuenta.
  */
-const AvisoSinFicha: React.FC = () => (
-  <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-    Esta cuenta <strong>no tiene ficha de médico</strong>: sin ella puede ver las pantallas clínicas,
-    pero no registrar consultas, recetas ni antecedentes. Regístrela en{' '}
-    <Link href="/medicos" className="font-semibold underline underline-offset-2">
-      Médicos
-    </Link>
-    , con su especialidad y su número de junta, y dele acceso desde ahí.
-  </div>
-)
+const CamposDeNombre: React.FC<{
+  nombres: string
+  onNombres: (valor: string) => void
+  apellidos: string
+  onApellidos: (valor: string) => void
+}> = ({ nombres, onNombres, apellidos, onApellidos }) => {
+  const uid = useId()
+  return (
+    <div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label htmlFor={`${uid}-nombres`} className={labelClass}>
+            Nombres<Obligatorio />
+          </label>
+          <input
+            id={`${uid}-nombres`}
+            required
+            maxLength={80}
+            value={nombres}
+            onChange={(e) => onNombres(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label htmlFor={`${uid}-apellidos`} className={labelClass}>
+            Apellidos<Obligatorio />
+          </label>
+          <input
+            id={`${uid}-apellidos`}
+            required
+            maxLength={80}
+            value={apellidos}
+            onChange={(e) => onApellidos(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+      </div>
+      <p className="text-xs text-slate-500 mt-1">
+        Es la misma persona de la cuenta: si corrige el nombre, cambia también en la cuenta.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * Especialidad, número de junta y teléfono: la ficha de médico (HU-02 c1),
+ * con las mismas reglas que en Médicos.
+ */
+const CamposDeFichaNueva: React.FC<{
+  especialidades: EspecialidadDto[] | null
+  especialidadId: number | ''
+  onEspecialidad: (valor: number | '') => void
+  junta: string
+  onJunta: (valor: string) => void
+  errorJunta: string | null
+  telefono: string
+  onTelefono: (valor: string) => void
+  errorTelefono: string | null
+}> = ({ especialidades, especialidadId, onEspecialidad, junta, onJunta, errorJunta, telefono, onTelefono, errorTelefono }) => {
+  const uid = useId()
+  return (
+    <div className="space-y-3">
+      <div>
+        <label htmlFor={`${uid}-especialidad`} className={labelClass}>
+          Especialidad<Obligatorio />
+        </label>
+        <select
+          id={`${uid}-especialidad`}
+          value={especialidadId}
+          onChange={(e) => onEspecialidad(e.target.value === '' ? '' : Number(e.target.value))}
+          disabled={especialidades === null}
+          className={inputClass}
+        >
+          <option value="">{especialidades === null ? 'Cargando especialidades…' : 'Seleccione…'}</option>
+          {(especialidades ?? []).map((e) => (
+            <option key={e.especialidadId} value={e.especialidadId}>
+              {e.nombre}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label htmlFor={`${uid}-junta`} className={labelClass}>
+          Número de junta de vigilancia<Obligatorio />
+        </label>
+        <input
+          id={`${uid}-junta`}
+          required
+          maxLength={20}
+          placeholder="JVPM-12345"
+          value={junta}
+          onChange={(e) => onJunta(e.target.value)}
+          aria-invalid={errorJunta ? true : undefined}
+          aria-describedby={errorJunta ? `${uid}-junta-error` : undefined}
+          className={inputClass}
+        />
+        {errorJunta && (
+          <p id={`${uid}-junta-error`} role="alert" className="text-xs text-red-600 mt-1">
+            {errorJunta}
+          </p>
+        )}
+      </div>
+      <div>
+        <label htmlFor={`${uid}-telefono`} className={labelClass}>
+          Teléfono
+        </label>
+        <input
+          id={`${uid}-telefono`}
+          inputMode="tel"
+          maxLength={9}
+          placeholder="7777-0000"
+          value={telefono}
+          onChange={(e) => onTelefono(e.target.value)}
+          aria-invalid={errorTelefono ? true : undefined}
+          aria-describedby={errorTelefono ? `${uid}-telefono-error` : undefined}
+          className={inputClass}
+        />
+        {errorTelefono && (
+          <p id={`${uid}-telefono-error`} role="alert" className="text-xs text-red-600 mt-1">
+            {errorTelefono}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
 
 /**
  * Selector de la primera sede de un médico o una enfermera. Sin sedes
@@ -1532,8 +1859,9 @@ function normalizarDui(valor: string): string {
  * Lo mínimo para abrirle expediente a una cuenta que se va a atender como
  * paciente: DUI, fecha de nacimiento y sexo. Fecha y sexo los exige el
  * backend; el DUI se pide aquí porque es lo que usa Pacientes para encontrar
- * a alguien, y un expediente sin él solo se halla por el nombre. El nombre ya
- * lo tiene la cuenta; el resto de la ficha se completa después en Pacientes,
+ * a alguien, y un expediente sin él solo se halla por el nombre. El nombre es
+ * el de la cuenta, propuesto para corregirlo; el resto de la ficha se completa
+ * después en Pacientes,
  * donde sí se edita, en vez de convertir este diálogo de permisos en un
  * segundo formulario de alta de pacientes.
  *
@@ -1541,6 +1869,8 @@ function normalizarDui(valor: string): string {
  * regla que el backend y que el alta de pacientes.
  */
 const CamposDeExpedienteNuevo: React.FC<{
+  /** Nombres y apellidos (CamposDeNombre), debajo del aviso. */
+  campoDeNombre: React.ReactNode
   /** Nombre de la sede activa, donde se abre el expediente; `null` si no hay. */
   sede: string | null
   hoy: string
@@ -1552,7 +1882,19 @@ const CamposDeExpedienteNuevo: React.FC<{
   errorNacimiento: string | null
   sexo: 'M' | 'F' | ''
   onSexo: (valor: 'M' | 'F') => void
-}> = ({ sede, hoy, dui, onDui, errorDui, fechaNacimiento, onFechaNacimiento, errorNacimiento, sexo, onSexo }) => {
+}> = ({
+  campoDeNombre,
+  sede,
+  hoy,
+  dui,
+  onDui,
+  errorDui,
+  fechaNacimiento,
+  onFechaNacimiento,
+  errorNacimiento,
+  sexo,
+  onSexo,
+}) => {
   const uid = useId()
   return (
     <div className="space-y-3 pt-1">
@@ -1564,9 +1906,10 @@ const CamposDeExpedienteNuevo: React.FC<{
             en <strong>{sede}</strong>
           </>
         )}{' '}
-        con el nombre de la cuenta y su DUI. Los demás datos se completan después desde la ficha
-        del paciente.
+        con este nombre y su DUI. Los demás datos se completan después desde la ficha del
+        paciente.
       </p>
+      {campoDeNombre}
       <div>
         <label htmlFor={`${uid}-dui`} className={labelClass}>
           DUI<Obligatorio />
@@ -1594,22 +1937,14 @@ const CamposDeExpedienteNuevo: React.FC<{
         <label htmlFor={`${uid}-nacimiento`} className={labelClass}>
           Fecha de nacimiento<Obligatorio />
         </label>
-        <input
+        <CampoFechaDeNacimiento
           id={`${uid}-nacimiento`}
-          type="date"
-          required
-          max={hoy}
-          value={fechaNacimiento}
-          onChange={(e) => onFechaNacimiento(e.target.value)}
-          aria-invalid={errorNacimiento ? true : undefined}
-          aria-describedby={errorNacimiento ? `${uid}-nacimiento-error` : undefined}
+          valor={fechaNacimiento}
+          onCambio={onFechaNacimiento}
+          hoy={hoy}
+          error={errorNacimiento}
           className={inputClass}
         />
-        {errorNacimiento && (
-          <p id={`${uid}-nacimiento-error`} role="alert" className="text-xs text-red-600 mt-1">
-            {errorNacimiento}
-          </p>
-        )}
       </div>
       <div>
         <span id={`${uid}-sexo`} className={labelClass}>
