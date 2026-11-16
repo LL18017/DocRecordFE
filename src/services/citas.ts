@@ -1,4 +1,4 @@
-// ─── Servicio de citas (HU-30, HU-32) ──────────────────────────────────────
+// ─── Servicio de citas (HU-30, HU-31, HU-32) ───────────────────────────────
 // `/citas`: agendar, reprogramar y cancelar. Lo usa el personal de la sede
 // —médico y enfermera— desde la Agenda; el backend aún no le da ningún
 // permiso al rol PACIENTE.
@@ -8,9 +8,14 @@
 //
 // Cancelar NO borra: `PATCH /citas/{id}/cancelacion` deja la cita CANCELADA
 // con su motivo y libera la franja. Por eso aquí no hay `eliminar`.
-import { apiFetch, ApiError } from '@/lib/api'
+//
+// HU-31: el médico abre la agenda en «Mis citas» (el backend resuelve quién
+// es a partir del token), marca «No asistió» una cita agendada cuya hora ya
+// pasó, e inicia la consulta desde la cita: la consulta lleva el `citaId` y es
+// el backend quien deja la cita ATENDIDA.
+import { apiFetch, ApiError, esNegativaGenericaDePermisos } from '@/lib/api'
 
-export type EstadoDeCita = 'AGENDADA' | 'CANCELADA' | 'ATENDIDA'
+export type EstadoDeCita = 'AGENDADA' | 'CANCELADA' | 'ATENDIDA' | 'NO_ASISTIO'
 
 /** Espejo de `CitaResponseDto`. */
 export interface CitaDto {
@@ -29,6 +34,8 @@ export interface CitaDto {
   clinica: string | null
   estado: EstadoDeCita
   motivoCancelacion: string | null
+  /** Motivo de la cita (HU-31 c3). Opcional: las citas antiguas no lo traen. */
+  motivo?: string | null
 }
 
 export interface TipoDeCitaDto {
@@ -49,6 +56,8 @@ export interface AgendarCitaPayload {
   tipoCitaId: number
   medicoId: number
   clinicaId: number
+  /** Motivo de la cita, opcional (máx. 500). Vacío no se manda. */
+  motivo?: string
 }
 
 /** Una cita no se cancela ni se reprograma con menos de esto (HU-32 c2). */
@@ -58,25 +67,38 @@ export const ETIQUETA_DE_ESTADO: Record<EstadoDeCita, string> = {
   AGENDADA: 'Agendada',
   ATENDIDA: 'Atendida',
   CANCELADA: 'Cancelada',
+  NO_ASISTIO: 'No asistió',
 }
 
-/** La agenda de la sede entre dos días (`AAAA-MM-DD`), ambos incluidos. */
+/**
+ * La agenda de la sede entre dos días (`AAAA-MM-DD`), ambos incluidos. Con
+ * `mias` el backend la reduce a las citas del médico en sesión (HU-31 c1).
+ */
 export function listarAgenda(
   clinicaId: number,
   desde: string,
   hasta: string = desde,
-  medicoId?: number,
+  opciones: { medicoId?: number; mias?: boolean } = {},
 ): Promise<CitaDto[]> {
   const params = new URLSearchParams({ clinicaId: String(clinicaId), desde, hasta })
-  if (medicoId) params.set('medicoId', String(medicoId))
+  if (opciones.medicoId) params.set('medicoId', String(opciones.medicoId))
+  if (opciones.mias) params.set(PARAMETRO_MIS_CITAS, 'true')
   return apiFetch<CitaDto[]>(`/citas?${params}`)
 }
+
+/** Nombre del parámetro de `GET /citas` que pide solo las del médico en sesión. */
+export const PARAMETRO_MIS_CITAS = 'mias'
 
 /**
  * Las horas libres de un médico en la sede un día (`AAAA-MM-DD`): dentro de su
  * horario (HU-29), sin las ocupadas ni las que ya pasaron. Las calcula el
  * backend, que es quien conoce el horario.
  */
+/** Una cita por su id (`GET /citas/{id}`). */
+export function obtenerCita(citaId: number): Promise<CitaDto> {
+  return apiFetch<CitaDto>(`/citas/${citaId}`)
+}
+
 export function listarFranjasLibres(clinicaId: number, medicoId: number, fecha: string): Promise<string[]> {
   return apiFetch<string[]>(`/citas/franjas?clinicaId=${clinicaId}&medicoId=${medicoId}&fecha=${fecha}`)
 }
@@ -111,6 +133,18 @@ export async function reprogramarCita(citaId: number, fechaHora: string, medicoI
 export async function marcarAtendida(citaId: number): Promise<CitaDto> {
   try {
     return await apiFetch<CitaDto>(`/citas/${citaId}`, { method: 'PUT', body: { estado: 'ATENDIDA' } })
+  } catch (error) {
+    throw traducirError(error)
+  }
+}
+
+/**
+ * HU-31 c4: el paciente no llegó. Solo vale para una cita AGENDADA cuya hora
+ * ya pasó; si no, el backend responde con su motivo y ese es el que se muestra.
+ */
+export async function marcarNoAsistio(citaId: number): Promise<CitaDto> {
+  try {
+    return await apiFetch<CitaDto>(`/citas/${citaId}/no-asistio`, { method: 'PATCH' })
   } catch (error) {
     throw traducirError(error)
   }
@@ -152,11 +186,16 @@ export function admiteCambios(cita: CitaDto, ahora: Date = new Date()): boolean 
   return new Date(cita.fechaHora).getTime() >= limite
 }
 
+/** Si la hora de la cita ya pasó: entonces cabe marcarla «No asistió» (HU-31 c4). */
+export function yaPaso(cita: CitaDto, ahora: Date = new Date()): boolean {
+  return new Date(cita.fechaHora).getTime() <= ahora.getTime()
+}
+
 /** Franjas ocupadas de un médico en un día: las canceladas no ocupan. */
 export function franjasOcupadas(citas: CitaDto[], medicoId: number, excepto?: number): Set<string> {
   return new Set(
     citas
-      .filter((c) => c.medicoId === medicoId && c.estado !== 'CANCELADA' && c.citaId !== excepto)
+      .filter((c) => c.medicoId === medicoId && c.estado !== 'CANCELADA' && c.estado !== 'NO_ASISTIO' && c.citaId !== excepto)
       .map((c) => horaDe(c.fechaHora)),
   )
 }
@@ -165,7 +204,10 @@ function traducirError(error: unknown): Error {
   if (!(error instanceof ApiError)) {
     return error instanceof Error ? error : new Error('No se pudo completar la operación.')
   }
-  if (error.status === 403) {
+  // Solo el 403 GENÉRICO de Spring se cambia por el local. El que trae una
+  // regla propia («Solo el médico de la cita, enfermería de su sede…», HU-31)
+  // se muestra tal cual: dice exactamente por qué no.
+  if (esNegativaGenericaDePermisos(error)) {
     return new ApiError(403, 'Su rol no puede gestionar citas.')
   }
   // 400 y 409 traen el mensaje del backend —franja ocupada, fecha pasada,

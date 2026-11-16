@@ -18,12 +18,33 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ApiError } from '@/lib/api'
-import type { ConsultaDto } from '@/services/consultas'
+import type { ConsultaDto, CrearConsultaPayload } from '@/services/consultas'
 import type { PacienteDto } from '@/services/pacientes'
+import type { CitaDto } from '@/services/citas'
 import ConsultasPage from './page'
 
 const listarConsultas = vi.fn<() => Promise<ConsultaDto[]>>()
 const listarPacientes = vi.fn<() => Promise<PacienteDto[]>>()
+const crearConsulta = vi.fn<(p: CrearConsultaPayload) => Promise<ConsultaDto>>()
+const obtenerCita = vi.fn<(id: number) => Promise<CitaDto>>()
+
+// HU-31: la Agenda abre esta pantalla con `?citaId=…&pacienteId=…`. Sin
+// parámetros (el resto de pruebas) la pantalla es la de siempre.
+let parametros = new URLSearchParams()
+vi.mock('next/navigation', () => ({ useSearchParams: () => parametros }))
+
+vi.mock('@/services/citas', async (importarOriginal) => {
+  const real = await importarOriginal<typeof import('@/services/citas')>()
+  return { ...real, obtenerCita: (id: number) => obtenerCita(id) }
+})
+
+// El formulario de alta lee la sesión: un médico en la sede 5.
+vi.mock('@/context/AppContext', () => ({
+  useAppContext: () => ({
+    user: { name: 'Juan Guerra', roles: ['medico'] },
+    activeClinic: { id: 5, name: 'Clínica Escalón', lat: null, lng: null },
+  }),
+}))
 
 vi.mock('@/services/consultas', async (importarOriginal) => {
   // Los formateadores y las ayudas de nulos se dejan reales: son justamente lo
@@ -32,6 +53,7 @@ vi.mock('@/services/consultas', async (importarOriginal) => {
   return {
     ...real,
     listarConsultas: () => listarConsultas(),
+    crearConsulta: (p: CrearConsultaPayload) => crearConsulta(p),
   }
 })
 
@@ -56,8 +78,11 @@ function consulta(cambios: Partial<ConsultaDto> = {}): ConsultaDto {
 }
 
 beforeEach(() => {
+  parametros = new URLSearchParams()
   listarConsultas.mockReset()
   listarPacientes.mockReset()
+  crearConsulta.mockReset()
+  obtenerCita.mockReset()
   listarConsultas.mockResolvedValue([consulta()])
   listarPacientes.mockResolvedValue([])
 })
@@ -259,5 +284,58 @@ describe('consultas · carga', () => {
     // está viendo está completa.
     expect(screen.getByRole('alert')).toHaveTextContent(/catálogo de pacientes/i)
     expect(screen.getByRole('alert')).toHaveTextContent(/Error del servidor \(500\)/i)
+  })
+})
+
+describe('consultas · iniciada desde la cita de la agenda (HU-31 c5)', () => {
+  const CITA: CitaDto = {
+    citaId: 15,
+    fechaHora: '2026-11-15T09:00:00',
+    tipoCitaId: 1,
+    tipoCita: 'Consulta general',
+    pacienteId: 42,
+    paciente: 'Ana María Ramírez',
+    expediente: 'EXP-0042',
+    medicoId: 3,
+    medico: 'Juan Guerra',
+    clinicaId: 5,
+    clinica: 'Clínica Escalón',
+    estado: 'AGENDADA',
+    motivoCancelacion: null,
+    motivo: 'Control de presión arterial',
+  }
+
+  it('abre el alta con el paciente y el motivo de la cita, y envía el citaId', async () => {
+    parametros = new URLSearchParams({ citaId: '15', pacienteId: '42' })
+    obtenerCita.mockResolvedValue(CITA)
+    crearConsulta.mockResolvedValue(consulta({ consultaId: 30 }))
+    const user = montar()
+
+    const motivo = await screen.findByLabelText(/motivo de consulta/i)
+    expect(obtenerCita).toHaveBeenCalledWith(15)
+    expect(motivo).toHaveValue('Control de presión arterial')
+    expect(screen.getByLabelText(/^paciente/i)).toHaveValue('42')
+
+    await user.type(screen.getByLabelText(/^diagnóstico/i), 'Hipertensión controlada')
+    await user.click(screen.getByRole('button', { name: /guardar consulta/i }))
+
+    await waitFor(() => expect(crearConsulta).toHaveBeenCalled())
+    expect(crearConsulta.mock.calls[0][0]).toMatchObject({
+      pacienteId: 42,
+      citaId: 15,
+      motivo: 'Control de presión arterial',
+      diagnostico: 'Hipertensión controlada',
+    })
+    expect(await screen.findByText(/la cita quedó atendida/i)).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Volver a la agenda' })).toHaveAttribute('href', '/agenda')
+  })
+
+  it('no abre el alta si la cita ya no está agendada', async () => {
+    parametros = new URLSearchParams({ citaId: '15', pacienteId: '42' })
+    obtenerCita.mockResolvedValue({ ...CITA, estado: 'ATENDIDA' })
+    montar()
+
+    expect(await screen.findByText(/está atendida: ya no se inicia una consulta/i)).toBeVisible()
+    expect(screen.queryByLabelText(/motivo de consulta/i)).toBeNull()
   })
 })

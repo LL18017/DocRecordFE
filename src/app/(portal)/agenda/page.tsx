@@ -1,9 +1,14 @@
 'use client'
 
-// ─── Agenda de citas (HU-30, HU-32) ─────────────────────────────────────────
-// La agenda de la sede activa, un día a la vez: quién viene, a qué hora y con
-// qué médico. Desde aquí el personal agenda, reprograma, cancela con motivo y
-// marca atendida una cita.
+// ─── Agenda de citas (HU-30, HU-31, HU-32) ──────────────────────────────────
+// La agenda de la sede activa, por día o por semana: quién viene, a qué hora,
+// con qué médico, en qué clínica y por qué motivo. Desde aquí el personal
+// agenda, reprograma, cancela con motivo y marca atendida una cita.
+//
+// HU-31: el médico la abre en «Mis citas» (sus citas, las resuelve el backend
+// por el token) y puede pasar a toda la sede. En sus citas agendadas inicia la
+// consulta —que lleva el `citaId` y deja la cita ATENDIDA— y en las que ya
+// pasaron sin que el paciente llegara marca «No asistió».
 //
 // Antes esta pantalla era un aviso de «todavía no disponible»: el backend no
 // tenía citas, y después tuvo citas colgadas de cuentas de usuario, que la
@@ -42,12 +47,17 @@ import {
   listarMedicosDeClinica,
   listarTiposDeCita,
   marcarAtendida,
+  marcarNoAsistio,
   reprogramarCita,
+  yaPaso,
   type CitaDto,
   type EstadoDeCita,
   type MedicoDeAgendaDto,
   type TipoDeCitaDto,
 } from '@/services/citas'
+
+type Vista = 'dia' | 'semana'
+type Alcance = 'mias' | 'sede'
 
 type Dialogo = { tipo: 'agendar' } | { tipo: 'reprogramar'; cita: CitaDto } | { tipo: 'cancelar'; cita: CitaDto }
 
@@ -55,6 +65,7 @@ const COLOR_DE_ESTADO: Record<EstadoDeCita, string> = {
   AGENDADA: 'bg-blue-50 text-doc-blue border-blue-200',
   ATENDIDA: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   CANCELADA: 'bg-slate-100 text-slate-500 border-slate-200',
+  NO_ASISTIO: 'bg-amber-50 text-amber-800 border-amber-300',
 }
 
 function fechaLegible(dia: string): string {
@@ -73,10 +84,42 @@ function moverDia(dia: string, delta: number): string {
   return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(f.getDate()).padStart(2, '0')}`
 }
 
+/** El lunes de la semana de `dia` (la semana va de lunes a domingo). */
+function lunesDe(dia: string): string {
+  const [a, m, d] = dia.split('-').map(Number)
+  const diaDeSemana = (new Date(a, m - 1, d).getDay() + 6) % 7
+  return moverDia(dia, -diaDeSemana)
+}
+
+function encabezadoDeDia(dia: string): string {
+  const [a, m, d] = dia.split('-').map(Number)
+  return new Date(a, m - 1, d).toLocaleDateString('es-SV', { weekday: 'long', day: 'numeric', month: 'short' })
+}
+
+function rangoLegible(desde: string, hasta: string): string {
+  const [a1, m1, d1] = desde.split('-').map(Number)
+  const [a2, m2, d2] = hasta.split('-').map(Number)
+  const ini = new Date(a1, m1 - 1, d1).toLocaleDateString('es-SV', { day: 'numeric', month: 'long' })
+  const fin = new Date(a2, m2 - 1, d2).toLocaleDateString('es-SV', { day: 'numeric', month: 'long', year: 'numeric' })
+  return `Semana del ${ini} al ${fin}`
+}
+
+const porHora = (a: CitaDto, b: CitaDto) => a.fechaHora.localeCompare(b.fechaHora)
+
+const botonDeOpcion = (activo: boolean) =>
+  `px-3 py-1.5 text-sm font-semibold cursor-pointer ${activo ? 'bg-doc-blue text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`
+
 export default function AgendaPage() {
-  const { activeClinic } = useAppContext()
+  const { user, activeClinic } = useAppContext()
+  const esMedico = user?.roles.includes('medico') ?? false
 
   const [dia, setDia] = useState(hoy())
+  const [vista, setVista] = useState<Vista>('dia')
+  // `null` = lo que toca por rol. Se deriva en vez de fijarlo al montar porque
+  // la sesión puede llegar después del primer render.
+  const [alcanceElegido, setAlcanceElegido] = useState<Alcance | null>(null)
+  const alcance: Alcance = alcanceElegido ?? (esMedico ? 'mias' : 'sede')
+  const mias = esMedico && alcance === 'mias'
   const [citas, setCitas] = useState<CitaDto[]>([])
   const [medicos, setMedicos] = useState<MedicoDeAgendaDto[]>([])
   const [tipos, setTipos] = useState<TipoDeCitaDto[]>([])
@@ -87,6 +130,9 @@ export default function AgendaPage() {
   const [aviso, setAviso] = useState<string | null>(null)
 
   const clinicaId = activeClinic?.id
+  const desde = vista === 'semana' ? lunesDe(dia) : dia
+  const hasta = vista === 'semana' ? moverDia(desde, 6) : dia
+  const diasDeLaSemana = useMemo(() => Array.from({ length: 7 }, (_, i) => moverDia(lunesDe(dia), i)), [dia])
 
   const cargarCatalogos = useCallback(async () => {
     if (!clinicaId) return
@@ -102,7 +148,7 @@ export default function AgendaPage() {
   const cargarAgenda = useCallback(async () => {
     if (!clinicaId) return
     try {
-      setCitas(await listarAgenda(clinicaId, dia))
+      setCitas(await listarAgenda(clinicaId, desde, hasta, { mias }))
       setError(null)
     } catch (err) {
       setCitas([])
@@ -110,7 +156,7 @@ export default function AgendaPage() {
     } finally {
       setCargando(false)
     }
-  }, [clinicaId, dia])
+  }, [clinicaId, desde, hasta, mias])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- carga remota al montar; ver pacientes/page.tsx
@@ -118,18 +164,18 @@ export default function AgendaPage() {
   }, [cargarCatalogos])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga remota al cambiar de día
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga remota al cambiar de día, semana o alcance
     setCargando(true)
     void cargarAgenda()
   }, [cargarAgenda])
 
   const visibles = useMemo(
-    () => (filtroMedico ? citas.filter((c) => c.medicoId === Number(filtroMedico)) : citas),
-    [citas, filtroMedico],
+    () => (!mias && filtroMedico ? citas.filter((c) => c.medicoId === Number(filtroMedico)) : citas).slice().sort(porHora),
+    [citas, filtroMedico, mias],
   )
 
   const conteo = useMemo(() => {
-    const n: Record<EstadoDeCita, number> = { AGENDADA: 0, ATENDIDA: 0, CANCELADA: 0 }
+    const n: Record<EstadoDeCita, number> = { AGENDADA: 0, ATENDIDA: 0, CANCELADA: 0, NO_ASISTIO: 0 }
     visibles.forEach((c) => (n[c.estado] = (n[c.estado] ?? 0) + 1))
     return n
   }, [visibles])
@@ -137,11 +183,29 @@ export default function AgendaPage() {
   const alGuardar = (mensaje: string, cita: CitaDto) => {
     setDialogo(null)
     setAviso(mensaje)
-    // Si la cita quedó en otro día, se va a ese día para que se vea.
+    // Si la cita quedó fuera de lo que se ve, se va a su día para que se vea.
     const diaDeLaCita = cita.fechaHora.slice(0, 10)
-    if (diaDeLaCita !== dia) setDia(diaDeLaCita)
+    if (diaDeLaCita < desde || diaDeLaCita > hasta) setDia(diaDeLaCita)
     else void cargarAgenda()
   }
+
+  // Solo el médico inicia la consulta, y desde sus propias citas: la sesión no
+  // trae su id de médico, así que «propias» son las que devolvió «Mis citas».
+  const puedeIniciarConsulta = mias
+  const paso = vista === 'semana' ? 7 : 1
+
+  const fila = (c: CitaDto, compacta = false) => (
+    <FilaDeCita
+      key={c.citaId}
+      cita={c}
+      compacta={compacta}
+      puedeIniciarConsulta={puedeIniciarConsulta}
+      onReprogramar={() => setDialogo({ tipo: 'reprogramar', cita: c })}
+      onCancelar={() => setDialogo({ tipo: 'cancelar', cita: c })}
+      onAtendida={(actualizada) => alGuardar(`Cita de ${actualizada.paciente} marcada como atendida.`, actualizada)}
+      onNoAsistio={(actualizada) => alGuardar(`Cita de ${actualizada.paciente} marcada como «No asistió».`, actualizada)}
+    />
+  )
 
   if (!activeClinic) {
     return (
@@ -192,9 +256,27 @@ export default function AgendaPage() {
       )}
 
       <div className="mb-4 flex flex-wrap items-center gap-3 bg-white rounded-2xl shadow-sm border border-slate-100/80 px-4 py-3">
+        {esMedico && (
+          <div role="group" aria-label="Qué citas ver" className="inline-flex overflow-hidden rounded-xl border-2 border-slate-200">
+            <button aria-pressed={mias} onClick={() => setAlcanceElegido('mias')} className={botonDeOpcion(mias)}>
+              Mis citas
+            </button>
+            <button aria-pressed={!mias} onClick={() => setAlcanceElegido('sede')} className={botonDeOpcion(!mias)}>
+              Toda la sede
+            </button>
+          </div>
+        )}
+        <div role="group" aria-label="Vista de la agenda" className="inline-flex overflow-hidden rounded-xl border-2 border-slate-200">
+          <button aria-pressed={vista === 'dia'} onClick={() => setVista('dia')} className={botonDeOpcion(vista === 'dia')}>
+            Día
+          </button>
+          <button aria-pressed={vista === 'semana'} onClick={() => setVista('semana')} className={botonDeOpcion(vista === 'semana')}>
+            Semana
+          </button>
+        </div>
         <button
-          onClick={() => setDia(moverDia(dia, -1))}
-          aria-label="Día anterior"
+          onClick={() => setDia(moverDia(dia, -paso))}
+          aria-label={vista === 'semana' ? 'Semana anterior' : 'Día anterior'}
           className="px-3 py-1.5 rounded-lg border-2 border-slate-200 text-slate-600 text-sm font-semibold cursor-pointer"
         >
           ‹
@@ -207,8 +289,8 @@ export default function AgendaPage() {
           className="border-2 border-slate-200 rounded-xl px-3 py-1.5 text-sm"
         />
         <button
-          onClick={() => setDia(moverDia(dia, 1))}
-          aria-label="Día siguiente"
+          onClick={() => setDia(moverDia(dia, paso))}
+          aria-label={vista === 'semana' ? 'Semana siguiente' : 'Día siguiente'}
           className="px-3 py-1.5 rounded-lg border-2 border-slate-200 text-slate-600 text-sm font-semibold cursor-pointer"
         >
           ›
@@ -216,20 +298,24 @@ export default function AgendaPage() {
         <button onClick={() => setDia(hoy())} className="text-sm font-semibold text-doc-blue hover:underline cursor-pointer">
           Hoy
         </button>
-        <span className="text-sm text-slate-500 capitalize">{fechaLegible(dia)}</span>
-        <select
-          aria-label="Filtrar por médico"
-          value={filtroMedico}
-          onChange={(e) => setFiltroMedico(e.target.value)}
-          className="ml-auto border-2 border-slate-200 rounded-xl px-3 py-1.5 text-sm"
-        >
-          <option value="">Todos los médicos</option>
-          {medicos.map((m) => (
-            <option key={m.medicoId} value={m.medicoId}>
-              {m.nombre}
-            </option>
-          ))}
-        </select>
+        <span className="text-sm text-slate-500 first-letter:uppercase">
+          {vista === 'semana' ? rangoLegible(desde, hasta) : fechaLegible(dia)}
+        </span>
+        {!mias && (
+          <select
+            aria-label="Filtrar por médico"
+            value={filtroMedico}
+            onChange={(e) => setFiltroMedico(e.target.value)}
+            className="w-full sm:w-auto sm:ml-auto border-2 border-slate-200 rounded-xl px-3 py-1.5 text-sm"
+          >
+            <option value="">Todos los médicos</option>
+            {medicos.map((m) => (
+              <option key={m.medicoId} value={m.medicoId}>
+                {m.nombre}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100/80 overflow-hidden">
@@ -237,6 +323,7 @@ export default function AgendaPage() {
           <span>{conteo.AGENDADA} agendadas</span>
           <span>{conteo.ATENDIDA} atendidas</span>
           <span>{conteo.CANCELADA} canceladas</span>
+          <span>{conteo.NO_ASISTIO} no asistieron</span>
         </div>
         {cargando ? (
           <p className="px-5 py-8 text-sm text-slate-400">Cargando agenda…</p>
@@ -247,19 +334,41 @@ export default function AgendaPage() {
               Reintentar
             </button>
           </div>
+        ) : vista === 'semana' ? (
+          // Siete columnas, lunes a domingo, en pantallas anchas; por debajo
+          // cada día es un bloque de la lista, sin desplazamiento horizontal.
+          <div
+            role="region"
+            aria-label="Citas de la semana"
+            className="grid grid-cols-1 divide-y divide-slate-100 lg:grid-cols-7 lg:divide-x lg:divide-y-0"
+          >
+            {diasDeLaSemana.map((d) => {
+              const delDia = visibles.filter((c) => c.fechaHora.slice(0, 10) === d)
+              const esHoy = d === hoy()
+              return (
+                <section key={d} aria-labelledby={`dia-${d}`} className="min-w-0">
+                  <h3
+                    id={`dia-${d}`}
+                    className={`px-3 py-2 text-xs font-bold uppercase tracking-wide ${esHoy ? 'bg-blue-50 text-doc-blue' : 'text-slate-500'}`}
+                  >
+                    {encabezadoDeDia(d)}
+                  </h3>
+                  {delDia.length === 0 ? (
+                    <p className="px-3 py-3 text-xs text-slate-400">Sin citas</p>
+                  ) : (
+                    <ul aria-label={`Citas del ${encabezadoDeDia(d)}`} className="divide-y divide-slate-100">
+                      {delDia.map((c) => fila(c, true))}
+                    </ul>
+                  )}
+                </section>
+              )
+            })}
+          </div>
         ) : visibles.length === 0 ? (
           <p className="px-5 py-8 text-sm text-slate-500">No hay citas para este día.</p>
         ) : (
           <ul aria-label="Citas del día" className="divide-y divide-slate-100">
-            {visibles.map((c) => (
-              <FilaDeCita
-                key={c.citaId}
-                cita={c}
-                onReprogramar={() => setDialogo({ tipo: 'reprogramar', cita: c })}
-                onCancelar={() => setDialogo({ tipo: 'cancelar', cita: c })}
-                onAtendida={(actualizada) => alGuardar(`Cita de ${actualizada.paciente} marcada como atendida.`, actualizada)}
-              />
-            ))}
+            {visibles.map((c) => fila(c))}
           </ul>
         )}
       </div>
@@ -301,14 +410,23 @@ export default function AgendaPage() {
 
 const FilaDeCita: React.FC<{
   cita: CitaDto
+  /** En la vista semanal la columna es angosta: todo va apilado. */
+  compacta?: boolean
+  puedeIniciarConsulta: boolean
   onReprogramar: () => void
   onCancelar: () => void
   onAtendida: (c: CitaDto) => void
-}> = ({ cita: c, onReprogramar, onCancelar, onAtendida }) => {
+  onNoAsistio: (c: CitaDto) => void
+}> = ({ cita: c, compacta = false, puedeIniciarConsulta, onReprogramar, onCancelar, onAtendida, onNoAsistio }) => {
   const [marcando, setMarcando] = useState(false)
+  const [confirmandoInasistencia, setConfirmandoInasistencia] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const cancelada = c.estado === 'CANCELADA'
+  const agendada = c.estado === 'AGENDADA'
   const cambiable = admiteCambios(c)
+  // HU-31 c4: «No asistió» solo cuando la hora ya pasó. El backend lo vuelve a
+  // validar y, si no cuadra (o no es su cita), su mensaje es el que se ve.
+  const pasada = agendada && yaPaso(c)
 
   const atender = async () => {
     setMarcando(true)
@@ -321,25 +439,51 @@ const FilaDeCita: React.FC<{
     }
   }
 
+  const noAsistio = async () => {
+    setMarcando(true)
+    setError(null)
+    try {
+      onNoAsistio(await marcarNoAsistio(c.citaId))
+    } catch (err) {
+      setError(mensajeDe(err, 'No se pudo marcar la inasistencia.'))
+      setMarcando(false)
+      setConfirmandoInasistencia(false)
+    }
+  }
+
+  // La consulta se abre con el paciente y la cita: al guardarla, el backend
+  // deja la cita ATENDIDA en la misma operación (HU-31 c5).
+  const hrefConsulta = `/consultas?${new URLSearchParams({ citaId: String(c.citaId), pacienteId: String(c.pacienteId) })}`
+
   return (
-    <li className="px-5 py-3.5" aria-label={`Cita de ${c.paciente} a las ${horaDe(c.fechaHora)}`}>
-      <div className="flex flex-wrap items-start gap-4">
-        <span className={`w-14 shrink-0 text-lg font-bold font-outfit ${cancelada ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+    <li className={compacta ? 'px-3 py-3' : 'px-5 py-3.5'} aria-label={`Cita de ${c.paciente} a las ${horaDe(c.fechaHora)}`}>
+      <div className={compacta ? 'flex flex-col gap-1.5' : 'flex flex-wrap items-start gap-4'}>
+        <span
+          className={`shrink-0 font-bold font-outfit ${compacta ? 'text-base' : 'w-14 text-lg'} ${
+            cancelada ? 'text-slate-400 line-through' : 'text-slate-800'
+          }`}
+        >
           {horaDe(c.fechaHora)}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 break-words">
           <div className="flex flex-wrap items-center gap-2">
             <Link href={`/pacientes/${c.pacienteId}`} className="text-sm font-semibold text-slate-700 hover:text-doc-blue">
               {c.paciente}
             </Link>
             <span className="text-xs text-slate-400">{c.expediente}</span>
-            <span className={`rounded-md border px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${COLOR_DE_ESTADO[c.estado]}`}>
+            <span className={`rounded-md border px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${COLOR_DE_ESTADO[c.estado] ?? ''}`}>
               {ETIQUETA_DE_ESTADO[c.estado] ?? c.estado}
             </span>
           </div>
           <p className="mt-0.5 text-xs text-slate-500">
             {c.medico}
             {c.tipoCita && <> · {c.tipoCita}</>}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Clínica: {c.clinica ?? <span className="italic text-slate-400">sin sede registrada</span>}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Motivo de la cita: {c.motivo?.trim() ? c.motivo : <span className="text-slate-400">—</span>}
           </p>
           {cancelada && c.motivoCancelacion && (
             <p className="mt-0.5 text-xs text-slate-500">Motivo: {c.motivoCancelacion}</p>
@@ -350,24 +494,58 @@ const FilaDeCita: React.FC<{
             </p>
           )}
         </div>
-        {c.estado === 'AGENDADA' && (
+        {/* HU-31 c6: ATENDIDA, NO_ASISTIO y CANCELADA no tienen acciones. */}
+        {agendada && (
           <div className="flex shrink-0 flex-wrap items-center gap-3 text-xs font-semibold">
-            <button onClick={atender} disabled={marcando} className="text-emerald-700 hover:underline cursor-pointer disabled:opacity-60">
-              {marcando ? 'Guardando…' : 'Atendida'}
-            </button>
-            {cambiable ? (
-              <>
-                <button onClick={onReprogramar} className="text-doc-blue hover:underline cursor-pointer">
-                  Reprogramar
+            {confirmandoInasistencia ? (
+              <span role="group" aria-label="Confirmar inasistencia" className="flex flex-wrap items-center gap-2">
+                <span className="font-normal text-slate-600">¿El paciente no llegó?</span>
+                <button onClick={noAsistio} disabled={marcando} className="text-amber-800 hover:underline cursor-pointer disabled:opacity-60">
+                  {marcando ? 'Guardando…' : 'Sí, no asistió'}
                 </button>
-                <button onClick={onCancelar} className="text-red-600 hover:underline cursor-pointer">
-                  Cancelar
+                <button onClick={() => setConfirmandoInasistencia(false)} disabled={marcando} className="text-slate-500 hover:underline cursor-pointer">
+                  Volver
                 </button>
-              </>
-            ) : (
-              <span className="font-normal text-slate-400" title="Política de anticipación">
-                Menos de 4 h: ya no se cambia
               </span>
+            ) : (
+              <>
+                {puedeIniciarConsulta ? (
+                  <Link href={hrefConsulta} className="rounded-lg bg-doc-blue px-2.5 py-1 text-white hover:opacity-90">
+                    Iniciar consulta
+                  </Link>
+                ) : (
+                  <button onClick={atender} disabled={marcando} className="text-emerald-700 hover:underline cursor-pointer disabled:opacity-60">
+                    {marcando ? 'Guardando…' : 'Atendida'}
+                  </button>
+                )}
+                {pasada && (
+                  <button
+                    onClick={() => {
+                      setError(null)
+                      setConfirmandoInasistencia(true)
+                    }}
+                    className="text-amber-800 hover:underline cursor-pointer"
+                  >
+                    No asistió
+                  </button>
+                )}
+                {cambiable ? (
+                  <>
+                    <button onClick={onReprogramar} className="text-doc-blue hover:underline cursor-pointer">
+                      Reprogramar
+                    </button>
+                    <button onClick={onCancelar} className="text-red-600 hover:underline cursor-pointer">
+                      Cancelar
+                    </button>
+                  </>
+                ) : (
+                  !pasada && (
+                    <span className="font-normal text-slate-400" title="Política de anticipación">
+                      Menos de 4 h: ya no se cambia
+                    </span>
+                  )
+                )}
+              </>
             )}
           </div>
         )}
@@ -466,6 +644,9 @@ const Botones: React.FC<{ enviando: boolean; etiqueta: string; onCancelar: () =>
   </div>
 )
 
+/** Tope del motivo de la cita en el backend (V40). */
+const MAXIMO_MOTIVO_DE_CITA = 500
+
 const MensajeDeError: React.FC<{ error: string | null }> = ({ error }) =>
   error ? (
     <p role="alert" className="rounded-xl border-2 border-red-100 bg-red-50 px-3.5 py-2.5 text-xs text-red-700">
@@ -492,6 +673,7 @@ const FormularioDeAgendar: React.FC<{
   const [tipoCitaId, setTipoCitaId] = useState(tipos.length === 1 ? String(tipos[0].tipoCitaId) : '')
   const [dia, setDia] = useState(diaInicial)
   const [franja, setFranja] = useState('')
+  const [motivo, setMotivo] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -525,6 +707,7 @@ const FormularioDeAgendar: React.FC<{
           tipoCitaId: Number(tipoCitaId),
           clinicaId,
           fechaHora: `${dia}T${franja}`,
+          ...(motivo.trim() ? { motivo: motivo.trim() } : {}),
         }),
       )
     } catch (err) {
@@ -660,6 +843,21 @@ const FormularioDeAgendar: React.FC<{
           valor={franja}
           onCambio={setFranja}
           habilitado={Boolean(medicoId && dia)}
+        />
+      </div>
+
+      <div>
+        <label htmlFor={id('motivo')} className={labelClass}>
+          Motivo de la cita
+        </label>
+        <textarea
+          id={id('motivo')}
+          maxLength={MAXIMO_MOTIVO_DE_CITA}
+          rows={2}
+          value={motivo}
+          onChange={(e) => setMotivo(e.target.value)}
+          placeholder="Ej.: Control de presión arterial (opcional)"
+          className={campoBase}
         />
       </div>
 

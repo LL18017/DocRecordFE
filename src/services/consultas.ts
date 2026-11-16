@@ -103,6 +103,8 @@ export interface ConsultaDto {
   motivoAnulacion?: string | null
   anuladaEn?: string | null
   anuladaPor?: string | null
+  /** HU-31: la cita de la que nació la consulta; null si no vino de una cita. */
+  citaId?: number | null
 }
 
 /**
@@ -120,6 +122,11 @@ export interface ConsultaDto {
  */
 export interface CrearConsultaPayload {
   pacienteId: number
+  /**
+   * HU-31: la cita desde la que se inicia la consulta. Con ella el backend
+   * crea la consulta y deja la cita ATENDIDA en la misma transacción.
+   */
+  citaId?: number
   clinicaId?: number
   motivo: string
   diagnostico?: string

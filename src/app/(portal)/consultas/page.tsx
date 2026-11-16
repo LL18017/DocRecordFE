@@ -1,7 +1,8 @@
 'use client'
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { sinTildes } from '@/lib/texto'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
@@ -11,6 +12,7 @@ import { ConsultationForm, type OpcionPaciente } from '@/components/forms/Consul
 import { DetalleDeConsulta } from '@/components/clinico/DetalleDeConsulta'
 import { FiltrosDeConsultas, type OpcionMedico } from '@/components/clinico/FiltrosDeConsultas'
 import { listarPacientes } from '@/services/pacientes'
+import { ETIQUETA_DE_ESTADO, obtenerCita } from '@/services/citas'
 import {
   formatearFechaHora,
   listarConsultas,
@@ -26,7 +28,36 @@ import {
 /** Cómo se pinta cada estado. El backend solo maneja estos dos. */
 const COLOR_DE_ESTADO = { PENDIENTE: 'yellow', FINALIZADA: 'green', ANULADA: 'red' } as const
 
+/**
+ * HU-31 c5: la consulta que se inicia desde la Agenda. Llega como
+ * `?citaId=…&pacienteId=…`; el resto (nombre del paciente y motivo de la
+ * cita) se pide al backend para no dejar datos clínicos en la URL.
+ */
+interface ConsultaDesdeCita {
+  citaId: number
+  pacienteId?: number
+  paciente?: OpcionPaciente
+  motivo: string | null
+}
+
+/**
+ * `useSearchParams` obliga a que quien lo usa esté dentro de un Suspense: sin
+ * él, `next build` falla al prerenderizar la ruta (igual que en /usuarios).
+ */
 export default function ConsultasPage() {
+  return (
+    <Suspense fallback={null}>
+      <PantallaDeConsultas />
+    </Suspense>
+  )
+}
+
+function PantallaDeConsultas() {
+  // Fuera del router de Next (las pruebas sin simularlo) no hay parámetros: null.
+  const parametros = useSearchParams()
+  const citaIdPedida = Number(parametros?.get('citaId') ?? NaN)
+  const pacienteIdPedido = Number(parametros?.get('pacienteId') ?? NaN)
+
   // La lista sale de GET /consultas. Antes se sembraba con los datos de la
   // maqueta y el formulario no enviaba nada: lo que se escribía aquí no
   // llegaba a la base ni sobrevivía a un refresco.
@@ -37,6 +68,56 @@ export default function ConsultasPage() {
   const [registrando, setRegistrando] = useState(false)
   const [editando, setEditando] = useState<ConsultaDto | null>(null)
   const [viendo, setViendo] = useState<ConsultaDto | null>(null)
+  const [desdeCita, setDesdeCita] = useState<ConsultaDesdeCita | null>(null)
+  const [avisoDeCita, setAvisoDeCita] = useState<{ tono: 'ok' | 'aviso'; texto: string } | null>(null)
+
+  // Al llegar desde la Agenda se abre el alta con el paciente y la cita. El
+  // motivo de la cita precarga el de la consulta; si la cita no se puede leer,
+  // se abre igual con el paciente de la URL y el backend valida la cita.
+  useEffect(() => {
+    if (!Number.isInteger(citaIdPedida) || citaIdPedida <= 0) return
+    let vigente = true
+    const pacienteDeLaUrl = Number.isInteger(pacienteIdPedido) && pacienteIdPedido > 0 ? pacienteIdPedido : undefined
+    obtenerCita(citaIdPedida)
+      .then((c) => {
+        if (!vigente) return
+        if (c.estado !== 'AGENDADA') {
+          setAvisoDeCita({
+            tono: 'aviso',
+            texto: `La cita de ${c.paciente} está ${(ETIQUETA_DE_ESTADO[c.estado] ?? c.estado).toLowerCase()}: ya no se inicia una consulta desde ella.`,
+          })
+          return
+        }
+        setDesdeCita({
+          citaId: c.citaId,
+          pacienteId: c.pacienteId,
+          paciente: { personaId: c.pacienteId, nombre: c.paciente, expediente: c.expediente },
+          motivo: c.motivo ?? null,
+        })
+      })
+      .catch(() => {
+        if (vigente) setDesdeCita({ citaId: citaIdPedida, pacienteId: pacienteDeLaUrl, motivo: null })
+      })
+    return () => {
+      vigente = false
+    }
+  }, [citaIdPedida, pacienteIdPedido])
+
+  /** Deja la URL en /consultas para que un refresco no reabra el alta. */
+  const olvidarCitaDeLaUrl = () => {
+    setDesdeCita(null)
+    if (typeof window !== 'undefined' && window.location.search) {
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }
+
+  // El paciente de la cita tiene que estar entre las opciones aunque el
+  // catálogo no haya cargado (o no lo traiga): si no, el selector quedaría vacío.
+  const pacientesDelAlta = useMemo(() => {
+    const p = desdeCita?.paciente
+    if (!p || pacientes.some((x) => x.personaId === p.personaId)) return pacientes
+    return [p, ...pacientes]
+  }, [pacientes, desdeCita])
 
   // HU-20 c2: filtros por rango de fechas y por médico, que se aplican en el
   // servidor. Los médicos que se pueden elegir se ACUMULAN: si solo se
@@ -120,6 +201,10 @@ export default function ConsultasPage() {
   const handleRegistrada = (consulta: ConsultaDto) => {
     setConsultas((prev) => [consulta, ...prev])
     setRegistrando(false)
+    if (desdeCita) {
+      setAvisoDeCita({ tono: 'ok', texto: 'Consulta registrada. La cita quedó atendida en la agenda.' })
+      olvidarCitaDeLaUrl()
+    }
   }
 
   const handleActualizada = (consulta: ConsultaDto) => {
@@ -247,6 +332,20 @@ export default function ConsultasPage() {
         </button>
       </div>
 
+      {avisoDeCita && (
+        <p
+          role="status"
+          className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
+            avisoDeCita.tono === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'
+          }`}
+        >
+          {avisoDeCita.texto}{' '}
+          <Link href="/agenda" className="font-semibold underline underline-offset-2">
+            Volver a la agenda
+          </Link>
+        </p>
+      )}
+
       {error && (
         <div
           role="alert"
@@ -305,6 +404,31 @@ export default function ConsultasPage() {
           onGuardada={handleRegistrada}
           onCancel={() => setRegistrando(false)}
         />
+      </Modal>
+
+      {/* HU-31 c5: el alta que nace de una cita de la Agenda. Si falta la toma
+          de signos de las últimas 24 h, el formulario muestra el 409 del
+          backend tal cual y la cita sigue agendada. */}
+      <Modal
+        isOpen={desdeCita !== null}
+        onClose={olvidarCitaDeLaUrl}
+        title="Nueva Consulta Médica"
+        subtitle="Consulta iniciada desde la cita de la agenda"
+        icon="consultas"
+        headerGradient="bg-gradient-to-r from-doc-blue to-doc-blue-light"
+        maxWidth="lg"
+      >
+        {desdeCita && (
+          <ConsultationForm
+            key={desdeCita.citaId}
+            pacientes={pacientesDelAlta}
+            pacienteIdPorDefecto={desdeCita.pacienteId}
+            citaId={desdeCita.citaId}
+            motivoPorDefecto={desdeCita.motivo}
+            onGuardada={handleRegistrada}
+            onCancel={olvidarCitaDeLaUrl}
+          />
+        )}
       </Modal>
 
       <Modal
