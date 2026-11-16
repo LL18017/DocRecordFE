@@ -50,13 +50,13 @@ export function ImcDeLaToma({ toma, className = '' }: ImcDeLaTomaProps) {
       data-testid="imc"
       data-fuera-de-rango={fuera ? 'true' : undefined}
       className={`rounded-xl px-3 py-2 ${
-        fuera ? 'bg-red-50 ring-1 ring-red-200' : 'bg-slate-50'
+        fuera ? 'bg-amber-50 ring-1 ring-amber-200' : 'bg-slate-50'
       } ${className}`}
     >
       <p className="text-[11px] uppercase tracking-wider text-slate-400">IMC</p>
       <p
         className={`text-sm font-semibold font-outfit ${
-          fuera ? 'text-red-700' : 'text-slate-800'
+          fuera ? 'text-amber-800' : 'text-slate-800'
         }`}
       >
         {imc.toFixed(1)} <span className="text-xs font-normal text-slate-500">kg/m²</span>
@@ -65,7 +65,7 @@ export function ImcDeLaToma({ toma, className = '' }: ImcDeLaTomaProps) {
         {!paraPercentiles && clasificacionImc && (
           <span
             className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-              fuera ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+              fuera ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'
             }`}
           >
             {clasificacionImc}
@@ -74,7 +74,7 @@ export function ImcDeLaToma({ toma, className = '' }: ImcDeLaTomaProps) {
       </p>
 
       {fuera && (
-        <p className="mt-0.5 text-[10px] font-semibold text-red-700">
+        <p className="mt-0.5 text-[10px] font-semibold text-amber-800">
           Fuera de rango (normal {rangoNormalComoTexto('imc')})
         </p>
       )}

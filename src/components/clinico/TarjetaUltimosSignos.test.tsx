@@ -1,8 +1,8 @@
 // HU-16 (DRS-26) criterio 3 · HU-17 (DRS-88) criterios 1 y 2.
 //
 // La tarjeta «Últimos Signos Vitales» de la ficha: lo que se sale del rango
-// normal va destacado en rojo, y el IMC sale con su clasificación de la OMS (o
-// con el aviso de percentiles en un menor).
+// normal va destacado en ámbar, lo crítico (NEWS2) en rojo, y el IMC sale con su
+// clasificación de la OMS (o con el aviso de percentiles en un menor).
 import { describe, expect, it } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import type { SignosVitalesDto } from '@/services/signosVitales'
@@ -148,7 +148,7 @@ describe('TarjetaUltimosSignos · IMC (HU-17)', () => {
     expect(imc).not.toHaveAttribute('data-fuera-de-rango')
   })
 
-  it('un IMC de adulto fuera de la franja normal se destaca en rojo, con su clasificación', () => {
+  it('un IMC de adulto fuera de la franja normal se destaca en ámbar, con su clasificación', () => {
     render(
       <TarjetaUltimosSignos
         ultimosVitales={toma({ imc: 31, clasificacionImc: 'Obesidad grado I' })}
@@ -160,6 +160,11 @@ describe('TarjetaUltimosSignos · IMC (HU-17)', () => {
     expect(imc).toHaveAttribute('data-fuera-de-rango', 'true')
     expect(within(imc).getByText('Obesidad grado I')).toBeInTheDocument()
     expect(imc).toHaveTextContent(/fuera de rango/i)
+    // DEF-17: el IMC no tiene umbral crítico, así que fuera de rango es ámbar.
+    // El rojo queda solo para «Valor crítico» (HU-16 criterio 3).
+    expect(imc).toHaveClass('bg-amber-50')
+    expect(imc).not.toHaveClass('bg-red-50')
+    expect(within(imc).getByText(/fuera de rango/i)).toHaveClass('text-amber-800')
   })
 
   it('un IMC con un solo decimal se escribe con él: 16 sale «16.0»', () => {
