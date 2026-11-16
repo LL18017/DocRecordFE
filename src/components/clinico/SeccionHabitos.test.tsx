@@ -290,7 +290,11 @@ describe('hábitos (HU-14)', () => {
 
       expect(anularHabito).toHaveBeenCalledWith(4, MOTIVO)
       const fila = await screen.findByRole('listitem', { name: 'Hábito anulado: Actividad física' })
-      expect(within(fila).getByText('Anulado')).toBeVisible()
+      // «Anulado» aparece dos veces: el distintivo junto al tipo y el inicio de la
+      // línea «Anulado el … por …». Se comprueba el distintivo, que es el primero.
+      const marcas = within(fila).getAllByText('Anulado')
+      expect(marcas).toHaveLength(2)
+      expect(marcas[0]).toBeVisible()
       expect(fila).toHaveTextContent(`Motivo: ${MOTIVO}`)
       expect(fila).toHaveTextContent(/Anulado el .*2026.* por Ana Pérez/)
       expect(within(fila).getByText('Camina 30 minutos').className).toMatch(/line-through/)
