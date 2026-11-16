@@ -1,6 +1,11 @@
 // Observaciones de la tutora · teléfono de 8 dígitos y nacimiento no futuro.
 import { describe, expect, it } from 'vitest'
-import { hoyEnElSalvador, motivoNacimientoInvalido, motivoTelefonoInvalido } from './validaciones'
+import {
+  hoyEnElSalvador,
+  motivoDeAnulacionInvalido,
+  motivoNacimientoInvalido,
+  motivoTelefonoInvalido,
+} from './validaciones'
 
 describe('motivoTelefonoInvalido', () => {
   it.each(['2222-2222', '22222222', '', '   '])('acepta «%s»', (valor) => {
@@ -42,5 +47,22 @@ describe('motivoNacimientoInvalido', () => {
     expect(motivoNacimientoInvalido('2026-05-11', '2026-05-10')).toBe(
       'La fecha de nacimiento no puede ser posterior a hoy.',
     )
+  })
+})
+
+describe('motivoDeAnulacionInvalido', () => {
+  it('rechaza menos de 10 caracteres, contando sin los espacios de los extremos', () => {
+    expect(motivoDeAnulacionInvalido('')).toBe(true)
+    expect(motivoDeAnulacionInvalido('corto')).toBe(true)
+    expect(motivoDeAnulacionInvalido('  123456789  ')).toBe(true)
+  })
+
+  it('acepta de 10 a 500 caracteres', () => {
+    expect(motivoDeAnulacionInvalido('1234567890')).toBe(false)
+    expect(motivoDeAnulacionInvalido('a'.repeat(500))).toBe(false)
+  })
+
+  it('rechaza más de 500 caracteres', () => {
+    expect(motivoDeAnulacionInvalido('a'.repeat(501))).toBe(true)
   })
 })

@@ -19,6 +19,11 @@
 // Una cita cancelada no se borra: sigue en la lista, tachada, con su motivo
 // (HU-32 c5).
 
+import {
+  MAXIMO_MOTIVO_DE_ANULACION,
+  MENSAJE_MOTIVO_DE_ANULACION,
+  motivoDeAnulacionInvalido,
+} from '@/lib/validaciones'
 import React, { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Icon } from '@/components/ui/Icon'
@@ -736,8 +741,8 @@ const FormularioDeCancelar: React.FC<{
 
   const enviar = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!motivo.trim()) {
-      setError('El motivo de la cancelación es obligatorio.')
+    if (motivoDeAnulacionInvalido(motivo)) {
+      setError(`${MENSAJE_MOTIVO_DE_ANULACION}.`)
       return
     }
     setEnviando(true)
@@ -763,7 +768,7 @@ const FormularioDeCancelar: React.FC<{
         </label>
         <textarea
           id={`${uid}-motivo`}
-          maxLength={255}
+          maxLength={MAXIMO_MOTIVO_DE_ANULACION}
           rows={3}
           value={motivo}
           onChange={(e) => setMotivo(e.target.value)}
