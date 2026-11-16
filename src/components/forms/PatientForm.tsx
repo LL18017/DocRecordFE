@@ -259,7 +259,7 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel, c
                   : `${describirRegistroPrevio(personaExistente)}. ¿Agregarla también como paciente?`}
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-sm bg-slate-50 rounded-xl border border-slate-100 p-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm bg-slate-50 rounded-xl border border-slate-100 p-3">
                 {[
                   ['Teléfono', personaExistente.telefono || '—'],
                   ['Dirección', personaExistente.direccion || '—'],
@@ -273,7 +273,7 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel, c
               </div>
 
               {!personaExistente.esPaciente && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     {/* Si la persona ya tiene fecha, aquí no hay control que
                         etiquetar: un `<label>` suelto es una etiqueta rota. */}
@@ -348,7 +348,7 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel, c
                 No se encontró ninguna persona con ese DUI. Completa sus datos para crear su registro.
               </p>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="col-span-2">
                   <label htmlFor={id('nombres')} className={labelClass}>
                     Nombres<Obligatorio />
@@ -460,7 +460,7 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel, c
           )}
 
           {busquedaHecha && !(personaExistente && personaExistente.esPaciente) && (
-            <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-slate-100">
               <div>
                 <span className={labelClass}>Número de expediente</span>
                 {/* Lo asigna el sistema al guardar. Pedirle a quien registra que
@@ -545,7 +545,7 @@ export const PatientForm: React.FC<PatientFormProps> = ({ onCreated, onCancel, c
             </h4>
             <span className="text-xs font-semibold px-2 py-0.5 rounded bg-blue-50 text-doc-blue">3 de 3</span>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {(
               [
                 ['Peso (kg)', 'weight'],

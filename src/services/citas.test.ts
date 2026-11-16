@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { admiteCambios, franjasDelDia, franjasOcupadas, type CitaDto } from './citas'
+import { admiteCambios, franjasDelDia, franjasOcupadas, yaPaso, type CitaDto } from './citas'
 
 function cita(parcial: Partial<CitaDto>): CitaDto {
   return {
@@ -47,5 +47,14 @@ describe('citas · reglas que la agenda refleja', () => {
     expect(admiteCambios(cita({ fechaHora: '2026-11-03T09:00:00' }), ahora)).toBe(false)
     expect(admiteCambios(cita({ fechaHora: '2026-11-03T10:00:00' }), ahora)).toBe(true)
     expect(admiteCambios(cita({ fechaHora: '2026-11-03T12:00:00', estado: 'ATENDIDA' }), ahora)).toBe(false)
+  })
+})
+
+describe('citas · No asistió (HU-31 c4)', () => {
+  it('una cita ya pasó cuando su hora llegó o quedó atrás', () => {
+    const ahora = new Date('2026-11-03T09:00:00')
+    expect(yaPaso(cita({ fechaHora: '2026-11-03T08:30:00' }), ahora)).toBe(true)
+    expect(yaPaso(cita({ fechaHora: '2026-11-03T09:00:00' }), ahora)).toBe(true)
+    expect(yaPaso(cita({ fechaHora: '2026-11-03T09:30:00' }), ahora)).toBe(false)
   })
 })

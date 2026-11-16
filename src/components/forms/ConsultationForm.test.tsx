@@ -230,6 +230,39 @@ describe('ConsultationForm · el cuerpo que viaja al backend', () => {
   })
 })
 
+describe('ConsultationForm · consulta iniciada desde una cita (HU-31)', () => {
+  it('envía el citaId, con el paciente ya elegido y el motivo de la cita precargado', async () => {
+    const user = await montar({ pacienteIdPorDefecto: 42, citaId: 15, motivoPorDefecto: 'Control de presión arterial' })
+
+    expect(screen.getByLabelText(/^paciente/i)).toHaveValue('42')
+    expect(campoMotivo()).toHaveValue('Control de presión arterial')
+    await user.type(campoDiagnostico()!, 'Hipertensión controlada')
+    await user.click(botonGuardar())
+
+    await waitFor(() => expect(crearConsulta).toHaveBeenCalled())
+    expect(crearConsulta.mock.calls[0][0]).toEqual({
+      pacienteId: 42,
+      citaId: 15,
+      clinicaId: 5,
+      motivo: 'Control de presión arterial',
+      diagnostico: 'Hipertensión controlada',
+    })
+  })
+
+  it('sin toma de signos de 24 h muestra el mensaje del backend y no avisa a la pantalla', async () => {
+    const mensaje =
+      'Este paciente no tiene signos vitales de las ultimas 24 horas. Enfermeria debe tomarle las constantes antes de la consulta.'
+    crearConsulta.mockRejectedValue(new ApiError(409, mensaje))
+    const user = await montar({ pacienteIdPorDefecto: 42, citaId: 15, motivoPorDefecto: 'Control' })
+
+    await user.type(campoDiagnostico()!, 'Sano')
+    await user.click(botonGuardar())
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(mensaje)
+    expect(onGuardada).not.toHaveBeenCalled()
+  })
+})
+
 describe('ConsultationForm · edición', () => {
   it('manda solo lo que cambió y nunca la clínica', async () => {
     // El PUT completa sin destruir: «campo ausente = no lo toco». Reenviar el

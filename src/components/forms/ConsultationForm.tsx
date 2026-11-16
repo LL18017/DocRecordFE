@@ -30,6 +30,13 @@ interface ConsultationFormProps {
   pacientes: OpcionPaciente[]
   /** Preselección al registrar (p. ej. el expediente abierto). */
   pacienteIdPorDefecto?: number
+  /**
+   * HU-31: la cita desde la que se inició la consulta (Agenda → «Iniciar
+   * consulta»). Viaja en el alta; al editar no se usa.
+   */
+  citaId?: number
+  /** Motivo con que arranca el campo al registrar (el de la cita). */
+  motivoPorDefecto?: string | null
   /** Consulta a editar. Ausente = alta nueva. */
   consulta?: ConsultaDto
   /** Se llama cuando el servidor confirmó el alta o la edición. */
@@ -50,6 +57,8 @@ const Obligatorio = () => <span aria-hidden="true"> *</span>
 export const ConsultationForm: React.FC<ConsultationFormProps> = ({
   pacientes,
   pacienteIdPorDefecto,
+  citaId,
+  motivoPorDefecto,
   consulta,
   onGuardada,
   onCancel,
@@ -87,7 +96,7 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
   })
   // `motivo` puede venir null igual que `diagnostico` (la columna no lo exige
   // y el DTO de alta tampoco): el textarea necesita una cadena.
-  const [motivo, setMotivo] = useState(consulta?.motivo ?? '')
+  const [motivo, setMotivo] = useState(consulta ? (consulta.motivo ?? '') : (motivoPorDefecto ?? ''))
   // `diagnostico` puede venir null (consulta todavía PENDIENTE): el textarea
   // necesita una cadena, así que el nulo se traduce aquí y no en el JSX.
   const [diagnostico, setDiagnostico] = useState(consulta?.diagnostico ?? '')
@@ -104,6 +113,9 @@ export const ConsultationForm: React.FC<ConsultationFormProps> = ({
    */
   const payloadDeAlta = (motivoLimpio: string, diagnosticoLimpio: string): CrearConsultaPayload => ({
     pacienteId: Number(pacienteId),
+    // HU-31 c5: si la consulta nace de una cita, la cita viaja y el backend la
+    // deja ATENDIDA. Sin cita el cuerpo es el de siempre.
+    ...(citaId !== undefined ? { citaId } : {}),
     motivo: motivoLimpio,
     // HU-19 c1: el diagnóstico es obligatorio y, para quien puede escribirlo,
     // `handleSubmit` ya no deja llegar aquí sin él. Quien no puede (enfermería)
