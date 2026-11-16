@@ -1,4 +1,5 @@
-// Capturas para el Manual de Usuario (figuras 52 y 70), tomadas del sitio
+// Capturas para el Manual de Usuario (agenda, signos vitales, catálogos,
+// acciones de una cita agendada y Mi perfil del paciente), tomadas del sitio
 // desplegado. SOLO LECTURA: entra, navega y fotografía; no guarda, anula ni
 // cambia nada. Se corre a mano, no forma parte de la batería:
 //
@@ -8,7 +9,7 @@
 // CAPTURAS_DIR (por defecto, test-results/capturas-manual).
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
-import { CUENTAS, entrar } from './sesion'
+import { CUENTAS, entrar, entrarComoPaciente } from './sesion'
 
 const SALIDA = process.env.CAPTURAS_DIR ?? path.join('test-results', 'capturas-manual')
 
@@ -85,4 +86,73 @@ test('figura 52: últimos signos vitales y evolución de la presión arterial', 
   const sufijo = `-paciente${PACIENTE_FIGURA_52}`
   await ultimos.screenshot({ path: path.join(SALIDA, `figura52-ultimos-signos${sufijo}.png`) })
   await evolucion.screenshot({ path: path.join(SALIDA, `figura52-evolucion${sufijo}.png`) })
+})
+
+test('catálogos: tipos de cita y tipos de hábito', async ({ page }) => {
+  await entrar(page, CUENTAS.admin)
+  await page.goto('/catalogos')
+  await expect(page.getByRole('heading', { name: 'Catálogos', level: 1 })).toBeVisible()
+  await expect(page.locator('section ul').first()).toBeVisible()
+  await expect(page.locator('section ul').nth(1)).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await page.addStyleTag({ content: 'header { position: static !important; }' })
+
+  const x = await bordeDeLaBarraLateral(page)
+  const ultima = await page.locator('section').last().boundingBox()
+  const primera = await page.locator('section').first().boundingBox()
+  const fondo = Math.max(ultima ? ultima.y + ultima.height : 0, primera ? primera.y + primera.height : 0)
+  await page.screenshot({
+    path: path.join(SALIDA, 'catalogos.png'),
+    clip: { x, y: 0, width: 1366 - x, height: Math.ceil(fondo + 24) },
+    fullPage: true,
+  })
+})
+
+// Cita AGENDADA ya pasada del médico demo: muestra «Iniciar consulta» y
+// «No asistió». El diálogo de confirmación se abre y se cierra con «Volver»,
+// sin confirmar nada.
+test('acciones de una cita agendada: Iniciar consulta y No asistió', async ({ page }) => {
+  await entrar(page, CUENTAS.medico)
+  await page.goto('/agenda')
+  await page.getByRole('group', { name: 'Qué citas ver' }).getByRole('button', { name: 'Mis citas' }).click()
+  await page.getByRole('group', { name: 'Vista de la agenda' }).getByRole('button', { name: 'Día', exact: true }).click()
+  await page.getByLabel('Día de la agenda').fill(process.env.CAPTURA_DIA_CITA ?? '2026-10-29')
+  await page.waitForLoadState('networkidle')
+  await page.waitForTimeout(1200)
+
+  const cita = page
+    .getByLabel('Citas del día')
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('button', { name: 'No asistió' }) })
+    .first()
+  await expect(cita).toBeVisible()
+  await expect(cita.getByRole('link', { name: 'Iniciar consulta' })).toBeVisible()
+  await page.mouse.move(0, 0)
+  await cita.screenshot({ path: path.join(SALIDA, 'cita-agendada-acciones.png') })
+
+  // Solo se abre la confirmación: se fotografía y se cierra con «Volver».
+  await cita.getByRole('button', { name: 'No asistió' }).click()
+  const confirmar = cita.getByRole('group', { name: 'Confirmar inasistencia' })
+  await expect(confirmar).toBeVisible()
+  await page.mouse.move(0, 0)
+  await cita.screenshot({ path: path.join(SALIDA, 'cita-agendada-confirmar-inasistencia.png') })
+  await confirmar.getByRole('button', { name: 'Volver' }).click()
+  await expect(cita.getByRole('button', { name: 'No asistió' })).toBeVisible()
+})
+
+test('Mi perfil del paciente: datos, recordatorios y hábitos', async ({ page }) => {
+  await entrarComoPaciente(page, CUENTAS.paciente)
+  await page.goto('/mi-perfil')
+  await expect(page.getByRole('heading', { name: 'Mi perfil', level: 1 })).toBeVisible()
+  await expect(page.getByRole('switch')).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await page.waitForTimeout(800)
+  await page.addStyleTag({ content: 'header { position: static !important; }' })
+  const x = await bordeDeLaBarraLateral(page)
+  const ultima = await page.locator('section').last().boundingBox()
+  await page.screenshot({
+    path: path.join(SALIDA, 'mi-perfil.png'),
+    clip: { x, y: 0, width: 1366 - x, height: Math.ceil((ultima ? ultima.y + ultima.height : 768) + 24) },
+    fullPage: true,
+  })
 })
