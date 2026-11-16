@@ -146,6 +146,46 @@ describe('HU-03 · criterio 2 · el rol decide qué pantallas se abren', () => {
   })
 })
 
+describe('DEF-01 · la pantalla de catálogos es solo del Administrador', () => {
+  it('un médico o una enfermera que escriben /catalogos vuelven al panel sin verla', async () => {
+    for (const rol of ['medico', 'enfermera'] as const) {
+      replace.mockReset()
+      sesion = usuario(rol)
+      ruta = '/catalogos'
+
+      const { unmount } = render(
+        <PortalLayout>
+          <p>contenido de la pantalla</p>
+        </PortalLayout>,
+      )
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith('/dashboard'))
+      expect(seVe()).toBe(false)
+      unmount()
+    }
+  })
+
+  it('un paciente tampoco entra', async () => {
+    sesion = usuario('paciente')
+    ruta = '/catalogos'
+
+    montar()
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/mi-panel'))
+    expect(seVe()).toBe(false)
+  })
+
+  it('al Administrador sí se la abre', async () => {
+    sesion = usuario('Administrador')
+    ruta = '/catalogos'
+
+    montar()
+
+    await waitFor(() => expect(seVe()).toBe(true))
+    expect(replace).not.toHaveBeenCalled()
+  })
+})
+
 describe('HU-08 · la guarda no rompe las URL compartibles', () => {
   it('abre el expediente de un paciente por su URL directa', async () => {
     // `/pacientes/5` no está en la tabla de rutas: se resuelve por prefijo. Con

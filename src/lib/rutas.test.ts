@@ -82,3 +82,18 @@ describe('puedeVerRuta · el catálogo de medicamentos (HU-23)', () => {
     }
   })
 })
+
+describe('puedeVerRuta · los catálogos de tipos de cita y de hábito (DEF-01)', () => {
+  it('solo los abre el Administrador', () => {
+    expect(puedeVerRuta('/catalogos', ['Administrador'])).toBe(true)
+    expect(puedeVerRuta('/catalogos', ['Administrador', 'medico'])).toBe(true)
+    for (const rol of ['medico', 'enfermera', 'paciente'] as const) {
+      expect(puedeVerRuta('/catalogos', [rol])).toBe(false)
+    }
+  })
+
+  it('aparecen en el menú del Administrador y en el de nadie más', () => {
+    const entrada = RUTAS_DEL_PORTAL.find((r) => r.href === '/catalogos')
+    expect(entrada?.roles).toEqual(['Administrador'])
+  })
+})

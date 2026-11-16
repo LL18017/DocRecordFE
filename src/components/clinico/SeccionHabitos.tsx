@@ -11,6 +11,7 @@
 // historial).
 
 import React, { useCallback, useEffect, useId, useState } from 'react'
+import Link from 'next/link'
 import {
   campoBase,
   ErrorDeSeccion,
@@ -124,8 +125,11 @@ export const SeccionHabitos: React.FC<Props> = ({ pacienteId, puedeEditar, puede
         <>
           {puedeEditar && tipos.length === 0 && (
             <p role="status" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800">
-              No hay tipos de hábito en el catálogo. El administrador debe registrarlos antes de poder
-              anotar hábitos.
+              No hay tipos de hábito en el catálogo. El administrador debe registrarlos en{' '}
+              <Link href="/catalogos" className="font-semibold underline underline-offset-2">
+                Catálogos
+              </Link>{' '}
+              antes de poder anotar hábitos.
             </p>
           )}
           {habitos.length === 0 ? (
