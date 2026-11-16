@@ -6,8 +6,12 @@ import { describe, expect, it } from 'vitest'
 import type { SignosVitalesDto } from '@/services/signosVitales'
 import {
   LIMITES_FISIOLOGICOS,
+  RANGOS_CRITICOS,
   RANGOS_NORMALES,
+  clasificarValor,
   esAvisoDePercentiles,
+  nivelMasGrave,
+  nivelesDeLaToma,
   fueraDeRangoNormal,
   imcFueraDeRango,
   rangoNormalComoTexto,
@@ -133,5 +137,81 @@ describe('IMC fuera de rango (criterio 4 de HU-18: el peso se juzga por el IMC)'
     expect(esAvisoDePercentiles(PERCENTILES)).toBe(true)
     expect(esAvisoDePercentiles('Normal')).toBe(false)
     expect(esAvisoDePercentiles(null)).toBe(false)
+  })
+})
+
+// DEF-02 · HU-16 criterio 3: dos niveles, ámbar (fuera de rango) y rojo
+// (crítico, umbrales NEWS2 del Royal College of Physicians, 2017).
+describe('clasificarValor · normal, fuera de rango y crítico (NEWS2)', () => {
+  it('los umbrales críticos son los de NEWS2', () => {
+    expect(RANGOS_CRITICOS).toEqual({
+      saturacionPct: { min: 92, max: 100 },
+      pulsoLpm: { min: 40, max: 130 },
+      frecuenciaRespRpm: { min: 9, max: 24 },
+      temperaturaC: { min: 35.1, max: 39.0 },
+      presionSistolica: { min: 91, max: 219 },
+      presionDiastolica: { min: 0, max: 119 },
+    })
+  })
+
+  it('saturación: 97 normal, 94 fuera de rango, 92 aún fuera de rango, 91 crítico', () => {
+    expect(clasificarValor('saturacionPct', 97)).toBe('normal')
+    expect(clasificarValor('saturacionPct', 94)).toBe('fuera-de-rango')
+    expect(clasificarValor('saturacionPct', 92)).toBe('fuera-de-rango')
+    expect(clasificarValor('saturacionPct', 91)).toBe('critico')
+    expect(clasificarValor('saturacionPct', 88)).toBe('critico')
+  })
+
+  it('pulso: 110 fuera de rango, 131 y 39 críticos', () => {
+    expect(clasificarValor('pulsoLpm', 72)).toBe('normal')
+    expect(clasificarValor('pulsoLpm', 110)).toBe('fuera-de-rango')
+    expect(clasificarValor('pulsoLpm', 130)).toBe('fuera-de-rango')
+    expect(clasificarValor('pulsoLpm', 131)).toBe('critico')
+    expect(clasificarValor('pulsoLpm', 39)).toBe('critico')
+  })
+
+  it('frecuencia respiratoria: 22 fuera de rango, 25 y 8 críticos', () => {
+    expect(clasificarValor('frecuenciaRespRpm', 22)).toBe('fuera-de-rango')
+    expect(clasificarValor('frecuenciaRespRpm', 24)).toBe('fuera-de-rango')
+    expect(clasificarValor('frecuenciaRespRpm', 25)).toBe('critico')
+    expect(clasificarValor('frecuenciaRespRpm', 8)).toBe('critico')
+  })
+
+  it('temperatura: 38.5 fuera de rango, 39.1 y 35.0 críticos', () => {
+    expect(clasificarValor('temperaturaC', 38.5)).toBe('fuera-de-rango')
+    expect(clasificarValor('temperaturaC', 39.0)).toBe('fuera-de-rango')
+    expect(clasificarValor('temperaturaC', 39.1)).toBe('critico')
+    expect(clasificarValor('temperaturaC', 35.1)).toBe('fuera-de-rango')
+    expect(clasificarValor('temperaturaC', 35.0)).toBe('critico')
+  })
+
+  it('presión: 150 fuera de rango, 220 y 90 de sistólica críticos; 120 de diastólica crítica', () => {
+    expect(clasificarValor('presionSistolica', 120)).toBe('normal')
+    expect(clasificarValor('presionSistolica', 150)).toBe('fuera-de-rango')
+    expect(clasificarValor('presionSistolica', 220)).toBe('critico')
+    // 90 es el borde del rango normal, pero NEWS2 ya lo puntúa como crítico: manda lo crítico.
+    expect(clasificarValor('presionSistolica', 90)).toBe('critico')
+    expect(clasificarValor('presionDiastolica', 95)).toBe('fuera-de-rango')
+    expect(clasificarValor('presionDiastolica', 120)).toBe('critico')
+  })
+
+  it('sin valor es normal, y lo que no tiene umbral crítico nunca llega a crítico', () => {
+    expect(clasificarValor('saturacionPct', null)).toBe('normal')
+    expect(clasificarValor('saturacionPct', undefined)).toBe('normal')
+    expect(clasificarValor('imc', 45)).toBe('fuera-de-rango')
+    expect(clasificarValor('pesoKg', 399)).toBe('normal')
+  })
+
+  it('nivelMasGrave se queda con el peor', () => {
+    expect(nivelMasGrave([])).toBe('normal')
+    expect(nivelMasGrave(['normal', 'fuera-de-rango'])).toBe('fuera-de-rango')
+    expect(nivelMasGrave(['fuera-de-rango', 'critico', 'normal'])).toBe('critico')
+  })
+
+  it('nivelesDeLaToma da el nivel de cada valor que no es normal', () => {
+    const niveles = nivelesDeLaToma(toma({ saturacionPct: 88, pulsoLpm: 110 }))
+    expect(niveles.get('saturacionPct')).toBe('critico')
+    expect(niveles.get('pulsoLpm')).toBe('fuera-de-rango')
+    expect(niveles.has('temperaturaC')).toBe(false)
   })
 })

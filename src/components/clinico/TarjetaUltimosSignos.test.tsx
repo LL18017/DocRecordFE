@@ -67,12 +67,16 @@ describe('TarjetaUltimosSignos · fuera de rango en rojo (HU-16 criterio 3)', ()
     expect(celda('Temperatura')).toHaveClass('bg-red-50')
     expect(within(celda('Temperatura')).getByText('40')).toHaveClass('text-red-700')
     expect(celda('Tensión')).toHaveAttribute('data-fuera-de-rango', 'true')
+    // 40 °C pasa el umbral crítico (> 39.0 °C); 150/95 solo sale del normal.
+    expect(celda('Temperatura')).toHaveAttribute('data-nivel', 'critico')
+    expect(celda('Tensión')).toHaveAttribute('data-nivel', 'fuera-de-rango')
+    expect(celda('Tensión')).toHaveClass('bg-amber-50')
 
     expect(celda('Pulso')).not.toHaveAttribute('data-fuera-de-rango')
     expect(celda('Saturación')).not.toHaveAttribute('data-fuera-de-rango')
   })
 
-  it('lo dice con palabras, no solo con el color', () => {
+  it('una saturación de 88 % es «Valor crítico», en rojo y con palabras', () => {
     render(
       <TarjetaUltimosSignos
         ultimosVitales={toma({ saturacionPct: 88 })}
@@ -80,7 +84,32 @@ describe('TarjetaUltimosSignos · fuera de rango en rojo (HU-16 criterio 3)', ()
       />,
     )
 
-    expect(within(celda('Saturación')).getByText(/fuera de rango/i)).toHaveTextContent('95–100 %')
+    const saturacion = celda('Saturación')
+    expect(saturacion).toHaveAttribute('data-nivel', 'critico')
+    expect(saturacion).toHaveClass('bg-red-50')
+    const texto = within(saturacion).getByText(/valor crítico/i)
+    expect(texto).toHaveTextContent('95–100 %')
+    expect(texto).toHaveClass('text-red-700')
+    expect(within(saturacion).getByText('88')).toHaveClass('text-red-700')
+    expect(within(saturacion).queryByText(/fuera de rango/i)).not.toBeInTheDocument()
+  })
+
+  it('una saturación de 94 % es «Fuera de rango», en ámbar y no en rojo', () => {
+    render(
+      <TarjetaUltimosSignos
+        ultimosVitales={toma({ saturacionPct: 94 })}
+        errorVitales={null}
+      />,
+    )
+
+    const saturacion = celda('Saturación')
+    expect(saturacion).toHaveAttribute('data-nivel', 'fuera-de-rango')
+    expect(saturacion).toHaveClass('bg-amber-50')
+    expect(saturacion).not.toHaveClass('bg-red-50')
+    const texto = within(saturacion).getByText(/fuera de rango/i)
+    expect(texto).toHaveTextContent('95–100 %')
+    expect(texto).toHaveClass('text-amber-800')
+    expect(within(saturacion).queryByText(/valor crítico/i)).not.toBeInTheDocument()
   })
 
   it('el peso y la estatura nunca se destacan, por extremos que sean', () => {
