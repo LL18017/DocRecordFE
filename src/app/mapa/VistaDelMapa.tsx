@@ -46,7 +46,7 @@ const SERVIDOR_DE_TESELAS = 'https://tile.openstreetmap.org'
 const MapaDeLaRed = dynamic(() => import('@/components/mapa/MapaDeLaRed'), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full w-full items-center justify-center bg-slate-100 text-sm text-slate-500">
+    <div className="flex h-full w-full items-center justify-center bg-slate-100 text-sm text-slate-600">
       Cargando mapa…
     </div>
   ),

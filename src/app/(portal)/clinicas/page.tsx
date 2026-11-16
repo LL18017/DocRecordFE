@@ -37,7 +37,7 @@ const SIN_UBICACION = 'Sin ubicación registrada'
 const MapaClinicas = dynamic(() => import('@/components/mapa/MapaClinicas'), {
   ssr: false,
   loading: () => (
-    <div className="absolute inset-0 flex items-center justify-center bg-slate-100 text-sm text-slate-500">
+    <div className="absolute inset-0 flex items-center justify-center bg-slate-100 text-sm text-slate-600">
       Cargando mapa…
     </div>
   ),
