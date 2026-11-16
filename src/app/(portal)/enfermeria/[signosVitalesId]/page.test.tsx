@@ -158,7 +158,8 @@ describe('detalle de la toma · anulación (HU-16 criterio 4)', () => {
     await user.type(screen.getByLabelText('Motivo de la anulación'), 'Error')
 
     expect(screen.getByText(/El motivo debe tener entre 10 y 500 caracteres/)).toBeInTheDocument()
-    expect(screen.getByText(/6\/500/)).toBeInTheDocument()
+    // «Error» tiene 5 caracteres: el contador cuenta lo escrito, sin recortar.
+    expect(screen.getByText(/5\/500/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Confirmar anulación' })).toBeDisabled()
     expect(anularToma).not.toHaveBeenCalled()
   })
