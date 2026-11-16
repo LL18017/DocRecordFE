@@ -33,6 +33,10 @@ export const CUENTAS = {
       password: delEntorno('E2E_ENFERMERA_PASSWORD'),
     }
   },
+  // Para las pantallas que solo abre el Administrador (Usuarios y Roles).
+  get admin() {
+    return { email: delEntorno('E2E_ADMIN_EMAIL'), password: delEntorno('E2E_ADMIN_PASSWORD') }
+  },
 }
 
 /**

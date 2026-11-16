@@ -12,6 +12,12 @@
 // reinicializarse sola.
 import { defineConfig, devices } from '@playwright/test'
 
+// Con E2E_BASE_URL las pruebas apuntan a un despliegue ya levantado (por
+// ejemplo, el público) y no se arranca `next dev`: probar la responsividad o el
+// contraste de lo que de verdad ve el usuario exige el build desplegado, no el
+// servidor de desarrollo. Sin la variable, todo sigue como antes.
+const URL_EXTERNA = process.env.E2E_BASE_URL
+
 export default defineConfig({
   testDir: './e2e',
 
@@ -36,7 +42,7 @@ export default defineConfig({
   expect: { timeout: 20_000 },
 
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: URL_EXTERNA ?? 'http://localhost:3000',
     navigationTimeout: 90_000,
     actionTimeout: 30_000,
     // Rastro solo del primer reintento: pesa, y guardarlo de todo convierte la
@@ -52,10 +58,13 @@ export default defineConfig({
   // Levanta `next dev` si el puerto está libre, y lo reutiliza si ya está
   // corriendo: durante el desarrollo el servidor suele estar abierto y
   // rearrancarlo por cada corrida cuesta medio minuto.
-  webServer: {
-    command: 'node node_modules/next/dist/bin/next dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: true,
-    timeout: 120_000,
-  },
+  // Contra una URL externa no se levanta nada: el servidor ya existe.
+  webServer: URL_EXTERNA
+    ? undefined
+    : {
+        command: 'node node_modules/next/dist/bin/next dev',
+        url: 'http://localhost:3000',
+        reuseExistingServer: true,
+        timeout: 120_000,
+      },
 })
