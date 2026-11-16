@@ -4,7 +4,7 @@ import React, { useId, useMemo, useState } from 'react'
 import type { RegistrarSignosVitalesPayload } from '@/services/signosVitales'
 import {
   LIMITES_FISIOLOGICOS,
-  fueraDeRangoNormal,
+  clasificarValor,
   rangoNormalComoTexto,
   type ClaveDeMedida,
 } from '@/lib/rangosVitales'
@@ -112,13 +112,17 @@ const MEDIDAS: {
  * Qué decirle a la enfermera sobre lo que escribió en una casilla.
  *
  *   · `error`: fuera del límite fisiológico, el servidor lo rechazaría. Bloquea.
- *   · `aviso`: dentro de lo posible pero fuera del rango normal. No bloquea.
+ *   · `critico`: dentro de lo posible pero pasado el umbral crítico de NEWS2
+ *     (`RANGOS_CRITICOS`). Rojo, con «Valor crítico». Tampoco bloquea: un
+ *     paciente SÍ puede llegar con 88 % de saturación, y es justo cuando más
+ *     importa que la toma quede guardada.
+ *   · `aviso`: dentro de lo posible pero fuera del rango normal. Ámbar. No bloquea.
  *   · `null`: casilla vacía (no se tomó) o valor normal.
  */
 function evaluarCasilla(
   { clave, nombre, unidad }: (typeof MEDIDAS)[number],
   texto: string,
-): { tipo: 'error' | 'aviso'; mensaje: string } | null {
+): { tipo: 'error' | 'critico' | 'aviso'; mensaje: string } | null {
   if (texto.trim() === '') return null
 
   const valor = Number(texto)
@@ -127,7 +131,14 @@ function evaluarCasilla(
   if (Number.isNaN(valor) || valor < min || valor > max) {
     return { tipo: 'error', mensaje: `${nombre} debe estar entre ${min} y ${max} ${unidad}.` }
   }
-  if (fueraDeRangoNormal(clave, valor)) {
+  const nivel = clasificarValor(clave, valor)
+  if (nivel === 'critico') {
+    return {
+      tipo: 'critico',
+      mensaje: `Valor crítico: fuera del rango normal (${rangoNormalComoTexto(clave)}). Avise al médico; puede guardarla de todos modos.`,
+    }
+  }
+  if (nivel === 'fuera-de-rango') {
     return {
       tipo: 'aviso',
       mensaje: `Fuera del rango normal (${rangoNormalComoTexto(clave)}). Puede guardarla de todos modos.`,
@@ -270,20 +281,23 @@ export const VitalsForm: React.FC<VitalsFormProps> = ({
                 className={`${campoCortoClass} ${
                   resultado?.tipo === 'error'
                     ? 'border-red-400'
-                    : resultado?.tipo === 'aviso'
-                      ? 'border-amber-400'
-                      : ''
+                    : resultado?.tipo === 'critico'
+                      ? 'border-red-600'
+                      : resultado?.tipo === 'aviso'
+                        ? 'border-amber-400'
+                        : ''
                 }`}
               />
-              {/* Error (rojo, bloquea) o aviso (ámbar, no bloquea): el texto lo
-                  dice con palabras, no solo con el color. */}
+              {/* Error (rojo, bloquea), valor crítico (rojo, no bloquea) o aviso
+                  (ámbar, no bloquea): el texto lo dice con palabras, no solo
+                  con el color. */}
               {resultado && (
                 <p
                   id={idMensaje}
                   role={resultado.tipo === 'error' ? 'alert' : 'status'}
                   className={`mt-1 text-[11px] leading-snug ${
-                    resultado.tipo === 'error' ? 'text-red-700' : 'text-amber-700'
-                  }`}
+                    resultado.tipo === 'aviso' ? 'text-amber-700' : 'text-red-700'
+                  } ${resultado.tipo === 'critico' ? 'font-semibold' : ''}`}
                 >
                   {resultado.mensaje}
                 </p>

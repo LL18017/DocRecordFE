@@ -245,7 +245,15 @@ export default function AgendaPage() {
         <p role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           {medicos.length === 0
             ? 'Esta sede no tiene médicos asignados: no hay con quién agendar.'
-            : 'No hay tipos de cita registrados. El administrador debe crearlos antes de agendar.'}
+            : (
+              <>
+                No hay tipos de cita registrados. El administrador debe crearlos en{' '}
+                <Link href="/catalogos" className="font-semibold underline underline-offset-2">
+                  Catálogos
+                </Link>{' '}
+                antes de agendar.
+              </>
+            )}
         </p>
       )}
 

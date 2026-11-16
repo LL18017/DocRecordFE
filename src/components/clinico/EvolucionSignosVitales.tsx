@@ -10,8 +10,8 @@
 // es el dato de hoy —eso ya está en la tarjeta de la última toma— sino la
 // pendiente. Por eso los puntos van unidos, el eje Y no arranca en cero (una
 // presión de 118 a 142 se aplana hasta desaparecer si el eje empieza en 0), y
-// los valores fuera de rango se marcan en vez de dejarlos confundirse con el
-// resto.
+// los valores fuera de rango (ámbar) y críticos según NEWS2 (rojo) se marcan en
+// vez de dejarlos confundirse con el resto.
 
 import React, { useMemo, useState } from 'react'
 import {
@@ -27,9 +27,11 @@ import {
 } from 'recharts'
 import {
   RANGOS_NORMALES,
-  fueraDeRangoNormal,
+  clasificarValor,
   imcFueraDeRango,
+  nivelMasGrave,
   rangoNormalComoTexto,
+  type NivelDeValor,
 } from '@/lib/rangosVitales'
 import { estaAnulada, type SignosVitalesDto } from '@/services/signosVitales'
 
@@ -45,11 +47,25 @@ export interface Medida {
   normal: { min: number; max: number }
   /** Series que se dibujan. La presión son dos líneas; las otras, una. */
   series: { campo: string; nombre: string; color: string }[]
-  /** ¿Esta toma sale de rango para la medida? Es lo que se marca en rojo. */
+  /** ¿Esta toma sale de rango para la medida? (fuera de rango o crítica) */
   fueraDeRango: (t: SignosVitalesDto) => boolean
+  /** El nivel de la toma para la medida: ámbar si fuera de rango, rojo si crítica. */
+  nivel: (t: SignosVitalesDto) => NivelDeValor
   /** Texto de la leyenda cuando la marca no es una franja sobre el eje. */
   explicacionDeLaMarca?: string
 }
+
+/** La presión vale lo que su cifra más grave: la sistólica o la diastólica. */
+function nivelDePresion(t: SignosVitalesDto): NivelDeValor {
+  return nivelMasGrave([
+    clasificarValor('presionSistolica', t.presionSistolica),
+    clasificarValor('presionDiastolica', t.presionDiastolica),
+  ])
+}
+
+/** Colores de los puntos marcados: ámbar = fuera de rango, rojo = crítico. */
+const COLOR_FUERA_DE_RANGO = '#D97706'
+const COLOR_CRITICO = '#DC2626'
 
 // Exportada solo para probar qué marca cada medida: recharts no dibuja nada en jsdom.
 export const MEDIDAS: Medida[] = [
@@ -65,9 +81,8 @@ export const MEDIDAS: Medida[] = [
       { campo: 'sistolica', nombre: 'Sistólica', color: '#1E3A8A' },
       { campo: 'diastolica', nombre: 'Diastólica', color: '#60A5FA' },
     ],
-    fueraDeRango: (t) =>
-      fueraDeRangoNormal('presionSistolica', t.presionSistolica) ||
-      fueraDeRangoNormal('presionDiastolica', t.presionDiastolica),
+    fueraDeRango: (t) => nivelDePresion(t) !== 'normal',
+    nivel: (t) => nivelDePresion(t),
   },
   {
     clave: 'peso',
@@ -85,6 +100,7 @@ export const MEDIDAS: Medida[] = [
     normal: { min: Number.NEGATIVE_INFINITY, max: Number.POSITIVE_INFINITY },
     series: [{ campo: 'peso', nombre: 'Peso', color: '#0F766E' }],
     fueraDeRango: (t) => imcFueraDeRango(t),
+    nivel: (t) => (imcFueraDeRango(t) ? 'fuera-de-rango' : 'normal'),
     explicacionDeLaMarca: `IMC de la toma fuera de ${rangoNormalComoTexto('imc')}`,
   },
   {
@@ -94,6 +110,8 @@ export const MEDIDAS: Medida[] = [
     normal: RANGOS_NORMALES.imc!,
     series: [{ campo: 'imc', nombre: 'IMC', color: '#B45309' }],
     fueraDeRango: (t) => imcFueraDeRango(t),
+    // El IMC no tiene umbral crítico: nunca llega a rojo.
+    nivel: (t) => (imcFueraDeRango(t) ? 'fuera-de-rango' : 'normal'),
   },
 ]
 
@@ -114,7 +132,7 @@ interface Punto {
   diastolica: number | null
   peso: number | null
   imc: number | null
-  fueraDeRango: boolean
+  nivel: NivelDeValor
 }
 
 export interface EvolucionSignosVitalesProps {
@@ -161,7 +179,7 @@ export function EvolucionSignosVitales({ tomas }: EvolucionSignosVitalesProps) {
           diastolica: t.presionDiastolica,
           peso: t.pesoKg,
           imc: t.imc,
-          fueraDeRango: medida.fueraDeRango(t),
+          nivel: medida.nivel(t),
         }
       })
       // De lo más antiguo a lo más reciente: el backend los devuelve al revés
@@ -335,9 +353,24 @@ export function EvolucionSignosVitales({ tomas }: EvolucionSignosVitalesProps) {
               </span>
             )}
             <span className="inline-flex items-center gap-1.5">
-              <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" />
+              <span
+                aria-hidden
+                className="inline-block h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: COLOR_FUERA_DE_RANGO }}
+              />
               Fuera de rango{medida.explicacionDeLaMarca && ` (${medida.explicacionDeLaMarca})`}
             </span>
+            {/* Solo la presión tiene umbral crítico entre las medidas graficadas. */}
+            {medida.clave === 'presion' && (
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="inline-block h-3 w-3 rounded-full"
+                  style={{ backgroundColor: COLOR_CRITICO }}
+                />
+                Valor crítico (NEWS2)
+              </span>
+            )}
           </p>
         </>
       )}
@@ -346,7 +379,8 @@ export function EvolucionSignosVitales({ tomas }: EvolucionSignosVitalesProps) {
 }
 
 /**
- * Un punto de la línea, rojo y más grande si la toma salió de rango (criterio 4).
+ * Un punto de la línea: ámbar y más grande si la toma salió de rango, rojo y
+ * aún más grande si es crítica (criterio 4).
  *
  * El tamaño acompaña al color a propósito: distinguir sólo por color deja fuera
  * a quien no diferencia el rojo del azul, y esto es información clínica.
@@ -360,15 +394,16 @@ function PuntoDeLaSerie(props: {
   const { color, cx, cy, payload } = props
   if (cx === undefined || cy === undefined) return null
 
-  const fuera = payload?.fueraDeRango ?? false
+  const nivel = payload?.nivel ?? 'normal'
+  const marcado = nivel !== 'normal'
   return (
     <Dot
       cx={cx}
       cy={cy}
-      r={fuera ? 5 : 3}
-      fill={fuera ? '#DC2626' : color}
+      r={nivel === 'critico' ? 6 : marcado ? 5 : 3}
+      fill={nivel === 'critico' ? COLOR_CRITICO : marcado ? COLOR_FUERA_DE_RANGO : color}
       stroke="#FFFFFF"
-      strokeWidth={fuera ? 2 : 1}
+      strokeWidth={marcado ? 2 : 1}
     />
   )
 }

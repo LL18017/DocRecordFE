@@ -1,7 +1,7 @@
 // ─── Rangos de los signos vitales: UN solo lugar ───────────────────────────
 // Todo lo que decide «esto está fuera de rango» en la interfaz sale de aquí: el
-// aviso del formulario de toma, el rojo de la tarjeta «Últimos Signos Vitales»,
-// el rojo del detalle de la toma y la marca de la gráfica de evolución. Si cada
+// aviso del formulario de toma, el ámbar/rojo de la tarjeta «Últimos Signos
+// Vitales», el del detalle de la toma y la marca de la gráfica de evolución. Si cada
 // pantalla llevara su propia copia de los números, bastaría con que una se
 // quedara atrás para que la ficha y la gráfica discreparan sobre el mismo valor.
 //
@@ -18,6 +18,10 @@
 //   · RANGOS NORMALES: lo esperable en un adulto sano. Fuera de ellos el dato
 //     puede ser perfectamente real —un paciente SÍ puede llegar con 40 °C— y
 //     por eso solo se ADVIERTE; nunca se bloquea el guardado (HU-16, criterio 2).
+//
+// Y, dentro de lo que sale del rango normal, un segundo escalón: los UMBRALES
+// CRÍTICOS de NEWS2 (`RANGOS_CRITICOS`). Fuera del normal se pinta en ámbar;
+// pasado el crítico, en rojo (HU-16, criterio 3). Tampoco bloquea.
 //
 // Los rangos normales son valores de REFERENCIA PARA ADULTOS. En menores el
 // pulso, la frecuencia respiratoria y la presión normales son distintos y
@@ -96,6 +100,74 @@ export const RANGOS_NORMALES: Partial<Record<ClaveDeRango, Intervalo>> = {
   imc: { min: 18.5, max: 24.9 },
 }
 
+/**
+ * Umbrales CRÍTICOS: fuera de estos intervalos el valor no solo es anormal,
+ * sino que pide atención inmediata. Son los puntos de corte que puntúan 3 en la
+ * escala NEWS2 (Royal College of Physicians, *National Early Warning Score 2*,
+ * 2017):
+ *
+ *   · Saturación de O₂ ≤ 91 %.
+ *   · Pulso < 40 o > 130 lpm.
+ *   · Frecuencia respiratoria ≤ 8 o ≥ 25 rpm.
+ *   · Temperatura ≤ 35.0 °C; por arriba se usa > 39.0 °C (NEWS2 da 2 puntos
+ *     desde 39.1 °C, el máximo que asigna a la fiebre).
+ *   · Presión sistólica ≤ 90 o ≥ 220 mmHg.
+ *   · Presión diastólica ≥ 120 mmHg: NEWS2 no puntúa la diastólica; 120 es el
+ *     umbral de la crisis hipertensiva (ACC/AHA 2017) y se añade para que una
+ *     toma de 180/125 no quede solo en ámbar.
+ *
+ * Los extremos de cada intervalo están DENTRO (no son críticos). El intervalo
+ * crítico va siempre por fuera del normal salvo en un caso: la sistólica de 90
+ * es «normal» para `RANGOS_NORMALES` (90–139) pero crítica para NEWS2 (≤ 90).
+ * Ahí manda lo crítico: `clasificarValor` lo evalúa primero.
+ *
+ * El IMC, el peso y la talla no tienen umbral crítico: no son signos de alarma
+ * aguda.
+ */
+export const RANGOS_CRITICOS: Partial<Record<ClaveDeRango, Intervalo>> = {
+  saturacionPct: { min: 92, max: 100 },
+  pulsoLpm: { min: 40, max: 130 },
+  frecuenciaRespRpm: { min: 9, max: 24 },
+  temperaturaC: { min: 35.1, max: 39.0 },
+  presionSistolica: { min: 91, max: 219 },
+  presionDiastolica: { min: 0, max: 119 },
+}
+
+/**
+ * Los tres niveles con que se presenta un valor:
+ *
+ *   · `normal`: dentro del rango normal (o sin rango, o sin valor).
+ *   · `fuera-de-rango`: fuera del rango normal, sin llegar a crítico. Ámbar.
+ *   · `critico`: fuera del umbral crítico NEWS2. Rojo.
+ */
+export type NivelDeValor = 'normal' | 'fuera-de-rango' | 'critico'
+
+const GRAVEDAD: Record<NivelDeValor, number> = { normal: 0, 'fuera-de-rango': 1, critico: 2 }
+
+/** Clasifica un valor. Una medida ausente es `normal`: no hay nada que marcar. */
+export function clasificarValor(
+  clave: ClaveDeRango,
+  valor: number | null | undefined,
+): NivelDeValor {
+  if (valor === null || valor === undefined || Number.isNaN(valor)) return 'normal'
+  const critico = RANGOS_CRITICOS[clave]
+  if (critico && (valor < critico.min || valor > critico.max)) return 'critico'
+  return fueraDeRangoNormal(clave, valor) ? 'fuera-de-rango' : 'normal'
+}
+
+/** El más grave de varios niveles (`normal` si no hay ninguno). */
+export function nivelMasGrave(niveles: Iterable<NivelDeValor>): NivelDeValor {
+  let peor: NivelDeValor = 'normal'
+  for (const n of niveles) if (GRAVEDAD[n] > GRAVEDAD[peor]) peor = n
+  return peor
+}
+
+/** Texto accesible de cada nivel: el color nunca va solo. */
+export const TEXTO_DEL_NIVEL: Record<Exclude<NivelDeValor, 'normal'>, string> = {
+  critico: 'Valor crítico',
+  'fuera-de-rango': 'Fuera de rango',
+}
+
 /** Unidad con que se escribe el rango («90–139 mmHg»). */
 const UNIDADES: Record<ClaveDeRango, string> = {
   pesoKg: 'kg',
@@ -158,15 +230,15 @@ export function imcFueraDeRango(
 }
 
 /**
- * Qué valores de la toma salen del rango normal.
+ * El nivel de cada valor de la toma que NO es normal.
  *
- * El peso no aparece nunca: se juzga por el IMC (ver `RANGOS_NORMALES`). La
- * tensión arterial se considera fuera de rango si cualquiera de sus dos cifras
- * lo está, así que el llamador puede preguntar por `presionSistolica` y
- * `presionDiastolica` por separado o por las dos juntas.
+ * El peso no aparece nunca: se juzga por el IMC (ver `RANGOS_NORMALES`), que
+ * solo llega a `fuera-de-rango` (no tiene umbral crítico). La tensión arterial
+ * trae sus dos cifras por separado; quien la pinte en una sola celda debe
+ * quedarse con la más grave (`nivelMasGrave`).
  */
-export function valoresFueraDeRango(toma: SignosVitalesDto): Set<ClaveDeRango> {
-  const fuera = new Set<ClaveDeRango>()
+export function nivelesDeLaToma(toma: SignosVitalesDto): Map<ClaveDeRango, NivelDeValor> {
+  const niveles = new Map<ClaveDeRango, NivelDeValor>()
   const medidas: ClaveDeMedida[] = [
     'presionSistolica',
     'presionDiastolica',
@@ -176,8 +248,21 @@ export function valoresFueraDeRango(toma: SignosVitalesDto): Set<ClaveDeRango> {
     'frecuenciaRespRpm',
   ]
   for (const clave of medidas) {
-    if (fueraDeRangoNormal(clave, toma[clave])) fuera.add(clave)
+    const nivel = clasificarValor(clave, toma[clave])
+    if (nivel !== 'normal') niveles.set(clave, nivel)
   }
-  if (imcFueraDeRango(toma)) fuera.add('imc')
-  return fuera
+  if (imcFueraDeRango(toma)) niveles.set('imc', 'fuera-de-rango')
+  return niveles
+}
+
+/**
+ * Qué valores de la toma no son normales (fuera de rango o críticos).
+ *
+ * El peso no aparece nunca: se juzga por el IMC (ver `RANGOS_NORMALES`). La
+ * tensión arterial se considera fuera de rango si cualquiera de sus dos cifras
+ * lo está, así que el llamador puede preguntar por `presionSistolica` y
+ * `presionDiastolica` por separado o por las dos juntas.
+ */
+export function valoresFueraDeRango(toma: SignosVitalesDto): Set<ClaveDeRango> {
+  return new Set(nivelesDeLaToma(toma).keys())
 }

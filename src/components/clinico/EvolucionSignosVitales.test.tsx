@@ -172,6 +172,21 @@ describe('Evolución de signos vitales · puntos fuera de rango', () => {
     expect(marca('presion', toma(1, { presionDiastolica: 95 }))).toBe(true)
   })
 
+  it('la presión es ámbar si sale del normal y roja si pasa el umbral crítico', () => {
+    const nivel = (t: SignosVitalesDto) => MEDIDAS.find((m) => m.clave === 'presion')!.nivel(t)
+    expect(nivel(toma(1))).toBe('normal')
+    expect(nivel(toma(1, { presionSistolica: 150 }))).toBe('fuera-de-rango')
+    expect(nivel(toma(1, { presionSistolica: 225 }))).toBe('critico')
+    expect(nivel(toma(1, { presionSistolica: 150, presionDiastolica: 125 }))).toBe('critico')
+  })
+
+  it('el IMC nunca llega a crítico: no tiene umbral NEWS2', () => {
+    const nivel = (t: SignosVitalesDto) => MEDIDAS.find((m) => m.clave === 'imc')!.nivel(t)
+    expect(nivel(toma(1, { imc: 45, clasificacionImc: 'Obesidad grado III' }))).toBe(
+      'fuera-de-rango',
+    )
+  })
+
   it('el peso se marca por el IMC de la toma, nunca por los kilos', () => {
     // 150 kg con IMC normal (un adulto muy alto) no se marca...
     expect(marca('peso', toma(1, { pesoKg: 150, imc: 23 }))).toBe(false)

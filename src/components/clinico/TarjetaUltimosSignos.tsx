@@ -1,8 +1,9 @@
 // La tarjeta «Últimos Signos Vitales» de la ficha del paciente.
 //
 // Salió de `pacientes/[id]/page.tsx` para poder probarla sola y porque ahora
-// tiene lógica propia: resalta en rojo lo que está fuera de rango (HU-16,
-// criterio 3) y muestra el IMC con su clasificación (HU-17).
+// tiene lógica propia: resalta en ámbar lo que está fuera de rango y en rojo lo
+// crítico según NEWS2 (HU-16, criterio 3), y muestra el IMC con su
+// clasificación (HU-17).
 //
 // Lo toma enfermería y el médico solo lo lee —por eso aquí no hay ningún botón
 // de «Registrar»: ofrecerlo a un médico sería pedirle algo que el backend le va
@@ -14,9 +15,12 @@
 import React from 'react'
 import { ImcDeLaToma } from '@/components/clinico/ImcDeLaToma'
 import {
+  TEXTO_DEL_NIVEL,
+  nivelMasGrave,
+  nivelesDeLaToma,
   rangoNormalComoTexto,
-  valoresFueraDeRango,
   type ClaveDeRango,
+  type NivelDeValor,
 } from '@/lib/rangosVitales'
 import { formatearFechaHora } from '@/services/consultas'
 import { nombreDeEnfermera, tensionArterial, type SignosVitalesDto } from '@/services/signosVitales'
@@ -29,7 +33,9 @@ interface TarjetaUltimosSignosProps {
 }
 
 export function TarjetaUltimosSignos({ ultimosVitales, errorVitales }: TarjetaUltimosSignosProps) {
-  const fuera = ultimosVitales ? valoresFueraDeRango(ultimosVitales) : new Set<ClaveDeRango>()
+  const niveles = ultimosVitales
+    ? nivelesDeLaToma(ultimosVitales)
+    : new Map<ClaveDeRango, NivelDeValor>()
 
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100/80">
@@ -66,7 +72,12 @@ export function TarjetaUltimosSignos({ ultimosVitales, errorVitales }: TarjetaUl
                 ['Estatura', ultimosVitales.estaturaCm, 'cm', []],
               ] as [string, string | number | null, string, ClaveDeRango[]][]
             ).map(([etiqueta, valor, unidad, claves]) => {
-              const salePorFuera = valor !== null && claves.some((c) => fuera.has(c))
+              const nivel: NivelDeValor =
+                valor === null
+                  ? 'normal'
+                  : nivelMasGrave(claves.map((c) => niveles.get(c) ?? 'normal'))
+              const salePorFuera = nivel !== 'normal'
+              const critico = nivel === 'critico'
               return (
                 // Una medida que no se tomó se pinta «—», nunca 0: la diferencia
                 // entre «no se tomó la saturación» y «la saturación es 0» es la
@@ -74,8 +85,13 @@ export function TarjetaUltimosSignos({ ultimosVitales, errorVitales }: TarjetaUl
                 <div
                   key={etiqueta}
                   data-fuera-de-rango={salePorFuera ? 'true' : undefined}
+                  data-nivel={salePorFuera ? nivel : undefined}
                   className={`rounded-xl px-3 py-2 ${
-                    salePorFuera ? 'bg-red-50 ring-1 ring-red-200' : 'bg-slate-50'
+                    critico
+                      ? 'bg-red-50 ring-1 ring-red-200'
+                      : salePorFuera
+                        ? 'bg-amber-50 ring-1 ring-amber-200'
+                        : 'bg-slate-50'
                   }`}
                 >
                   <p className="text-[11px] uppercase tracking-wider text-slate-400">{etiqueta}</p>
@@ -83,9 +99,11 @@ export function TarjetaUltimosSignos({ ultimosVitales, errorVitales }: TarjetaUl
                     className={`text-sm font-semibold font-outfit ${
                       valor === null
                         ? 'text-slate-400'
-                        : salePorFuera
+                        : critico
                           ? 'text-red-700'
-                          : 'text-slate-800'
+                          : salePorFuera
+                            ? 'text-amber-800'
+                            : 'text-slate-800'
                     }`}
                   >
                     {valor === null ? (
@@ -98,10 +116,14 @@ export function TarjetaUltimosSignos({ ultimosVitales, errorVitales }: TarjetaUl
                     )}
                   </p>
                   {/* Con palabras y no solo con el color: quien no distingue el
-                      rojo también tiene que ver que algo salió de rango. */}
+                      rojo del ámbar también tiene que ver si es crítico. */}
                   {salePorFuera && (
-                    <p className="text-[10px] font-semibold text-red-700">
-                      Fuera de rango (normal{' '}
+                    <p
+                      className={`text-[10px] font-semibold ${
+                        critico ? 'text-red-700' : 'text-amber-800'
+                      }`}
+                    >
+                      {TEXTO_DEL_NIVEL[nivel]} (normal{' '}
                       {claves.map((c) => rangoNormalComoTexto(c)).filter(Boolean).join(' / ')})
                     </p>
                   )}

@@ -23,7 +23,7 @@ import { useRouter } from 'next/navigation'
 import { DataTable, Column } from '@/components/ui/DataTable'
 import { Badge } from '@/components/ui/Badge'
 import { Icon } from '@/components/ui/Icon'
-import { fueraDeRangoNormal } from '@/lib/rangosVitales'
+import { TEXTO_DEL_NIVEL, clasificarValor, type NivelDeValor } from '@/lib/rangosVitales'
 import { sinTildes } from '@/lib/texto'
 import { Modal } from '@/components/ui/Modal'
 import { VitalsForm, type PacienteParaToma } from '@/components/forms/VitalsForm'
@@ -227,9 +227,7 @@ export default function EnfermeriaPage() {
           t.saturacionPct === null ? (
             <span className="text-slate-300">—</span>
           ) : (
-            <Badge color={fueraDeRangoNormal('saturacionPct', t.saturacionPct) ? 'yellow' : 'green'}>
-              {t.saturacionPct}%
-            </Badge>
+            <InsigniaSaturacion valor={t.saturacionPct} />
           ),
       },
       {
@@ -348,4 +346,22 @@ function mensajeDe(causa: unknown, respaldo: string): string {
 function describir(contexto: string, causa: unknown): string {
   const motivo = causa instanceof Error && causa.message ? causa.message : null
   return motivo ? `${contexto}: ${motivo}` : `${contexto}.`
+}
+
+/** Color de la insignia de saturación por nivel: verde, ámbar o rojo (NEWS2). */
+const COLOR_DEL_NIVEL: Record<NivelDeValor, 'green' | 'yellow' | 'red'> = {
+  normal: 'green',
+  'fuera-de-rango': 'yellow',
+  critico: 'red',
+}
+
+function InsigniaSaturacion({ valor }: { valor: number }) {
+  const nivel = clasificarValor('saturacionPct', valor)
+  return (
+    <Badge color={COLOR_DEL_NIVEL[nivel]}>
+      {valor}%
+      {/* El nivel también con palabras, para quien no distingue los colores. */}
+      {nivel !== 'normal' && <span className="sr-only"> ({TEXTO_DEL_NIVEL[nivel]})</span>}
+    </Badge>
+  )
 }

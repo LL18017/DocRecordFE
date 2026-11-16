@@ -40,6 +40,27 @@ describe('VitalsForm · advertencia de rango normal (HU-16 criterio 2)', () => {
     expect(screen.getByLabelText('Temperatura (°C)')).not.toHaveAttribute('aria-invalid')
   })
 
+  it('una saturación de 91 % se anuncia como «Valor crítico», en rojo, sin bloquear', async () => {
+    const { user } = montar()
+
+    await user.type(screen.getByLabelText('Saturación O₂ (%)'), '91')
+
+    const aviso = screen.getByText(/valor crítico/i)
+    expect(aviso).toHaveClass('text-red-700')
+    expect(aviso).toHaveAttribute('role', 'status')
+    expect(screen.getByLabelText('Saturación O₂ (%)')).not.toHaveAttribute('aria-invalid')
+    expect(guardar()).toBeEnabled()
+  })
+
+  it('una saturación de 94 % solo advierte en ámbar, sin decir «crítico»', async () => {
+    const { user } = montar()
+
+    await user.type(screen.getByLabelText('Saturación O₂ (%)'), '94')
+
+    expect(screen.getByText(/fuera del rango normal/i)).toHaveClass('text-amber-700')
+    expect(screen.queryByText(/valor crítico/i)).not.toBeInTheDocument()
+  })
+
   it('y deja guardar: advertir no es bloquear', async () => {
     const { user, onSubmit } = montar()
 

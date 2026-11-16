@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { ApiError } from '@/lib/api'
 import type { HabitoDto, HabitoHistorialDto, HabitoPayload, TipoDeHabitoDto } from '@/services/habitos'
 import { SeccionHabitos } from './SeccionHabitos'
 
@@ -8,6 +9,7 @@ const listarHabitos = vi.fn<(pacienteId: number) => Promise<HabitoDto[]>>()
 const listarTiposDeHabito = vi.fn<() => Promise<TipoDeHabitoDto[]>>()
 const registrarHabito = vi.fn<(p: HabitoPayload) => Promise<HabitoDto>>()
 const listarHistorialDeHabito = vi.fn<(id: number) => Promise<HabitoHistorialDto[]>>()
+const anularHabito = vi.fn<(id: number, motivo: string) => Promise<HabitoDto>>()
 
 vi.mock('@/services/habitos', async (importarOriginal) => {
   const real = await importarOriginal<typeof import('@/services/habitos')>()
@@ -17,6 +19,7 @@ vi.mock('@/services/habitos', async (importarOriginal) => {
     listarTiposDeHabito: () => listarTiposDeHabito(),
     registrarHabito: (p: HabitoPayload) => registrarHabito(p),
     listarHistorialDeHabito: (id: number) => listarHistorialDeHabito(id),
+    anularHabito: (id: number, motivo: string) => anularHabito(id, motivo),
   }
 })
 
@@ -34,6 +37,10 @@ function habito(parcial: Partial<HabitoDto>): HabitoDto {
     actualizadoPor: 'Juan Guerra',
     pacienteId: 7,
     tipoHabito: EJERCICIO,
+    estado: 'ACTIVO',
+    motivoAnulacion: null,
+    anuladoEn: null,
+    anuladoPor: null,
     ...parcial,
   }
 }
@@ -57,7 +64,7 @@ function version(parcial: Partial<HabitoHistorialDto>): HabitoHistorialDto {
 
 function montar(props: Partial<React.ComponentProps<typeof SeccionHabitos>> = {}) {
   return render(
-    <SeccionHabitos pacienteId={7} puedeEditar puedeEliminar expanded onToggle={() => {}} {...props} />,
+    <SeccionHabitos pacienteId={7} puedeEditar puedeAnular expanded onToggle={() => {}} {...props} />,
   )
 }
 
@@ -66,6 +73,7 @@ beforeEach(() => {
   listarTiposDeHabito.mockReset()
   registrarHabito.mockReset()
   listarHistorialDeHabito.mockReset()
+  anularHabito.mockReset()
   listarHistorialDeHabito.mockResolvedValue([])
   listarHabitos.mockResolvedValue([])
   listarTiposDeHabito.mockResolvedValue([TABACO, EJERCICIO])
@@ -180,7 +188,7 @@ describe('hábitos (HU-14)', () => {
   it('c2: un hábito que nunca se editó lo dice, y quien solo consulta también puede ver el historial', async () => {
     const user = userEvent.setup()
     listarHabitos.mockResolvedValue([habito({})])
-    montar({ puedeEditar: false, puedeEliminar: false })
+    montar({ puedeEditar: false, puedeAnular: false })
 
     await user.click(await screen.findByRole('button', { name: /Ver historial del hábito/ }))
 
@@ -213,12 +221,12 @@ describe('hábitos (HU-14)', () => {
 
   it('el administrador consulta, pero no ve botones para cambiar nada', async () => {
     listarHabitos.mockResolvedValue([habito({})])
-    montar({ puedeEditar: false, puedeEliminar: false })
+    montar({ puedeEditar: false, puedeAnular: false })
 
     expect(await screen.findByText('Camina 30 minutos')).toBeVisible()
     expect(screen.queryByRole('button', { name: '+ Agregar' })).toBeNull()
     expect(screen.queryByRole('button', { name: /Editar/ })).toBeNull()
-    expect(screen.queryByRole('button', { name: /Eliminar/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Anular/ })).toBeNull()
   })
 
   it('sin tipos en el catálogo no ofrece un formulario que no se puede llenar', async () => {
@@ -227,5 +235,111 @@ describe('hábitos (HU-14)', () => {
 
     expect(await screen.findByText(/No hay tipos de hábito en el catálogo/)).toBeVisible()
     expect(screen.queryByRole('button', { name: '+ Agregar' })).toBeNull()
+  })
+
+  // ── DEF-03: anular en vez de borrar ──────────────────────────────────────
+  describe('anular un hábito (DEF-03)', () => {
+    const MOTIVO = 'Se registró en el paciente equivocado'
+
+    it('ya no ofrece «Eliminar»: ofrece «Anular»', async () => {
+      listarHabitos.mockResolvedValue([habito({})])
+      montar()
+
+      expect(await screen.findByRole('button', { name: /Anular hábito: Actividad física/ })).toBeVisible()
+      expect(screen.queryByRole('button', { name: /Eliminar/ })).toBeNull()
+    })
+
+    it('con un motivo de menos de 10 caracteres avisa en línea y no deja confirmar', async () => {
+      const user = userEvent.setup()
+      listarHabitos.mockResolvedValue([habito({})])
+      montar()
+
+      await user.click(await screen.findByRole('button', { name: /Anular hábito: Actividad física/ }))
+      const dialogo = screen.getByRole('form', { name: /Anular hábito: Actividad física/ })
+      const confirmar = within(dialogo).getByRole('button', { name: 'Confirmar anulación' })
+      expect(confirmar).toBeDisabled()
+
+      await user.type(within(dialogo).getByLabelText(/Motivo de la anulación/), 'Error')
+
+      expect(within(dialogo).getByText(/entre 10 y 500 caracteres/)).toBeVisible()
+      expect(within(dialogo).getByText(/5\/500/)).toBeVisible()
+      expect(confirmar).toBeDisabled()
+      await user.click(confirmar)
+      expect(anularHabito).not.toHaveBeenCalled()
+    })
+
+    it('con un motivo válido llama al servicio y el hábito queda marcado, con motivo, quién y cuándo, y sin acciones', async () => {
+      const user = userEvent.setup()
+      listarHabitos.mockResolvedValue([habito({ id: 4 })])
+      anularHabito.mockImplementation(async (id, motivo) =>
+        habito({
+          id,
+          estado: 'ANULADO',
+          motivoAnulacion: motivo,
+          anuladoEn: '2026-11-15T11:00:00',
+          anuladoPor: 'Ana Pérez',
+        }),
+      )
+      montar()
+
+      await user.click(await screen.findByRole('button', { name: /Anular hábito: Actividad física/ }))
+      const dialogo = screen.getByRole('form', { name: /Anular hábito: Actividad física/ })
+      await user.type(within(dialogo).getByLabelText(/Motivo de la anulación/), `  ${MOTIVO} `)
+      expect(within(dialogo).getByRole('button', { name: 'Confirmar anulación' })).toBeEnabled()
+      await user.click(within(dialogo).getByRole('button', { name: 'Confirmar anulación' }))
+
+      expect(anularHabito).toHaveBeenCalledWith(4, MOTIVO)
+      const fila = await screen.findByRole('listitem', { name: 'Hábito anulado: Actividad física' })
+      // «Anulado» aparece dos veces: el distintivo junto al tipo y el inicio de la
+      // línea «Anulado el … por …». Se comprueba el distintivo, que es el primero.
+      const marcas = within(fila).getAllByText('Anulado')
+      expect(marcas).toHaveLength(2)
+      expect(marcas[0]).toBeVisible()
+      expect(fila).toHaveTextContent(`Motivo: ${MOTIVO}`)
+      expect(fila).toHaveTextContent(/Anulado el .*2026.* por Ana Pérez/)
+      expect(within(fila).getByText('Camina 30 minutos').className).toMatch(/line-through/)
+      expect(within(fila).queryByRole('button', { name: /Editar/ })).toBeNull()
+      expect(within(fila).queryByRole('button', { name: /Anular/ })).toBeNull()
+      await waitFor(() => expect(screen.queryByRole('form', { name: /Anular hábito/ })).toBeNull())
+    })
+
+    it('un hábito que ya viene anulado del backend se muestra marcado y sin Editar ni Anular', async () => {
+      listarHabitos.mockResolvedValue([
+        habito({
+          estado: 'ANULADO',
+          motivoAnulacion: 'Registrado por duplicado',
+          anuladoEn: '2026-11-10T08:00:00',
+          anuladoPor: 'Juan Guerra',
+        }),
+      ])
+      montar()
+
+      const fila = await screen.findByRole('listitem', { name: 'Hábito anulado: Actividad física' })
+      expect(fila).toHaveTextContent('Motivo: Registrado por duplicado')
+      expect(fila).toHaveTextContent('por Juan Guerra')
+      expect(within(fila).queryByRole('button', { name: /Editar/ })).toBeNull()
+      expect(within(fila).queryByRole('button', { name: /Anular/ })).toBeNull()
+    })
+
+    it.each([
+      [400, 'El motivo debe tener entre 10 y 500 caracteres'],
+      [403, 'Solo quien registró el hábito o un administrador puede anularlo'],
+      [409, 'El hábito ya estaba anulado'],
+    ])('si el backend responde %i, su mensaje se ve dentro del diálogo y el hábito sigue vigente', async (estado, mensaje) => {
+      const user = userEvent.setup()
+      listarHabitos.mockResolvedValue([habito({})])
+      anularHabito.mockRejectedValue(new ApiError(estado, mensaje))
+      montar()
+
+      await user.click(await screen.findByRole('button', { name: /Anular hábito: Actividad física/ }))
+      const dialogo = screen.getByRole('form', { name: /Anular hábito: Actividad física/ })
+      await user.type(within(dialogo).getByLabelText(/Motivo de la anulación/), MOTIVO)
+      await user.click(within(dialogo).getByRole('button', { name: 'Confirmar anulación' }))
+
+      expect(await within(dialogo).findByRole('alert')).toHaveTextContent(mensaje)
+      // El motivo escrito no se pierde y la lista no cambió.
+      expect(within(dialogo).getByLabelText(/Motivo de la anulación/)).toHaveValue(MOTIVO)
+      expect(screen.queryByRole('listitem', { name: /Hábito anulado/ })).toBeNull()
+    })
   })
 })

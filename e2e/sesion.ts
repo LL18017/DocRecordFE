@@ -37,6 +37,13 @@ export const CUENTAS = {
   get admin() {
     return { email: delEntorno('E2E_ADMIN_EMAIL'), password: delEntorno('E2E_ADMIN_PASSWORD') }
   },
+  // El paciente con acceso a su portal (HU-34): entra a /mi-panel, no al panel.
+  get paciente() {
+    return {
+      email: delEntorno('E2E_PACIENTE_EMAIL'),
+      password: delEntorno('E2E_PACIENTE_PASSWORD'),
+    }
+  },
 }
 
 /**
@@ -65,4 +72,17 @@ export async function entrar(page: Page, cuenta: { email: string; password: stri
   await sedes.first().click()
 
   await page.waitForURL('**/dashboard', { timeout: 90_000 })
+}
+
+/**
+ * Entra como paciente. No pasa por `/select-clinica`: el paciente no trabaja en
+ * ninguna sede, y el login lo manda directo a su portal (`/mi-panel`). Usar
+ * `entrar` con él esperaría una pantalla que nunca llega.
+ */
+export async function entrarComoPaciente(page: Page, cuenta: { email: string; password: string }) {
+  await page.goto('/login')
+  await page.getByLabel(/correo electrónico/i).fill(cuenta.email)
+  await page.getByLabel(/contraseña/i).fill(cuenta.password)
+  await page.getByRole('button', { name: /ingresar al sistema/i }).click()
+  await page.waitForURL('**/mi-panel', { timeout: 90_000 })
 }

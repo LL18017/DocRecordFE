@@ -99,10 +99,24 @@ describe('detalle de la toma · fuera de rango en rojo (HU-16 criterio 3)', () =
 
     expect(celda('Temperatura')).toHaveAttribute('data-fuera-de-rango', 'true')
     expect(celda('Saturación O₂')).toHaveAttribute('data-fuera-de-rango', 'true')
-    expect(within(celda('Temperatura')).getByText(/fuera de rango/i)).toHaveTextContent('36–37.5 °C')
+    // 40 °C y 88 % pasan los umbrales críticos de NEWS2: rojo y «Valor crítico».
+    expect(within(celda('Temperatura')).getByText(/valor crítico/i)).toHaveTextContent('36–37.5 °C')
+    expect(celda('Temperatura')).toHaveAttribute('data-nivel', 'critico')
+    expect(celda('Saturación O₂')).toHaveAttribute('data-nivel', 'critico')
 
     expect(celda('Presión arterial')).not.toHaveAttribute('data-fuera-de-rango')
     expect(celda('Pulso')).not.toHaveAttribute('data-fuera-de-rango')
+  })
+
+  it('lo que sale del rango normal sin ser crítico va en ámbar, «Fuera de rango»', async () => {
+    await montar({ ...TOMA, saturacionPct: 94, pulsoLpm: 110 })
+
+    expect(celda('Saturación O₂')).toHaveAttribute('data-nivel', 'fuera-de-rango')
+    expect(celda('Saturación O₂')).toHaveClass('bg-amber-50')
+    expect(within(celda('Saturación O₂')).getByText(/fuera de rango/i)).toHaveClass(
+      'text-amber-800',
+    )
+    expect(within(celda('Pulso')).queryByText(/valor crítico/i)).not.toBeInTheDocument()
   })
 
   it('el peso nunca se destaca; el IMC es quien lo juzga', async () => {

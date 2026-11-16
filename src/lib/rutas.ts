@@ -62,6 +62,12 @@ export const RUTAS_DEL_PORTAL: readonly RutaDelPortal[] = [
   // intente escribir en él. El médico usa el catálogo desde la receta, no
   // desde aquí. Lleva el icono de Prescripciones porque es de lo que trata.
   { href: '/medicamentos', label: 'Medicamentos', icon: 'prescripciones', roles: ['Administrador'] },
+  // DEF-01 (HU-14 y HU-30). Solo el Administrador: los tipos de cita y los
+  // tipos de hábito, de los que dependen la agenda y el expediente. El backend
+  // deja LEERLOS a médicos y enfermería (los usan al agendar y al anotar), pero
+  // escribir en ellos solo al ADMIN; ofrecerles esta pantalla sería ofrecerles
+  // botones que responden 403.
+  { href: '/catalogos', label: 'Catálogos', icon: 'edit', roles: ['Administrador'] },
   // HU-21 y HU-22 c3. Solo el Administrador: aprueba o rechaza las anulaciones
   // pedidas fuera de la ventana y fija esa ventana. El médico pide la
   // anulación desde la consulta o la receta, no desde aquí.
@@ -78,6 +84,11 @@ export const RUTAS_DEL_PORTAL: readonly RutaDelPortal[] = [
   // quien no puede verlo cae aquí. La dirección es la de la antigua «Mi
   // información», que creció hasta ser el portal.
   { href: '/mi-panel', label: 'Mi expediente', icon: 'history', roles: ['paciente'] },
+  // DEF-07 (HU-33 c4, HU-14 c4). La otra pantalla del paciente: sus datos, la
+  // preferencia de recordatorios de cita por correo y sus hábitos en solo
+  // lectura (`/api/mi-perfil`, también solo PACIENTE en el backend). Va DESPUÉS
+  // de «Mi expediente» para que `rutaPorDefecto` lo siga mandando ahí.
+  { href: '/mi-perfil', label: 'Mi perfil', icon: 'person', roles: ['paciente'] },
 ]
 
 /**

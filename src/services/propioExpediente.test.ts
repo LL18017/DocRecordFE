@@ -21,7 +21,7 @@ import {
 } from './antecedentes'
 import { aprobarSolicitud, rechazarSolicitud } from './anulaciones'
 import { actualizarConsulta, anularConsulta, crearConsulta } from './consultas'
-import { actualizarHabito, eliminarHabito, registrarHabito } from './habitos'
+import { actualizarHabito, anularHabito, registrarHabito } from './habitos'
 import { anularPrescripcion, crearPrescripcion } from './prescripciones'
 import { anularToma, registrarToma } from './signosVitales'
 
@@ -86,7 +86,7 @@ const escrituras: [string, () => Promise<unknown>][] = [
   ['eliminar una condición hereditaria', () => eliminarCondicionHereditaria(1)],
   ['registrar un hábito', () => registrarHabito({} as Parameters<typeof registrarHabito>[0])],
   ['editar un hábito', () => actualizarHabito(1, {} as Parameters<typeof actualizarHabito>[1])],
-  ['eliminar un hábito', () => eliminarHabito(1)],
+  ['anular un hábito', () => anularHabito(1, 'Registrado por error')],
 ]
 
 beforeEach(() => {
@@ -137,7 +137,7 @@ describe('la negativa genérica por rol se sigue explicando', () => {
     [
       'hábitos',
       () => registrarHabito({} as Parameters<typeof registrarHabito>[0]),
-      'Registran y editan hábitos el médico y la enfermera; eliminarlos es solo del médico.',
+      'Registran y editan hábitos el médico y la enfermera; los anula quien los registró o un administrador.',
     ],
   ])('en %s, la negativa de Spring Security se cambia por quién sí puede', async (_, escribir, esperado) => {
     apiFetch.mockRejectedValue(new ApiError(403, NEGATIVA_POR_ROL))

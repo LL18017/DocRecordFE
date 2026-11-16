@@ -7,10 +7,17 @@
 // historial» lo muestra, de la versión más reciente a la más antigua, para ver
 // la evolución en el tiempo (criterio 2). Los de riesgo alto salen primero y
 // destacados en rojo (criterio 3). Registran y editan el médico y la
-// enfermera; eliminar es solo del médico, y el administrador consulta (y ve el
-// historial).
+// enfermera, y el administrador consulta (y ve el historial).
+//
+// DEF-03: un hábito ya no se borra. «Anular» pide el motivo (10 a 500
+// caracteres) y el hábito se queda en el expediente marcado como anulado, con
+// el motivo, quién y cuándo, y sin acciones que lo cambien. Lo anula quien
+// escribió la versión vigente o un administrador; si no es el caso, el 403 del
+// backend lo dice dentro del diálogo.
 
 import React, { useCallback, useEffect, useId, useState } from 'react'
+import Link from 'next/link'
+import { Modal } from '@/components/ui/Modal'
 import {
   campoBase,
   ErrorDeSeccion,
@@ -19,10 +26,16 @@ import {
   Obligatorio,
   SeccionDeExpediente,
 } from '@/components/clinico/SeccionDeExpediente'
+import {
+  MAXIMO_MOTIVO_DE_ANULACION,
+  MENSAJE_MOTIVO_DE_ANULACION,
+  motivoDeAnulacionInvalido,
+} from '@/lib/validaciones'
 import { formatearFechaHora } from '@/services/consultas'
 import {
   actualizarHabito,
-  eliminarHabito,
+  anularHabito,
+  estaAnulado,
   etiquetaDeNivel,
   listarHabitos,
   listarHistorialDeHabito,
@@ -40,8 +53,11 @@ interface Props {
   pacienteId: number
   /** Médico o enfermera: registran y editan. */
   puedeEditar: boolean
-  /** Solo el médico elimina. */
-  puedeEliminar: boolean
+  /**
+   * Médico, enfermera o administrador: se les ofrece «Anular». El backend
+   * además exige ser quien escribió la versión vigente (o administrador).
+   */
+  puedeAnular: boolean
   expanded: boolean
   onToggle: () => void
 }
@@ -52,7 +68,7 @@ const COLOR_DE_NIVEL: Record<NivelDeHabito, string> = {
   BAJO: 'bg-emerald-50 text-emerald-700 border-emerald-200',
 }
 
-export const SeccionHabitos: React.FC<Props> = ({ pacienteId, puedeEditar, puedeEliminar, expanded, onToggle }) => {
+export const SeccionHabitos: React.FC<Props> = ({ pacienteId, puedeEditar, puedeAnular, expanded, onToggle }) => {
   const [habitos, setHabitos] = useState<HabitoDto[]>([])
   const [tipos, setTipos] = useState<TipoDeHabitoDto[]>([])
   const [cargando, setCargando] = useState(true)
@@ -124,8 +140,11 @@ export const SeccionHabitos: React.FC<Props> = ({ pacienteId, puedeEditar, puede
         <>
           {puedeEditar && tipos.length === 0 && (
             <p role="status" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800">
-              No hay tipos de hábito en el catálogo. El administrador debe registrarlos antes de poder
-              anotar hábitos.
+              No hay tipos de hábito en el catálogo. El administrador debe registrarlos en{' '}
+              <Link href="/catalogos" className="font-semibold underline underline-offset-2">
+                Catálogos
+              </Link>{' '}
+              antes de poder anotar hábitos.
             </p>
           )}
           {habitos.length === 0 ? (
@@ -138,9 +157,8 @@ export const SeccionHabitos: React.FC<Props> = ({ pacienteId, puedeEditar, puede
                   habito={h}
                   tipos={tipos}
                   puedeEditar={puedeEditar}
-                  puedeEliminar={puedeEliminar}
+                  puedeAnular={puedeAnular}
                   onActualizado={reemplazar}
-                  onEliminado={() => setHabitos((prev) => prev.filter((x) => x.id !== h.id))}
                 />
               ))}
             </ul>
@@ -155,17 +173,16 @@ const FilaDeHabito: React.FC<{
   habito: HabitoDto
   tipos: TipoDeHabitoDto[]
   puedeEditar: boolean
-  puedeEliminar: boolean
+  puedeAnular: boolean
+  /** Edición o anulación: el hábito vuelve del backend y reemplaza al de la lista. */
   onActualizado: (h: HabitoDto) => void
-  onEliminado: () => void
-}> = ({ habito: h, tipos, puedeEditar, puedeEliminar, onActualizado, onEliminado }) => {
+}> = ({ habito: h, tipos, puedeEditar, puedeAnular, onActualizado }) => {
   const [editando, setEditando] = useState(false)
-  const [confirmando, setConfirmando] = useState(false)
-  const [eliminando, setEliminando] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [anulando, setAnulando] = useState(false)
   const [historialAbierto, setHistorialAbierto] = useState(false)
+  const anulado = estaAnulado(h)
 
-  if (editando) {
+  if (editando && !anulado) {
     return (
       <li>
         <FormularioDeHabito
@@ -182,109 +199,216 @@ const FilaDeHabito: React.FC<{
     )
   }
 
-  const eliminar = async () => {
-    setEliminando(true)
-    setError(null)
-    try {
-      await eliminarHabito(h.id)
-      onEliminado()
-    } catch (err) {
-      setError(mensajeDe(err, 'No se pudo eliminar el hábito.'))
-      setEliminando(false)
-    }
-  }
-
-  const alto = h.nivel === 'ALTO'
+  const alto = h.nivel === 'ALTO' && !anulado
+  // Tachado pero en slate-600/700, no más claro: sigue legible con contraste AA.
+  const tachado = anulado ? 'line-through decoration-slate-500' : ''
 
   return (
     <li
+      aria-label={anulado ? `Hábito anulado: ${h.tipoHabito.descripcion}` : undefined}
       className={`rounded-xl border px-3.5 py-2.5 ${
-        alto ? 'border-red-200 bg-red-50/70' : 'border-slate-100 bg-slate-50/60'
+        anulado
+          ? 'border-slate-200 bg-slate-100/70'
+          : alto
+            ? 'border-red-200 bg-red-50/70'
+            : 'border-slate-100 bg-slate-50/60'
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-slate-700 break-words">{h.tipoHabito.descripcion}</p>
-            <span
-              className={`rounded-md border px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
-                COLOR_DE_NIVEL[h.nivel] ?? COLOR_DE_NIVEL.BAJO
-              }`}
-            >
-              {etiquetaDeNivel(h.nivel)}
-            </span>
+            <p className={`text-sm font-semibold break-words ${anulado ? 'text-slate-600' : 'text-slate-700'} ${tachado}`}>
+              {h.tipoHabito.descripcion}
+            </p>
+            {anulado ? (
+              <span className="rounded-md border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-700">
+                Anulado
+              </span>
+            ) : (
+              <span
+                className={`rounded-md border px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
+                  COLOR_DE_NIVEL[h.nivel] ?? COLOR_DE_NIVEL.BAJO
+                }`}
+              >
+                {etiquetaDeNivel(h.nivel)}
+              </span>
+            )}
           </div>
-          <p className="mt-0.5 text-xs text-slate-600 break-words">{h.descripcion}</p>
-          <p className="mt-0.5 text-xs text-slate-600 break-words">
+          <p className={`mt-0.5 text-xs text-slate-600 break-words ${tachado}`}>{h.descripcion}</p>
+          <p className={`mt-0.5 text-xs text-slate-600 break-words ${tachado}`}>
             <span className="font-semibold text-slate-500">Frecuencia:</span> {h.frecuencia}
           </p>
           {h.observaciones && (
-            <p className="mt-0.5 text-xs text-slate-600 break-words">
+            <p className={`mt-0.5 text-xs text-slate-600 break-words ${tachado}`}>
               <span className="font-semibold text-slate-500">Observaciones:</span> {h.observaciones}
             </p>
           )}
-          <p className="mt-1 text-[11px] text-slate-400">
+          <p className="mt-1 text-[11px] text-slate-500">
             Actualizado el {formatearFechaHora(h.actualizadoEn)}
             {h.actualizadoPor ? ` por ${h.actualizadoPor}` : ''}
           </p>
+          {anulado && (
+            <p className="mt-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 break-words">
+              <span className="font-semibold">Anulado</span>
+              {h.anuladoEn ? ` el ${formatearFechaHora(h.anuladoEn)}` : ''}
+              {h.anuladoPor ? ` por ${h.anuladoPor}` : ''}. Motivo: {h.motivoAnulacion ?? 'sin motivo registrado'}
+            </p>
+          )}
         </div>
-        <div className="flex shrink-0 items-center gap-3 text-xs">
-          {confirmando ? (
-            <>
-              <button
-                onClick={eliminar}
-                disabled={eliminando}
-                className="font-semibold text-red-600 hover:underline cursor-pointer disabled:opacity-60"
-              >
-                {eliminando ? 'Eliminando…' : 'Confirmar'}
-              </button>
-              <button
-                onClick={() => setConfirmando(false)}
-                disabled={eliminando}
-                className="text-slate-500 hover:underline cursor-pointer"
-              >
-                Cancelar
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => setHistorialAbierto((v) => !v)}
-                aria-expanded={historialAbierto}
-                aria-label={`${historialAbierto ? 'Ocultar' : 'Ver'} historial del hábito: ${h.tipoHabito.descripcion}`}
-                className="font-semibold text-slate-400 hover:text-doc-blue cursor-pointer"
-              >
-                {historialAbierto ? 'Ocultar historial' : 'Ver historial'}
-              </button>
-              {puedeEditar && (
-                <button
-                  onClick={() => setEditando(true)}
-                  aria-label={`Editar hábito: ${h.tipoHabito.descripcion}`}
-                  className="font-semibold text-slate-400 hover:text-doc-blue cursor-pointer"
-                >
-                  Editar
-                </button>
-              )}
-              {puedeEliminar && (
-                <button
-                  onClick={() => setConfirmando(true)}
-                  aria-label={`Eliminar hábito: ${h.tipoHabito.descripcion}`}
-                  className="font-semibold text-slate-400 hover:text-red-600 cursor-pointer"
-                >
-                  Eliminar
-                </button>
-              )}
-            </>
+        {/* Un hábito anulado no ofrece acciones que lo cambien: solo se
+            consulta su historial, que es lectura. */}
+        <div className="flex shrink-0 flex-wrap items-center gap-3 text-xs">
+          <button
+            onClick={() => setHistorialAbierto((v) => !v)}
+            aria-expanded={historialAbierto}
+            aria-label={`${historialAbierto ? 'Ocultar' : 'Ver'} historial del hábito: ${h.tipoHabito.descripcion}`}
+            className="font-semibold text-slate-500 hover:text-doc-blue cursor-pointer"
+          >
+            {historialAbierto ? 'Ocultar historial' : 'Ver historial'}
+          </button>
+          {!anulado && puedeEditar && (
+            <button
+              onClick={() => setEditando(true)}
+              aria-label={`Editar hábito: ${h.tipoHabito.descripcion}`}
+              className="font-semibold text-slate-500 hover:text-doc-blue cursor-pointer"
+            >
+              Editar
+            </button>
+          )}
+          {!anulado && puedeAnular && (
+            <button
+              onClick={() => setAnulando(true)}
+              aria-label={`Anular hábito: ${h.tipoHabito.descripcion}`}
+              className="font-semibold text-red-700 hover:underline cursor-pointer"
+            >
+              Anular
+            </button>
           )}
         </div>
       </div>
-      {error && (
-        <p role="alert" className="mt-2 text-xs text-red-700">
-          {error}
-        </p>
-      )}
       {historialAbierto && <HistorialDeHabito habito={h} />}
+      {!anulado && puedeAnular && (
+        <DialogoDeAnularHabito
+          habito={h}
+          abierto={anulando}
+          onCerrar={() => setAnulando(false)}
+          onAnulado={(actualizado) => {
+            setAnulando(false)
+            onActualizado(actualizado)
+          }}
+        />
+      )}
     </li>
+  )
+}
+
+/**
+ * DEF-03: el diálogo que anula un hábito. Pide el motivo con los mismos
+ * límites que el backend (10 a 500 sin contar los espacios de los extremos),
+ * muestra el contador y el aviso en línea, y no deja confirmar mientras el
+ * motivo no sea válido. Si el backend lo rechaza (400, 403, 409), su mensaje
+ * se queda dentro del diálogo con el motivo escrito intacto, y la lista no
+ * cambia hasta que el servidor confirma.
+ */
+const DialogoDeAnularHabito: React.FC<{
+  habito: HabitoDto
+  abierto: boolean
+  onCerrar: () => void
+  onAnulado: (h: HabitoDto) => void
+}> = ({ habito, abierto, onCerrar, onAnulado }) => {
+  const uid = useId()
+  const idCampo = `${uid}-motivo`
+  const idAviso = `${uid}-aviso`
+  const [motivo, setMotivo] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const invalido = motivoDeAnulacionInvalido(motivo)
+  const mostrarAviso = motivo.length > 0 && invalido
+
+  const cerrar = () => {
+    if (enviando) return
+    setMotivo('')
+    setError(null)
+    onCerrar()
+  }
+
+  const enviar = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (invalido || enviando) return
+    setEnviando(true)
+    setError(null)
+    try {
+      const actualizado = await anularHabito(habito.id, motivo.trim())
+      setMotivo('')
+      onAnulado(actualizado)
+    } catch (err) {
+      setError(mensajeDe(err, 'No se pudo anular el hábito.'))
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <Modal
+      isOpen={abierto}
+      onClose={cerrar}
+      title="Anular hábito"
+      subtitle="El hábito no se borra: queda marcado como anulado con el motivo"
+      icon="vitals"
+      headerGradient="bg-gradient-to-r from-red-600 to-red-700"
+      maxWidth="md"
+    >
+      <form onSubmit={enviar} aria-label={`Anular hábito: ${habito.tipoHabito.descripcion}`} className="space-y-4">
+        <p className="text-sm text-slate-700 break-words">
+          <span className="font-semibold">{habito.tipoHabito.descripcion}</span>: {habito.descripcion}
+        </p>
+        <div>
+          <label htmlFor={idCampo} className={labelClass}>
+            Motivo de la anulación
+            <Obligatorio />
+          </label>
+          <textarea
+            id={idCampo}
+            rows={3}
+            maxLength={MAXIMO_MOTIVO_DE_ANULACION}
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            aria-invalid={mostrarAviso}
+            aria-describedby={idAviso}
+            placeholder="Por qué este hábito no es válido (por ejemplo, se registró en el paciente equivocado)"
+            className={`${campoBase} resize-none`}
+          />
+          <p id={idAviso} aria-live="polite" className={`mt-1 text-xs ${mostrarAviso ? 'text-red-700' : 'text-slate-500'}`}>
+            {mostrarAviso ? `${MENSAJE_MOTIVO_DE_ANULACION}. ` : ''}
+            {motivo.length}/{MAXIMO_MOTIVO_DE_ANULACION}
+          </p>
+        </div>
+
+        {error && (
+          <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-relaxed text-red-800">
+            {error}
+          </p>
+        )}
+
+        <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-4 sm:flex-row">
+          <button
+            type="button"
+            onClick={cerrar}
+            className="flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 border-slate-200 text-slate-600 hover:border-slate-300 transition-colors cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={enviando || invalido}
+            className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {enviando ? 'Anulando…' : 'Confirmar anulación'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 

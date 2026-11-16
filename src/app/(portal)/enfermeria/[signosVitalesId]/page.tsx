@@ -32,9 +32,12 @@ import { Modal } from '@/components/ui/Modal'
 import { useAppContext } from '@/context/AppContext'
 import { ApiError } from '@/lib/api'
 import {
+  TEXTO_DEL_NIVEL,
+  nivelMasGrave,
+  nivelesDeLaToma,
   rangoNormalComoTexto,
-  valoresFueraDeRango,
   type ClaveDeRango,
+  type NivelDeValor,
 } from '@/lib/rangosVitales'
 import { formatearFechaHora } from '@/services/consultas'
 import {
@@ -194,7 +197,7 @@ export default function DetalleDeTomaPage() {
   const anulada = estaAnulada(toma)
   // Una toma anulada no se evalúa: sus valores ya no valen, y pintarlos de rojo
   // alarmaría por una medida que enfermería declaró errónea.
-  const fuera = anulada ? new Set<ClaveDeRango>() : valoresFueraDeRango(toma)
+  const niveles = anulada ? new Map<ClaveDeRango, NivelDeValor>() : nivelesDeLaToma(toma)
 
   return (
     <div>
@@ -242,13 +245,23 @@ export default function DetalleDeTomaPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {MEDIDAS.map(([etiqueta, leer, unidad, claves]) => {
                 const valor = leer(toma)
-                const salePorFuera = valor !== null && claves.some((c) => fuera.has(c))
+                const nivel: NivelDeValor =
+                  valor === null
+                    ? 'normal'
+                    : nivelMasGrave(claves.map((c) => niveles.get(c) ?? 'normal'))
+                const salePorFuera = nivel !== 'normal'
+                const critico = nivel === 'critico'
                 return (
                   <div
                     key={etiqueta}
                     data-fuera-de-rango={salePorFuera ? 'true' : undefined}
+                    data-nivel={salePorFuera ? nivel : undefined}
                     className={`rounded-xl px-4 py-3 ${
-                      salePorFuera ? 'bg-red-50 ring-1 ring-red-200' : 'bg-slate-50'
+                      critico
+                        ? 'bg-red-50 ring-1 ring-red-200'
+                        : salePorFuera
+                          ? 'bg-amber-50 ring-1 ring-amber-200'
+                          : 'bg-slate-50'
                     } ${anulada ? 'opacity-60' : ''}`}
                   >
                     <p className="text-[11px] uppercase tracking-wider text-slate-400">
@@ -263,17 +276,26 @@ export default function DetalleDeTomaPage() {
                     ) : (
                       <p
                         className={`text-xl font-bold font-outfit mt-0.5 ${
-                          salePorFuera ? 'text-red-700' : 'text-slate-800'
+                          critico
+                            ? 'text-red-700'
+                            : salePorFuera
+                              ? 'text-amber-800'
+                              : 'text-slate-800'
                         }`}
                       >
                         {valor}{' '}
                         <span className="text-sm font-normal text-slate-500">{unidad}</span>
                       </p>
                     )}
-                    {/* Con palabras y no solo con el color. */}
+                    {/* Con palabras y no solo con el color: «Valor crítico»
+                        (rojo) o «Fuera de rango» (ámbar). */}
                     {salePorFuera && (
-                      <p className="text-[11px] font-semibold text-red-700">
-                        Fuera de rango (normal{' '}
+                      <p
+                        className={`text-[11px] font-semibold ${
+                          critico ? 'text-red-700' : 'text-amber-800'
+                        }`}
+                      >
+                        {TEXTO_DEL_NIVEL[nivel]} (normal{' '}
                         {claves.map((c) => rangoNormalComoTexto(c)).filter(Boolean).join(' / ')})
                       </p>
                     )}
