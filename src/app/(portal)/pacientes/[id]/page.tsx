@@ -360,9 +360,9 @@ export default function ExpedienteDetailPage() {
           {vista === 'ficha' && (
             <button
               onClick={() => setModal('consulta')}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-semibold bg-doc-amber hover:opacity-90 shadow-sm transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-doc-navy text-sm font-semibold bg-doc-amber hover:opacity-90 shadow-sm transition-all cursor-pointer"
             >
-              <Icon name="add" size={14} color="white" /> Nueva consulta
+              <Icon name="add" size={14} color="currentColor" /> Nueva consulta
             </button>
           )}
         </div>
@@ -417,8 +417,15 @@ export default function ExpedienteDetailPage() {
             </div>
           )}
 
-          <div className="grid lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-3">
+          {/* HU-35 c1: `grid-cols-1` y `min-w-0`, no solo `lg:grid-cols-3`.
+              Debajo de lg la grilla no tenía columnas declaradas y la implícita
+              mide `auto`, que no baja del ancho mínimo de su contenido: una
+              tabla o un texto largo de una tarjeta la estiraba a ~1070 px y la
+              página entera se desplazaba a lo ancho en teléfono y tableta.
+              `grid-cols-1` es `minmax(0, 1fr)`, y `min-w-0` deja que cada
+              columna se encoja; lo que no cabe se desplaza en su contenedor. */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-3 min-w-0">
               {/* ── Datos Personales ── */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-100/80 overflow-hidden">
                 <div className="flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors">
@@ -780,7 +787,7 @@ export default function ExpedienteDetailPage() {
             </div>
 
             {/* ── Ficha lateral ── */}
-            <div className="space-y-4">
+            <div className="space-y-4 min-w-0">
               <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100/80">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-doc-surface text-doc-blue shadow-xs">

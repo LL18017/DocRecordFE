@@ -156,8 +156,8 @@ export default function DashboardPage() {
     <div className="space-y-6">
       {/* Header and fast actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 font-outfit tracking-tight">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-slate-800 font-outfit tracking-tight break-words">
             Bienvenido, {user.name}
           </h1>
           <p className="text-slate-500 text-sm mt-0.5">
@@ -175,9 +175,9 @@ export default function DashboardPage() {
             </Link>
             <Link
               href="/consultas"
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-semibold bg-doc-amber hover:opacity-90 shadow-sm transition-all"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-doc-navy text-sm font-semibold bg-doc-amber hover:opacity-90 shadow-sm transition-all"
             >
-              <Icon name="consultas" size={16} color="white" /> Consulta
+              <Icon name="consultas" size={16} color="currentColor" /> Consulta
             </Link>
           </div>
         )}
@@ -243,7 +243,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Main Chart + Recent consultations */}
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Chart card */}
         <div className="lg:col-span-2 bg-white rounded-2xl p-6 shadow-sm border border-slate-100/80">
           <div className="flex items-center justify-between mb-6">

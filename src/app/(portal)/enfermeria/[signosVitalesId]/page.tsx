@@ -235,11 +235,11 @@ export default function DetalleDeTomaPage() {
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
           <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
             <h2 className="text-sm font-bold text-slate-800 font-outfit mb-4">Constantes</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {MEDIDAS.map(([etiqueta, leer, unidad, claves]) => {
                 const valor = leer(toma)
                 const salePorFuera = valor !== null && claves.some((c) => fuera.has(c))
