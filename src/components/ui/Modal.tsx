@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { IconName } from '@/types'
 import { Icon } from './Icon'
 
@@ -14,6 +14,16 @@ interface ModalProps {
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
   children: React.ReactNode
   footer?: React.ReactNode
+}
+
+// Lo que puede recibir el foco con Tab dentro de la ventana.
+const ENFOCABLES =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function enfocables(raiz: HTMLElement): HTMLElement[] {
+  return Array.from(raiz.querySelectorAll<HTMLElement>(ENFOCABLES)).filter(
+    (el) => !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true',
+  )
 }
 
 const maxWidthMap = {
@@ -35,6 +45,9 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   footer,
 }) => {
+  const ventana = useRef<HTMLDivElement>(null)
+  const contenido = useRef<HTMLDivElement>(null)
+
   // Close on Escape key press
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -46,10 +59,50 @@ export const Modal: React.FC<ModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, onClose])
 
+  // HU-35 c5 (DEF-18): quien usa solo el teclado tiene que quedar DENTRO de la
+  // ventana al abrirla. Sin esto el foco seguía en la página de fondo y había
+  // que pasar con Tab por controles tapados antes de llegar al formulario.
+  // Al abrir, el foco va al primer campo del contenido (o, si no hay, al botón
+  // de cerrar); Tab y Shift+Tab giran dentro de la ventana; al cerrar, el foco
+  // vuelve al control que la abrió.
+  useEffect(() => {
+    if (!isOpen) return
+    const previo = document.activeElement as HTMLElement | null
+    const raiz = ventana.current
+    // Si un campo del contenido ya tomó el foco (autoFocus), se respeta.
+    if (!raiz?.contains(document.activeElement)) {
+      const primero =
+        (contenido.current && enfocables(contenido.current)[0]) ?? (raiz && enfocables(raiz)[0])
+      primero?.focus()
+    }
+
+    const atrapar = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !raiz) return
+      const lista = enfocables(raiz)
+      if (lista.length === 0) return
+      const inicio = lista[0]
+      const fin = lista[lista.length - 1]
+      const activo = document.activeElement
+      if (e.shiftKey && (activo === inicio || !raiz.contains(activo))) {
+        e.preventDefault()
+        fin.focus()
+      } else if (!e.shiftKey && (activo === fin || !raiz.contains(activo))) {
+        e.preventDefault()
+        inicio.focus()
+      }
+    }
+    document.addEventListener('keydown', atrapar)
+    return () => {
+      document.removeEventListener('keydown', atrapar)
+      previo?.focus?.()
+    }
+  }, [isOpen])
+
   if (!isOpen) return null
 
   return (
     <div
+      ref={ventana}
       className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
@@ -81,7 +134,9 @@ export const Modal: React.FC<ModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-6">{children}</div>
+        <div ref={contenido} className="p-6">
+          {children}
+        </div>
 
         {/* Optional Footer */}
         {footer && (
