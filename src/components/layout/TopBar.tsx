@@ -22,6 +22,7 @@ const routeTitles: Record<string, string> = {
   '/clinicas': 'Gestión de Clínicas',
   '/agenda': 'Agenda de Citas',
   '/usuarios': 'Usuarios y Roles',
+  '/mi-perfil': 'Mi perfil',
 }
 
 export const TopBar: React.FC<TopBarProps> = ({

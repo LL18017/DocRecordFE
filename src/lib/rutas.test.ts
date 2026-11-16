@@ -63,10 +63,20 @@ describe('puedeVerRuta · el paciente no hereda el portal de trabajo', () => {
     expect(puedeVerRuta('/mi-panel', ['paciente', 'medico'])).toBe(true)
   })
 
-  it('el menú de un paciente tiene exactamente una entrada', () => {
+  it('el menú de un paciente tiene solo sus dos pantallas: su expediente y su perfil', () => {
     // El defecto original era justo este número: eran siete, las de un médico.
+    // DEF-07 suma «Mi perfil», y nada más.
     const visibles = RUTAS_DEL_PORTAL.filter((r) => r.roles.includes('paciente'))
-    expect(visibles.map((r) => r.href)).toEqual(['/mi-panel'])
+    expect(visibles.map((r) => r.href)).toEqual(['/mi-panel', '/mi-perfil'])
+  })
+
+  it('«Mi perfil» (DEF-07) es solo del paciente: el personal no entra', () => {
+    expect(puedeVerRuta('/mi-perfil', ['paciente'])).toBe(true)
+    expect(puedeVerRuta('/mi-perfil', ['medico'])).toBe(false)
+    expect(puedeVerRuta('/mi-perfil', ['enfermera'])).toBe(false)
+    expect(puedeVerRuta('/mi-perfil', ['Administrador'])).toBe(false)
+    // Y no le quita al paciente su pantalla de llegada.
+    expect(rutaPorDefecto(['paciente'])).toBe('/mi-panel')
   })
 })
 

@@ -84,6 +84,11 @@ export const RUTAS_DEL_PORTAL: readonly RutaDelPortal[] = [
   // quien no puede verlo cae aquí. La dirección es la de la antigua «Mi
   // información», que creció hasta ser el portal.
   { href: '/mi-panel', label: 'Mi expediente', icon: 'history', roles: ['paciente'] },
+  // DEF-07 (HU-33 c4, HU-14 c4). La otra pantalla del paciente: sus datos, la
+  // preferencia de recordatorios de cita por correo y sus hábitos en solo
+  // lectura (`/api/mi-perfil`, también solo PACIENTE en el backend). Va DESPUÉS
+  // de «Mi expediente» para que `rutaPorDefecto` lo siga mandando ahí.
+  { href: '/mi-perfil', label: 'Mi perfil', icon: 'person', roles: ['paciente'] },
 ]
 
 /**

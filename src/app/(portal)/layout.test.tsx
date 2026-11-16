@@ -186,6 +186,28 @@ describe('DEF-01 · la pantalla de catálogos es solo del Administrador', () => 
   })
 })
 
+describe('DEF-07 · «Mi perfil» es solo del paciente', () => {
+  it('un médico que escribe /mi-perfil vuelve a su panel sin ver la pantalla', async () => {
+    sesion = usuario('medico')
+    ruta = '/mi-perfil'
+
+    montar()
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/dashboard'))
+    expect(seVe()).toBe(false)
+  })
+
+  it('al paciente sí se la abre', async () => {
+    sesion = usuario('paciente')
+    ruta = '/mi-perfil'
+
+    montar()
+
+    await waitFor(() => expect(seVe()).toBe(true))
+    expect(replace).not.toHaveBeenCalled()
+  })
+})
+
 describe('HU-08 · la guarda no rompe las URL compartibles', () => {
   it('abre el expediente de un paciente por su URL directa', async () => {
     // `/pacientes/5` no está en la tabla de rutas: se resuelve por prefijo. Con
